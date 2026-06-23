@@ -29,13 +29,13 @@ CREATE TABLE IF NOT EXISTS financial_rules (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE IF NOT EXISTS goals (
+CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
-    user_id INTEGER UNIQUE NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    goal_name VARCHAR(255) NOT NULL,
-    target_amount NUMERIC(12, 2) NOT NULL,
-    current_amount NUMERIC(12, 2) DEFAULT 0,
-    deadline DATE,
+    email VARCHAR(255) UNIQUE NOT NULL,
+    username VARCHAR(50),
+    avatar_url TEXT,
+    password_hash TEXT NOT NULL,
+    role VARCHAR(50) NOT NULL DEFAULT 'user',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
