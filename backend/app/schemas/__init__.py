@@ -4,6 +4,12 @@ from app.schemas.auth import (
     UserRegisterRequest,
     UserResponse,
 )
+from app.schemas.calculator import (
+    CompoundInterestRequest,
+    CompoundInterestResponse,
+    GoalMonthlySavingRequest,
+    GoalMonthlySavingResponse,
+)
 from app.schemas.profile import (
     ProfileResponse,
     ProfileUpsertRequest,
@@ -16,4 +22,8 @@ __all__ = [
     "UserResponse",
     "ProfileResponse",
     "ProfileUpsertRequest",
+    "CompoundInterestRequest",
+    "CompoundInterestResponse",
+    "GoalMonthlySavingRequest",
+    "GoalMonthlySavingResponse",
 ]
