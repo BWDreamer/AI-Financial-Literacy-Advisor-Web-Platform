@@ -14,6 +14,7 @@ from app.schemas.profile import (
     ProfileResponse,
     ProfileUpsertRequest,
 )
+from app.schemas.rules import FinancialRuleResponse
 
 __all__ = [
     "TokenResponse",
@@ -26,4 +27,5 @@ __all__ = [
     "CompoundInterestResponse",
     "GoalMonthlySavingRequest",
     "GoalMonthlySavingResponse",
+    "FinancialRuleResponse",
 ]
