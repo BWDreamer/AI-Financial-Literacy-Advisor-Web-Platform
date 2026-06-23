@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE TABLE IF NOT EXISTS user_profiles (
     id SERIAL PRIMARY KEY,
-    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    user_id INTEGER UNIQUE NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     region VARCHAR(100),
     monthly_income NUMERIC(12, 2),
     fixed_expenses NUMERIC(12, 2),
@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS financial_rules (
 
 CREATE TABLE IF NOT EXISTS goals (
     id SERIAL PRIMARY KEY,
-    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    user_id INTEGER UNIQUE NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     goal_name VARCHAR(255) NOT NULL,
     target_amount NUMERIC(12, 2) NOT NULL,
     current_amount NUMERIC(12, 2) DEFAULT 0,
@@ -41,7 +41,7 @@ CREATE TABLE IF NOT EXISTS goals (
 
 CREATE TABLE IF NOT EXISTS ai_conversations (
     id SERIAL PRIMARY KEY,
-    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    user_id INTEGER UNIQUE NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     title VARCHAR(255),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

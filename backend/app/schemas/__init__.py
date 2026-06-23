@@ -1,3 +1,19 @@
-from app.schemas.auth import UserRegisterRequest, UserResponse
+from app.schemas.auth import (
+    TokenResponse,
+    UserLoginRequest,
+    UserRegisterRequest,
+    UserResponse,
+)
+from app.schemas.profile import (
+    ProfileResponse,
+    ProfileUpsertRequest,
+)
 
-__all__ = ["UserRegisterRequest", "UserResponse"]
+__all__ = [
+    "TokenResponse",
+    "UserLoginRequest",
+    "UserRegisterRequest",
+    "UserResponse",
+    "ProfileResponse",
+    "ProfileUpsertRequest",
+]
