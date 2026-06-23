@@ -1,45 +1,47 @@
 /// <reference types="vite/client" />
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api";
+import { getToken } from "../store/tokenService";
 
-type TokenResponse = {
-  access_token: string;
-  token_type: string;
-  expires_in: number;
-};
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api";
+export const API_ORIGIN = new URL(API_BASE_URL).origin;
 
-async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
+type ApiOptions = RequestInit & { authenticated?: boolean };
+
+export class ApiError extends Error {
+  constructor(message: string, public status: number) {
+    super(message);
+  }
+}
+
+function errorMessage(detail: unknown) {
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    const messages = detail.map((item) => item?.msg).filter(Boolean);
+    if (messages.length) return messages.join(" ");
+  }
+  return "Something went wrong. Please try again.";
+}
+
+export async function apiRequest<T>(path: string, options: ApiOptions = {}): Promise<T> {
+  const headers = new Headers(options.headers);
+  if (options.body && !(options.body instanceof FormData)) headers.set("Content-Type", "application/json");
+  if (options.authenticated) {
+    const token = getToken();
+    if (!token) throw new ApiError("Your session has expired. Please sign in again.", 401);
+    headers.set("Authorization", `Bearer ${token}`);
+  }
   let response: Response;
   try {
-    response = await fetch(`${API_BASE_URL}${path}`, {
-      ...options,
-      headers: { "Content-Type": "application/json", ...options.headers },
-    });
+    response = await fetch(`${API_BASE_URL}${path}`, { ...options, headers });
   } catch {
-    throw new Error("Unable to reach the server. Please try again.");
+    throw new ApiError("Unable to reach the server. Please try again.", 0);
   }
+  if (response.status === 204) return undefined as T;
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    const message = typeof data.detail === "string" ? data.detail : "Something went wrong. Please try again.";
-    throw new Error(message);
-  }
+  if (!response.ok) throw new ApiError(errorMessage(data.detail), response.status);
   return data as T;
 }
 
-export function apiGet<T>(path: string) {
-  return apiRequest<T>(path);
-}
-
-export function login(email: string, password: string) {
-  return apiRequest<TokenResponse>("/auth/login", {
-    method: "POST",
-    body: JSON.stringify({ email, password }),
-  });
-}
-
-export function register(email: string, password: string) {
-  return apiRequest("/auth/register", {
-    method: "POST",
-    body: JSON.stringify({ email, password }),
-  });
+export function apiGet<T>(path: string, authenticated = false) {
+  return apiRequest<T>(path, { authenticated });
 }

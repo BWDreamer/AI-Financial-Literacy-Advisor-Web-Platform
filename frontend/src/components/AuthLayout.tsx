@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
+import BrandMark from "./BrandMark";
 
 type AuthLayoutProps = {
   activeTab: "login" | "register";
@@ -18,7 +19,7 @@ export default function AuthLayout({ activeTab, children, subtitle, title }: Aut
     <main className="flex min-h-screen items-center justify-center px-4 py-10 sm:px-6">
       <section className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-6 shadow-xl shadow-slate-200/60 sm:p-8">
         <header className="mb-8 text-center">
-          <div className="mx-auto mb-4 grid size-12 place-items-center rounded-2xl bg-blue-600 text-xl font-bold text-white">F</div>
+          <div className="mb-4 flex justify-center"><BrandMark /></div>
           <h1 className="text-2xl font-bold tracking-tight">{title}</h1>
           <p className="mt-2 text-sm text-slate-500">{subtitle}</p>
         </header>
