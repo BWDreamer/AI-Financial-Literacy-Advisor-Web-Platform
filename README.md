@@ -55,6 +55,7 @@ docker compose down
 * Compound-interest calculation
 * Savings-goal calculation
 * Financial-rules listing and filtering
+* Structured ATO tax-bracket and superannuation rule lookup
 * PostgreSQL data storage
 * Automated backend tests
 
@@ -87,6 +88,8 @@ POST /api/calculator/goal-monthly-saving
 ```text
 GET /api/rules
 GET /api/rules/{rule_id}
+GET /api/rules/tax-bracket?region=Australia&rule_year=2025-2026&income=80000
+GET /api/rules/superannuation/employer-contribution?region=Australia&rule_year=2025-2026
 ```
 
 Detailed request and response formats are available in the FastAPI documentation:
@@ -103,7 +106,7 @@ Run all backend tests:
 docker compose exec backend pytest -q
 ```
 
-The current backend test suite contains 22 automated tests covering authentication, financial profiles, calculators and financial-rule queries.
+The current backend test suite covers authentication, financial profiles, calculators and financial-rule queries.
 
 ## Development Notes
 

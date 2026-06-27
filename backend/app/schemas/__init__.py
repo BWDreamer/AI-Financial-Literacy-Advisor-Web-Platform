@@ -18,7 +18,11 @@ from app.schemas.profile import (
     ProfileResponse,
     ProfileUpsertRequest,
 )
-from app.schemas.rules import FinancialRuleResponse
+from app.schemas.rules import (
+    FinancialRuleResponse,
+    SuperannuationRuleLookupResponse,
+    TaxBracketLookupResponse,
+)
 
 
 __all__ = [
@@ -37,4 +41,6 @@ __all__ = [
     "ProfileResponse",
     "ProfileUpsertRequest",
     "FinancialRuleResponse",
+    "SuperannuationRuleLookupResponse",
+    "TaxBracketLookupResponse",
 ]
