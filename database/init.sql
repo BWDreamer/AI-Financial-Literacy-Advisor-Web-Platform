@@ -2,11 +2,18 @@ CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
     email VARCHAR(255) UNIQUE NOT NULL,
     username VARCHAR(50),
+    first_name VARCHAR(50),
+    last_name VARCHAR(50),
     avatar_url TEXT,
     password_hash TEXT NOT NULL,
     role VARCHAR(50) NOT NULL DEFAULT 'user',
+    last_seen_at TIMESTAMPTZ,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS first_name VARCHAR(50);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS last_name VARCHAR(50);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ;
 
 CREATE TABLE IF NOT EXISTS user_profiles (
     id SERIAL PRIMARY KEY,

@@ -14,3 +14,12 @@
 - POST /api/ai/chat
 - GET /api/goals/ping
 - GET /api/admin/ping
+- GET /api/admin/users (admin only)
+- POST /api/admin/users (admin only)
+- PATCH /api/admin/users/{id} (admin only)
+- DELETE /api/admin/users/{id} (admin only)
+- POST /api/auth/heartbeat (authenticated user)
+
+Admin user requests use `first_name`, `last_name`, `email`, and `password`
+for creation. Update requests omit `password`. User responses include `id`,
+`user_id`, `created_at`, `is_online`, and `last_seen_at`.

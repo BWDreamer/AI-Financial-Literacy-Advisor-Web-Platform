@@ -28,7 +28,9 @@ from app.repositories.user_repository import (
     update_email,
     update_password_hash,
     update_username,
+    touch_last_seen,
 )
+from app.schemas.admin import HeartbeatResponse
 from app.schemas.auth import (
     AvatarResponse,
     EmailUpdateRequest,
@@ -50,6 +52,17 @@ def ping_auth():
         "module": "auth",
         "status": "ok",
     }
+
+
+@router.post(
+    "/heartbeat",
+    response_model=HeartbeatResponse,
+)
+def heartbeat(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    return touch_last_seen(db, current_user)
 
 
 @router.post(

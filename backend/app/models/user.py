@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta, timezone
+
 from sqlalchemy import Column, DateTime, Integer, String, Text, func
 
 from app.core.database import Base
@@ -20,6 +22,9 @@ class User(Base):
         nullable=True,
     )
 
+    first_name = Column(String(50), nullable=True)
+    last_name = Column(String(50), nullable=True)
+
     avatar_url = Column(
         Text,
         nullable=True,
@@ -36,8 +41,25 @@ class User(Base):
         default="user",
     )
 
+    last_seen_at = Column(DateTime(timezone=True), nullable=True)
+
     created_at = Column(
         DateTime,
         nullable=False,
         server_default=func.now(),
     )
+
+    @property
+    def user_id(self) -> str:
+        return f"USR-{self.id:04d}"
+
+    @property
+    def is_online(self) -> bool:
+        if self.last_seen_at is None:
+            return False
+
+        last_seen = self.last_seen_at
+        if last_seen.tzinfo is None:
+            last_seen = last_seen.replace(tzinfo=timezone.utc)
+
+        return last_seen >= datetime.now(timezone.utc) - timedelta(minutes=5)
