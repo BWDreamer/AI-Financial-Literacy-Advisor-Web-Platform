@@ -1,6 +1,8 @@
 CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
     email VARCHAR(255) UNIQUE NOT NULL,
+    username VARCHAR(50),
+    avatar_url TEXT,
     password_hash TEXT NOT NULL,
     role VARCHAR(50) NOT NULL DEFAULT 'user',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -26,16 +28,6 @@ CREATE TABLE IF NOT EXISTS financial_rules (
     rule_value TEXT NOT NULL,
     source_name VARCHAR(255),
     source_url TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS users (
-    id SERIAL PRIMARY KEY,
-    email VARCHAR(255) UNIQUE NOT NULL,
-    username VARCHAR(50),
-    avatar_url TEXT,
-    password_hash TEXT NOT NULL,
-    role VARCHAR(50) NOT NULL DEFAULT 'user',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
