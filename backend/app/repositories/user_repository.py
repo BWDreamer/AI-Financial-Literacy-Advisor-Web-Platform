@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from sqlalchemy.orm import Session
 
 from app.models.user import User
@@ -32,6 +34,9 @@ def create_user(
     email: str,
     password_hash: str,
     username: str | None = None,
+    first_name: str | None = None,
+    last_name: str | None = None,
+    role: str = "user",
 ) -> User:
     normalized_email = email.lower().strip()
 
@@ -43,7 +48,9 @@ def create_user(
             else normalized_email.split("@")[0]
         ),
         password_hash=password_hash,
-        role="user",
+        first_name=first_name.strip() if first_name else None,
+        last_name=last_name.strip() if last_name else None,
+        role=role,
     )
 
     db.add(user)
@@ -102,4 +109,39 @@ def update_avatar_url(
     db.commit()
     db.refresh(user)
 
+    return user
+
+
+def list_users(db: Session) -> list[User]:
+    return db.query(User).order_by(User.id).all()
+
+
+def update_admin_user(
+    db: Session,
+    user: User,
+    first_name: str | None = None,
+    last_name: str | None = None,
+    email: str | None = None,
+) -> User:
+    if first_name is not None:
+        user.first_name = first_name.strip()
+    if last_name is not None:
+        user.last_name = last_name.strip()
+    if email is not None:
+        user.email = email.lower().strip()
+    user.username = f"{user.first_name} {user.last_name}"
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+def delete_user(db: Session, user: User) -> None:
+    db.delete(user)
+    db.commit()
+
+
+def touch_last_seen(db: Session, user: User) -> User:
+    user.last_seen_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(user)
     return user
