@@ -182,3 +182,33 @@ def test_chat_rejects_missing_selected_rule(client):
         app.dependency_overrides.pop(get_ai_advisor_service, None)
 
     assert response.status_code == 404
+
+
+def test_chat_saves_messages_to_selected_conversation(client):
+    headers = create_authorization_headers(client)
+    conversation_id = client.post(
+        "/api/chat/conversations", headers=headers, json={}
+    ).json()["conversation_id"]
+    app.dependency_overrides[
+        get_ai_advisor_service
+    ] = lambda: SuccessfulTestAdvisorService()
+    try:
+        response = client.post(
+            "/api/ai/chat",
+            headers=headers,
+            json={
+                "message": "What is saving?",
+                "conversation_id": conversation_id,
+            },
+        )
+    finally:
+        app.dependency_overrides.pop(get_ai_advisor_service, None)
+
+    assert response.status_code == 200
+    detail = client.get(
+        f"/api/chat/conversations/{conversation_id}", headers=headers
+    ).json()
+    assert [message["role"] for message in detail["messages"]] == [
+        "user",
+        "assistant",
+    ]

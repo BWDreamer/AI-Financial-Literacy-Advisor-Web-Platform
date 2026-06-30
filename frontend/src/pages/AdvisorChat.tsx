@@ -1,53 +1,69 @@
-import { FormEvent, useMemo, useState } from "react";
-import { Bot, MessageSquarePlus, Send } from "lucide-react";
-import { sendAdvisorMessage } from "../api/ai";
-import { ChatConversation, conversationTitle, createConversation, loadConversations, makeMessage, saveConversations } from "../utils/chatHistory";
-
-function useChatHistory() {
-  const [conversations, setConversations] = useState<ChatConversation[]>(() => {
-    const stored = loadConversations();
-    return stored.length ? stored : [createConversation()];
-  });
-  const [activeId, setActiveId] = useState(conversations[0].id);
-  function persist(next: ChatConversation[]) { setConversations(next); saveConversations(next); }
-  function startConversation() { const next = [createConversation(), ...conversations]; persist(next); setActiveId(next[0].id); }
-  return { conversations, activeId, setActiveId, persist, startConversation };
-}
-
-function HistoryPanel({ items, activeId, onSelect, onNew }: { items: ChatConversation[]; activeId: string; onSelect: (id: string) => void; onNew: () => void }) {
-  return <aside className="w-80 shrink-0 border-l border-slate-200 bg-white p-5"><button type="button" onClick={onNew} className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-700"><MessageSquarePlus size={18} />New Chat</button>
-    <h2 className="mt-6 text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Conversation History</h2><div className="mt-3 space-y-2">{items.map((item) => <button key={item.id} type="button" onClick={() => onSelect(item.id)} className={`w-full rounded-xl border px-3 py-3 text-left transition ${item.id === activeId ? "border-blue-300 bg-blue-50 text-blue-900" : "border-slate-200 hover:bg-slate-50"}`}>
-      <span className="block truncate text-sm font-semibold">{item.title}</span><span className="mt-1 block text-xs text-slate-500">{new Date(item.updatedAt).toLocaleString()}</span></button>)}</div></aside>;
-}
-
-function MessageBubble({ role, content }: { role: "user" | "assistant"; content: string }) {
-  const isUser = role === "user";
-  return <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}><div className={`max-w-[75%] rounded-2xl px-4 py-3 text-sm leading-6 shadow-sm ${isUser ? "bg-blue-600 text-white" : "border border-slate-200 bg-white text-slate-700"}`}>{content}</div></div>;
-}
-
-function EmptyChat() {
-  return <div className="grid h-full place-items-center text-center"><div><span className="mx-auto grid size-14 place-items-center rounded-2xl bg-blue-50 text-blue-600"><Bot size={28} /></span><h2 className="mt-4 text-2xl font-bold text-slate-900">Advisor Chat</h2><p className="mt-2 max-w-md text-sm text-slate-500">Ask a financial literacy question and FinanceAI will reply using the real AI Advisor backend.</p></div></div>;
-}
-
-function updateConversation(conversations: ChatConversation[], id: string, updater: (item: ChatConversation) => ChatConversation) {
-  return conversations.map((item) => item.id === id ? updater(item) : item);
-}
+import { FormEvent, useCallback, useEffect, useState } from "react";
+import { Conversation, ConversationDetail, createConversation, deleteConversation, getConversation, getConversations, sendAdvisorMessage } from "../api/chat";
 
 export default function AdvisorChat() {
-  const history = useChatHistory(); const [input, setInput] = useState(""); const [loading, setLoading] = useState(false); const [error, setError] = useState("");
-  const active = useMemo(() => history.conversations.find((item) => item.id === history.activeId) || history.conversations[0], [history]);
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); const message = input.trim(); if (!message || loading) return;
-    setInput(""); setError(""); setLoading(true); const userMessage = makeMessage("user", message);
-    history.persist(updateConversation(history.conversations, active.id, (item) => ({ ...item, title: item.messages.length ? item.title : conversationTitle(message), updatedAt: new Date().toISOString(), messages: [...item.messages, userMessage] })));
-    try {
-      const reply = await sendAdvisorMessage(message); const assistantMessage = makeMessage("assistant", reply.answer);
-      history.persist(updateConversation(loadConversations(), active.id, (item) => ({ ...item, updatedAt: new Date().toISOString(), messages: [...item.messages, assistantMessage] })));
-    } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to send your message."); }
-    finally { setLoading(false); }
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [active, setActive] = useState<ConversationDetail | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState("");
+
+  const loadList = useCallback(async () => {
+    const items = await getConversations();
+    setConversations(items);
+    return items;
+  }, []);
+
+  useEffect(() => {
+    loadList().then(async (items) => {
+      if (items[0]) setActive(await getConversation(items[0].conversation_id));
+    }).catch((caught) => setError(caught instanceof Error ? caught.message : "Unable to load conversations."))
+      .finally(() => setLoading(false));
+  }, [loadList]);
+
+  async function selectConversation(id: number) {
+    setError("");
+    try { setActive(await getConversation(id)); }
+    catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to load this conversation."); }
   }
-  return <div className="flex h-screen min-h-0 bg-slate-50"><section className="flex min-w-0 flex-1 flex-col"><header className="border-b border-slate-200 bg-white px-8 py-5"><h1 className="text-2xl font-bold tracking-tight text-slate-900">Advisor Chat</h1><p className="mt-1 text-sm text-slate-500">Chat with your FinanceAI advisor.</p></header>
-    <div className="min-h-0 flex-1 overflow-y-auto p-8">{active.messages.length ? <div className="space-y-4">{active.messages.map((message) => <MessageBubble key={message.id} role={message.role} content={message.content} />)}{loading && <MessageBubble role="assistant" content="Thinking..." />}</div> : <EmptyChat />}</div>
-    <form onSubmit={submit} className="border-t border-slate-200 bg-white p-5"><div className="flex gap-3"><input value={input} onChange={(event) => setInput(event.target.value)} placeholder="Type your message..." className="min-w-0 flex-1 rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100" /><button disabled={loading || !input.trim()} className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"><Send size={18} />Send</button></div>{error && <p role="alert" className="mt-3 rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>}</form></section>
-    <HistoryPanel items={history.conversations} activeId={history.activeId} onSelect={history.setActiveId} onNew={history.startConversation} /></div>;
+
+  async function startConversation() {
+    const created = await createConversation();
+    await loadList();
+    setActive({ ...created, messages: [] });
+  }
+
+  async function removeConversation(id: number) {
+    await deleteConversation(id);
+    const items = await loadList();
+    setActive(items[0] ? await getConversation(items[0].conversation_id) : null);
+  }
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const message = String(new FormData(form).get("message")).trim();
+    if (!message) return;
+    setSending(true); setError("");
+    try {
+      let conversation = active;
+      if (!conversation) {
+        const created = await createConversation();
+        conversation = { ...created, messages: [] };
+      }
+      await sendAdvisorMessage(message, conversation.conversation_id);
+      form.reset();
+      setActive(await getConversation(conversation.conversation_id));
+      await loadList();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to send your message.");
+    } finally { setSending(false); }
+  }
+
+  if (loading) return <main className="p-10 text-slate-500">Loading conversations...</main>;
+
+  return <main className="flex min-h-screen bg-slate-50">
+    <aside className="w-64 border-r border-slate-200 bg-white p-4"><button type="button" onClick={() => void startConversation()} className="w-full rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white">New Conversation</button><div className="mt-4 space-y-2">{conversations.length === 0 && <p className="p-3 text-sm text-slate-500">No saved conversations.</p>}{conversations.map((item) => <div key={item.conversation_id} className={`rounded-xl p-3 ${active?.conversation_id === item.conversation_id ? "bg-blue-50" : "hover:bg-slate-50"}`}><button type="button" className="w-full truncate text-left text-sm font-medium" onClick={() => void selectConversation(item.conversation_id)}>{item.title}</button><button type="button" className="mt-2 text-xs text-red-500" onClick={() => void removeConversation(item.conversation_id)}>Delete</button></div>)}</div></aside>
+    <section className="flex min-w-0 flex-1 flex-col p-8"><div><h1 className="text-3xl font-bold tracking-tight">Advisor Chat</h1><p className="mt-2 text-slate-500">Ask educational questions about personal finance.</p></div>{error && <p className="mt-5 rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>}<div className="mt-6 flex-1 space-y-4">{!active?.messages.length && <p className="rounded-2xl border border-dashed border-slate-300 p-8 text-center text-slate-500">Start a conversation with your advisor.</p>}{active?.messages.map((message) => <article key={message.id} className={`max-w-2xl rounded-2xl p-4 ${message.role === "user" ? "ml-auto bg-blue-600 text-white" : "bg-white shadow-sm"}`}><p className="whitespace-pre-wrap text-sm leading-6">{message.content}</p></article>)}</div><form onSubmit={submit} className="mt-6 flex gap-3"><input name="message" required placeholder="Ask a financial question..." className="min-w-0 flex-1 rounded-xl border border-slate-300 bg-white px-4 py-3 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100" /><button disabled={sending} className="rounded-xl bg-blue-600 px-6 py-3 font-semibold text-white disabled:opacity-60">{sending ? "Sending..." : "Send"}</button></form></section>
+  </main>;
 }
