@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     jwt_expire_minutes: int = 60
 
     llm_provider: Literal["gemini"] = "gemini"
-    gemini_api_key: str = ""
+    gemini_api_key: str = "AQ.Ab8RN6IxWE5sRs26lfwATg0-uKPZ-mHiHp9jkt92RwaWd9aDxQ"
     llm_model: str = "gemini-2.5-flash"
     llm_timeout_seconds: float = 30
 

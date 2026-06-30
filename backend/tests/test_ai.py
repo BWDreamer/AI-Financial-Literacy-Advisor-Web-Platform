@@ -1,5 +1,6 @@
 from app.ai.dependencies import get_ai_advisor_service
 from app.ai.exceptions import LLMConfigurationError
+from app.ai.prompts import FINANCIAL_ADVISOR_INSTRUCTIONS
 from app.main import app
 
 
@@ -25,6 +26,20 @@ class UnconfiguredTestAdvisorService:
         raise LLMConfigurationError(
             "Test provider is not configured."
         )
+
+
+def test_financial_advisor_prompt_requires_readable_lists():
+    normalized_prompt = " ".join(
+        FINANCIAL_ADVISOR_INSTRUCTIONS.split()
+    )
+
+    assert "Format responses for readability" in normalized_prompt
+    assert "put each list item on its own separate line" in (
+        normalized_prompt
+    )
+    assert "Do not compress multiple list items" in (
+        normalized_prompt
+    )
 
 
 def create_authorization_headers(client) -> dict[str, str]:
