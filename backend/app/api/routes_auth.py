@@ -23,6 +23,7 @@ from app.core.security import (
 from app.models.user import User
 from app.repositories.user_repository import (
     create_user,
+    delete_user_account,
     get_user_by_email,
     update_avatar_url,
     update_email,
@@ -32,6 +33,7 @@ from app.repositories.user_repository import (
 )
 from app.schemas.admin import HeartbeatResponse
 from app.schemas.auth import (
+    AccountDeleteRequest,
     AvatarResponse,
     EmailUpdateRequest,
     PasswordUpdateRequest,
@@ -143,6 +145,33 @@ def get_my_account(
     ),
 ):
     return current_user
+
+
+@router.delete("/me", status_code=status.HTTP_204_NO_CONTENT)
+def delete_my_account(
+    request: AccountDeleteRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not verify_password(request.current_password, current_user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Current password is incorrect.",
+        )
+
+    avatar_path = None
+    if current_user.avatar_url and current_user.avatar_url.startswith("/uploads/"):
+        relative_path = current_user.avatar_url.removeprefix("/uploads/")
+        upload_root = Path(settings.upload_dir).resolve()
+        candidate = (upload_root / relative_path).resolve()
+        if candidate.is_relative_to(upload_root):
+            avatar_path = candidate
+
+    delete_user_account(db, current_user)
+    if avatar_path and avatar_path.is_file():
+        avatar_path.unlink()
+
+    return None
 
 
 @router.put(

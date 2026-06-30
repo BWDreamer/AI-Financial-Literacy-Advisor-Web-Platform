@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     upload_dir: str = "uploads"
     max_upload_size_mb: int = 10
 
+    admin_email: str = ""
+    admin_password: str = ""
+    admin_name: str = "Admin"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         case_sensitive=False,

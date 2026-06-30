@@ -1,6 +1,7 @@
 import { FormEvent, useState } from "react";
-import { Camera, UserRound, WalletCards } from "lucide-react";
-import { avatarUrl, updateEmail, updatePassword, updateUsername, uploadAvatar } from "../api/auth";
+import { Camera, Trash2, UserRound, WalletCards } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { avatarUrl, deleteAccount, updateEmail, updatePassword, updateUsername, uploadAvatar } from "../api/auth";
 import { FinancialProfile, saveFinancialProfile } from "../api/profile";
 import { useUser } from "../store/UserProvider";
 import FormInput from "./FormInput";
@@ -94,8 +95,22 @@ function PasswordForm() {
   </form>;
 }
 
+function DeleteAccountForm() {
+  const action = useAction(); const { clearUser } = useUser(); const navigate = useNavigate();
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const password = String(new FormData(event.currentTarget).get("password"));
+    const deleted = await action.run(() => deleteAccount(password), "Account deleted.");
+    if (deleted) { clearUser(); navigate("/login", { replace: true }); }
+  }
+  return <form className="space-y-4" onSubmit={submit}><SectionHeading title="Delete account" detail="Permanently delete your account and saved data." />
+    <FormInput id="delete-account-password" name="password" type="password" label="Current password" autoComplete="current-password" required />
+    <ActionMessage state={action.state} /><div className="flex justify-end"><button type="submit" disabled={action.state.loading} className="inline-flex items-center gap-2 rounded-xl bg-red-600 px-4 py-3 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"><Trash2 size={16} />{action.state.loading ? "Deleting..." : "Delete Account"}</button></div>
+  </form>;
+}
+
 function AccountTab() {
-  return <div className="space-y-7"><AvatarForm /><UsernameForm /><EmailForm /><PasswordForm /></div>;
+  return <div className="space-y-7"><AvatarForm /><UsernameForm /><EmailForm /><PasswordForm /><DeleteAccountForm /></div>;
 }
 
 function FinancialTab({ profile }: { profile: FinancialProfile | null }) {
