@@ -15,6 +15,11 @@ export type TokenResponse = {
   expires_in: number;
 };
 
+export type HeartbeatResponse = {
+  last_seen_at: string;
+  is_online: boolean;
+};
+
 export function registerAccount(email: string, username: string, password: string) {
   return apiRequest<User>("/auth/register", {
     method: "POST",
@@ -31,6 +36,13 @@ export function loginAccount(email: string, password: string) {
 
 export function getCurrentUser() {
   return apiRequest<User>("/auth/me", { authenticated: true });
+}
+
+export function sendHeartbeat() {
+  return apiRequest<HeartbeatResponse>("/auth/heartbeat", {
+    method: "POST",
+    authenticated: true,
+  });
 }
 
 export function updateUsername(username: string) {
