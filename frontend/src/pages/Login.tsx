@@ -3,6 +3,7 @@ import { Navigate, useNavigate } from "react-router-dom";
 import { loginAccount } from "../api/auth";
 import AuthLayout from "../components/AuthLayout";
 import FormInput from "../components/FormInput";
+import PasswordInput from "../components/PasswordInput";
 import PrimaryButton from "../components/PrimaryButton";
 import { useUser } from "../store/UserProvider";
 import { setToken } from "../store/tokenService";
@@ -38,7 +39,7 @@ export default function Login() {
       <form className="space-y-5" onSubmit={handleSubmit}>
         {error && <p className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">{error}</p>}
         <FormInput id="login-email" label="Email address" name="email" type="email" autoComplete="email" placeholder="you@example.com" required />
-        <FormInput id="login-password" label="Password" name="password" type="password" autoComplete="current-password" placeholder="Enter your password" required />
+        <PasswordInput id="login-password" label="Password" name="password" autoComplete="current-password" placeholder="Enter your password" required />
         <PrimaryButton type="submit" disabled={loading}>{loading ? "Signing in..." : "Sign In"}</PrimaryButton>
       </form>
     </AuthLayout>
