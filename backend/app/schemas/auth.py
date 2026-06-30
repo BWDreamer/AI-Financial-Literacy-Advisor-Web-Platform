@@ -94,6 +94,10 @@ class PasswordUpdateRequest(BaseModel):
     )
 
 
+class AccountDeleteRequest(BaseModel):
+    current_password: str = Field(min_length=1, max_length=72)
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"

@@ -140,6 +140,31 @@ def delete_user(db: Session, user: User) -> None:
     db.commit()
 
 
+def delete_user_account(db: Session, user: User) -> None:
+    from app.models.chat import ChatConversation, ChatMessage
+    from app.models.financial import Asset, CashFlow
+    from app.models.user_profile import UserProfile
+
+    conversation_ids = [
+        row[0]
+        for row in db.query(ChatConversation.id).filter(
+            ChatConversation.user_id == user.id
+        ).all()
+    ]
+    if conversation_ids:
+        db.query(ChatMessage).filter(
+            ChatMessage.conversation_id.in_(conversation_ids)
+        ).delete(synchronize_session=False)
+    db.query(ChatConversation).filter(
+        ChatConversation.user_id == user.id
+    ).delete(synchronize_session=False)
+    db.query(Asset).filter(Asset.user_id == user.id).delete()
+    db.query(CashFlow).filter(CashFlow.user_id == user.id).delete()
+    db.query(UserProfile).filter(UserProfile.user_id == user.id).delete()
+    db.delete(user)
+    db.commit()
+
+
 def touch_last_seen(db: Session, user: User) -> User:
     user.last_seen_at = datetime.now(timezone.utc)
     db.commit()
