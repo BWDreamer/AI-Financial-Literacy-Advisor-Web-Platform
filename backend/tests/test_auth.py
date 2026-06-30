@@ -110,3 +110,57 @@ def test_me_without_token_returns_unauthorized(client):
     assert response.json()["detail"] == (
         "Authentication credentials were not provided."
     )
+
+
+def test_delete_account_rejects_wrong_password(client):
+    client.post(
+        "/api/auth/register",
+        json={"email": "delete-wrong@example.com", "password": "Password123"},
+    )
+    login = client.post(
+        "/api/auth/login",
+        json={"email": "delete-wrong@example.com", "password": "Password123"},
+    )
+    headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+    response = client.request(
+        "DELETE",
+        "/api/auth/me",
+        headers=headers,
+        json={"current_password": "WrongPassword"},
+    )
+    assert response.status_code == 401
+    assert client.get("/api/auth/me", headers=headers).status_code == 200
+
+
+def test_delete_account_removes_user_and_related_data(client):
+    client.post(
+        "/api/auth/register",
+        json={"email": "delete@example.com", "password": "Password123"},
+    )
+    login = client.post(
+        "/api/auth/login",
+        json={"email": "delete@example.com", "password": "Password123"},
+    )
+    headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+    client.post(
+        "/api/financials/assets",
+        headers=headers,
+        json={"asset_type": "cash", "name": "Savings", "amount": "100"},
+    )
+    conversation = client.post(
+        "/api/chat/conversations", headers=headers, json={}
+    ).json()
+    client.post(
+        f"/api/chat/conversations/{conversation['conversation_id']}/messages",
+        headers=headers,
+        json={"role": "user", "content": "Delete this too"},
+    )
+
+    response = client.request(
+        "DELETE",
+        "/api/auth/me",
+        headers=headers,
+        json={"current_password": "Password123"},
+    )
+    assert response.status_code == 204
+    assert client.get("/api/auth/me", headers=headers).status_code == 401

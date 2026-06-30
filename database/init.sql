@@ -2,11 +2,18 @@ CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
     email VARCHAR(255) UNIQUE NOT NULL,
     username VARCHAR(50),
+    first_name VARCHAR(50),
+    last_name VARCHAR(50),
     avatar_url TEXT,
     password_hash TEXT NOT NULL,
     role VARCHAR(50) NOT NULL DEFAULT 'user',
+    last_seen_at TIMESTAMPTZ,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS first_name VARCHAR(50);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS last_name VARCHAR(50);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ;
 
 CREATE TABLE IF NOT EXISTS user_profiles (
     id SERIAL PRIMARY KEY,
@@ -33,9 +40,10 @@ CREATE TABLE IF NOT EXISTS financial_rules (
 
 CREATE TABLE IF NOT EXISTS ai_conversations (
     id SERIAL PRIMARY KEY,
-    user_id INTEGER UNIQUE NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    title VARCHAR(255),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    title VARCHAR(255) NOT NULL DEFAULT 'New Conversation',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS ai_messages (
@@ -45,3 +53,29 @@ CREATE TABLE IF NOT EXISTS ai_messages (
     content TEXT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS assets (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    asset_type VARCHAR(20) NOT NULL,
+    name VARCHAR(100) NOT NULL,
+    amount NUMERIC(14, 2) NOT NULL CHECK (amount >= 0),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS cash_flows (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    flow_type VARCHAR(20) NOT NULL,
+    name VARCHAR(100) NOT NULL,
+    amount NUMERIC(14, 2) NOT NULL CHECK (amount >= 0),
+    date DATE NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS ix_assets_user_id ON assets(user_id);
+CREATE INDEX IF NOT EXISTS ix_cash_flows_user_id ON cash_flows(user_id);
+CREATE INDEX IF NOT EXISTS ix_ai_conversations_user_id ON ai_conversations(user_id);
+CREATE INDEX IF NOT EXISTS ix_ai_messages_conversation_id ON ai_messages(conversation_id);

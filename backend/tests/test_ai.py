@@ -2,6 +2,7 @@ from app.ai.dependencies import get_ai_advisor_service
 from app.ai.exceptions import LLMConfigurationError
 from app.ai.prompts import FINANCIAL_ADVISOR_INSTRUCTIONS
 from app.main import app
+from app.models.financial_rule import FinancialRule
 
 
 class SuccessfulTestAdvisorService:
@@ -150,3 +151,79 @@ def test_chat_reports_missing_api_configuration(client):
         "The AI service is not configured. "
         "Set GEMINI_API_KEY on the backend."
     )
+
+
+def test_chat_includes_selected_rule_context(client, db_session):
+    rule = FinancialRule(
+        region="Australia",
+        category="tax",
+        rule_year="2025-2026",
+        rule_key="test_rule",
+        rule_value="Verified test rule content.",
+        source_name="Australian Taxation Office",
+        source_url="https://www.ato.gov.au/",
+    )
+    db_session.add(rule)
+    db_session.commit()
+
+    service = SuccessfulTestAdvisorService()
+    app.dependency_overrides[get_ai_advisor_service] = lambda: service
+    try:
+        response = client.post(
+            "/api/ai/chat",
+            headers=create_authorization_headers(client),
+            json={"message": "Explain this rule", "rule_id": rule.id},
+        )
+    finally:
+        app.dependency_overrides.pop(get_ai_advisor_service, None)
+
+    assert response.status_code == 200
+    answer = response.json()["answer"]
+    assert "Verified test rule content." in answer
+    assert "Australian Taxation Office" in answer
+
+
+def test_chat_rejects_missing_selected_rule(client):
+    app.dependency_overrides[
+        get_ai_advisor_service
+    ] = lambda: SuccessfulTestAdvisorService()
+    try:
+        response = client.post(
+            "/api/ai/chat",
+            headers=create_authorization_headers(client),
+            json={"message": "Explain this rule", "rule_id": 99999},
+        )
+    finally:
+        app.dependency_overrides.pop(get_ai_advisor_service, None)
+
+    assert response.status_code == 404
+
+
+def test_chat_saves_messages_to_selected_conversation(client):
+    headers = create_authorization_headers(client)
+    conversation_id = client.post(
+        "/api/chat/conversations", headers=headers, json={}
+    ).json()["conversation_id"]
+    app.dependency_overrides[
+        get_ai_advisor_service
+    ] = lambda: SuccessfulTestAdvisorService()
+    try:
+        response = client.post(
+            "/api/ai/chat",
+            headers=headers,
+            json={
+                "message": "What is saving?",
+                "conversation_id": conversation_id,
+            },
+        )
+    finally:
+        app.dependency_overrides.pop(get_ai_advisor_service, None)
+
+    assert response.status_code == 200
+    detail = client.get(
+        f"/api/chat/conversations/{conversation_id}", headers=headers
+    ).json()
+    assert [message["role"] for message in detail["messages"]] == [
+        "user",
+        "assistant",
+    ]

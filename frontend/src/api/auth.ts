@@ -53,6 +53,14 @@ export function updatePassword(currentPassword: string, newPassword: string) {
   });
 }
 
+export function deleteAccount(currentPassword: string) {
+  return apiRequest<void>("/auth/me", {
+    method: "DELETE",
+    authenticated: true,
+    body: JSON.stringify({ current_password: currentPassword }),
+  });
+}
+
 export function uploadAvatar(file: File) {
   const body = new FormData();
   body.append("file", file);

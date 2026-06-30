@@ -108,6 +108,34 @@ docker compose exec backend pytest -q
 
 The current backend test suite covers authentication, financial profiles, calculators and financial-rule queries.
 
+## Create a Local Administrator
+
+Add local administrator details to `.env`:
+
+```text
+ADMIN_EMAIL=admin@example.com
+ADMIN_PASSWORD=replace_with_a_secure_password
+ADMIN_NAME=Admin
+```
+
+Start the database and backend, then run the idempotent creation script:
+
+```bash
+docker compose up -d db backend
+docker compose exec backend python scripts/create_admin.py
+```
+
+Running the script again will not create a duplicate account. If the email
+belongs to a regular user, that user is upgraded to `role="admin"` and the
+configured password is applied. For a local Python environment, run this from
+the project root so the root `.env` file is loaded:
+
+```bash
+python backend/scripts/create_admin.py
+```
+
+Do not commit `.env` or real administrator credentials.
+
 ## Development Notes
 
 * The frontend must not connect directly to PostgreSQL.

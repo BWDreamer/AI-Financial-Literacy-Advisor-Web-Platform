@@ -9,6 +9,8 @@ from app.api import (
     routes_ai,
     routes_auth,
     routes_calculator,
+    routes_chat,
+    routes_financials,
     routes_goals,
     routes_profile,
     routes_rules,
@@ -54,6 +56,18 @@ app.include_router(
     routes_auth.router,
     prefix="/api/auth",
     tags=["Auth"],
+)
+
+app.include_router(
+    routes_financials.router,
+    prefix="/api/financials",
+    tags=["Financials"],
+)
+
+app.include_router(
+    routes_chat.router,
+    prefix="/api/chat",
+    tags=["Chat History"],
 )
 
 app.include_router(
