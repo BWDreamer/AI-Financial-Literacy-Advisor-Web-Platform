@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
@@ -13,7 +14,7 @@ class FinancialRuleResponse(BaseModel):
     category: str
     rule_year: str
     rule_key: str
-    rule_value: str
+    rule_value: str | dict[str, Any]
     source_name: str | None
     source_url: str | None
     created_at: datetime
@@ -43,6 +44,7 @@ class SuperannuationRuleLookupResponse(BaseModel):
     rate_percent: float
     rate_label: str
     earnings_basis: str
+    payment_timing: str | None = None
     source_name: str | None
     source_url: str | None
     llm_context: str
