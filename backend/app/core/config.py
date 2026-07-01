@@ -16,9 +16,9 @@ class Settings(BaseSettings):
     jwt_expire_minutes: int = 60
 
     llm_provider: Literal["gemini"] = "gemini"
-    gemini_api_key: str = "AQ.Ab8RN6IxWE5sRs26lfwATg0-uKPZ-mHiHp9jkt92RwaWd9aDxQ"
+    gemini_api_key: str = ""
     llm_model: str = "gemini-2.5-flash"
-    llm_timeout_seconds: float = 30
+    llm_timeout_seconds: float = 15
 
     upload_dir: str = "uploads"
     max_upload_size_mb: int = 10

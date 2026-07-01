@@ -1,6 +1,8 @@
 import json
+from datetime import datetime
 
 from app.models.financial_rule import FinancialRule
+from app.schemas.rules import FinancialRuleResponse
 
 
 ATO_TAX_RATES_URL = (
@@ -106,6 +108,49 @@ def create_superannuation_rule(db_session):
     db_session.commit()
 
     return rule
+
+
+def create_payday_superannuation_rule(db_session):
+    rule = FinancialRule(
+        region="Australia",
+        category="superannuation",
+        rule_year="2026-2027",
+        rule_key="employer_super_contribution",
+        rule_value=json.dumps(
+            {
+                "period": "1 July 2026 – 30 June 2027",
+                "general_super_guarantee_percent": 12.00,
+                "earnings_basis": "qualifying earnings",
+                "payment_timing": "Payday Super from 1 July 2026",
+            }
+        ),
+        source_name="Australian Taxation Office",
+        source_url=ATO_SUPER_GUARANTEE_URL,
+    )
+
+    db_session.add(rule)
+    db_session.commit()
+
+    return rule
+
+
+def test_financial_rule_response_supports_structured_rule_value():
+    response = FinancialRuleResponse(
+        id=1,
+        region="Australia",
+        category="tax",
+        rule_year="2025-2026",
+        rule_key="resident_income_tax_bracket_0_18200",
+        rule_value={
+            "bracket_label": "$0 – $18,200",
+            "formula": "Nil",
+        },
+        source_name="Australian Taxation Office",
+        source_url=ATO_TAX_RATES_URL,
+        created_at=datetime(2026, 6, 30),
+    )
+
+    assert response.rule_value["formula"] == "Nil"
 
 
 def test_list_financial_rules(client, db_session):
@@ -290,3 +335,29 @@ def test_superannuation_lookup_returns_rate_year_and_source(
         data["llm_context"]
     )
     assert ATO_SUPER_GUARANTEE_URL in data["llm_context"]
+
+
+def test_superannuation_lookup_returns_payday_super_timing(
+    client,
+    db_session,
+):
+    create_payday_superannuation_rule(db_session)
+
+    response = client.get(
+        "/api/rules/superannuation/employer-contribution",
+        params={
+            "region": "Australia",
+            "rule_year": "2026-2027",
+        },
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert data["rule_year"] == "2026-2027"
+    assert data["rate_label"] == "12%"
+    assert data["earnings_basis"] == "qualifying earnings"
+    assert data["payment_timing"] == (
+        "Payday Super from 1 July 2026"
+    )

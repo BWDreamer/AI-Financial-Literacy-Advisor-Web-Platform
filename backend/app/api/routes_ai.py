@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.ai.dependencies import get_ai_advisor_service
 from app.ai.exceptions import (
     LLMConfigurationError,
+    LLMRateLimitError,
     LLMServiceError,
 )
 from app.api.dependencies import get_current_user
@@ -21,8 +22,13 @@ from app.schemas.ai import (
     AIChatResponse,
 )
 from app.services.ai_advisor_service import AIAdvisorService
+from app.services.rule_lookup_service import (
+    build_financial_rule_answer,
+    build_financial_rule_context,
+)
 
 router = APIRouter()
+RULE_KNOWLEDGE_BASE_MODEL = "rules-knowledge-base"
 
 
 @router.get("/ping")
@@ -73,10 +79,50 @@ async def chat_with_advisor(
                 f"{rule.source_url or 'Not provided'}\n\n"
                 f"User question: {request.message}"
             )
+        else:
+            rule_answer = build_financial_rule_answer(
+                db,
+                request.message,
+            )
 
-        answer = await advisor_service.reply(message)
+            if rule_answer is not None:
+                if conversation is not None:
+                    add_message(
+                        db,
+                        conversation,
+                        "user",
+                        request.message,
+                    )
+                    add_message(
+                        db,
+                        conversation,
+                        "assistant",
+                        rule_answer,
+                    )
+
+                return AIChatResponse(
+                    answer=rule_answer,
+                    model=RULE_KNOWLEDGE_BASE_MODEL,
+                )
+
+            rule_context = build_financial_rule_context(
+                db,
+                request.message,
+            )
+
+            if rule_context is not None:
+                message = (
+                    f"{rule_context}\n\n"
+                    "User question:\n"
+                    f"{request.message}"
+                )
+
         if conversation is not None:
             add_message(db, conversation, "user", request.message)
+
+        answer = await advisor_service.reply(message)
+
+        if conversation is not None:
             add_message(db, conversation, "assistant", answer)
     except LLMConfigurationError as error:
         raise HTTPException(
@@ -84,6 +130,14 @@ async def chat_with_advisor(
             detail=(
                 "The AI service is not configured. "
                 "Set GEMINI_API_KEY on the backend."
+            ),
+        ) from error
+    except LLMRateLimitError as error:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=(
+                "The AI provider rate limit was reached. "
+                "Please wait a moment and try again."
             ),
         ) from error
     except LLMServiceError as error:
