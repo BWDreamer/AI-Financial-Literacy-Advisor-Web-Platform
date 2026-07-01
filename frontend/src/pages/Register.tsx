@@ -3,6 +3,7 @@ import { Navigate, useNavigate } from "react-router-dom";
 import { loginAccount, registerAccount } from "../api/auth";
 import AuthLayout from "../components/AuthLayout";
 import FormInput from "../components/FormInput";
+import PasswordInput from "../components/PasswordInput";
 import PrimaryButton from "../components/PrimaryButton";
 import { useUser } from "../store/UserProvider";
 import { setToken } from "../store/tokenService";
@@ -12,8 +13,8 @@ function RegisterFields({ error, loading }: { error: string; loading: boolean })
     {error && <p className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">{error}</p>}
     <FormInput id="register-username" label="Username" name="username" minLength={2} maxLength={50} autoComplete="username" placeholder="Choose a username" required />
     <FormInput id="register-email" label="Email address" name="email" type="email" autoComplete="email" placeholder="you@example.com" required />
-    <FormInput id="register-password" label="Password" name="password" type="password" autoComplete="new-password" minLength={8} maxLength={72} placeholder="At least 8 characters" required />
-    <FormInput id="confirm-password" label="Confirm password" name="confirmPassword" type="password" autoComplete="new-password" placeholder="Re-enter your password" required />
+    <PasswordInput id="register-password" label="Password" name="password" autoComplete="new-password" minLength={8} maxLength={72} placeholder="At least 8 characters" required />
+    <PasswordInput id="confirm-password" label="Confirm password" name="confirmPassword" autoComplete="new-password" placeholder="Re-enter your password" required />
     <PrimaryButton type="submit" disabled={loading}>{loading ? "Creating account..." : "Create Account"}</PrimaryButton>
   </>;
 }

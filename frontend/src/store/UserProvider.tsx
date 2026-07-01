@@ -1,5 +1,5 @@
 import { createContext, ReactNode, useCallback, useContext, useEffect, useState } from "react";
-import { getCurrentUser, User } from "../api/auth";
+import { getCurrentUser, sendHeartbeat, User } from "../api/auth";
 import { ApiError } from "../api/client";
 import { FinancialProfile, getFinancialProfile } from "../api/profile";
 import { clearToken, getToken } from "./tokenService";
@@ -38,6 +38,18 @@ function useSessionBootstrap(refreshUser: () => Promise<User>, refreshProfile: (
   }, [refreshProfile, refreshUser]);
 }
 
+function useHeartbeat(user: User | null, clearUser: () => void) {
+  useEffect(() => {
+    if (!user || !getToken()) return;
+    const beat = () => void sendHeartbeat().catch((caught) => {
+      if (caught instanceof ApiError && caught.status === 401) clearUser();
+    });
+    beat();
+    const interval = window.setInterval(beat, 60_000);
+    return () => window.clearInterval(interval);
+  }, [clearUser, user]);
+}
+
 function useUserState(): UserContextValue {
   const [user, setUser] = useState<User | null>(null); const [loading, setLoading] = useState(true);
   const [error, setError] = useState(""); const { profile, setProfile, refreshProfile } = useProfileState();
@@ -53,6 +65,7 @@ function useUserState(): UserContextValue {
     }
   }, [clearUser]);
   useSessionBootstrap(refreshUser, refreshProfile, setLoading);
+  useHeartbeat(user, clearUser);
   return { user, profile, loading, error, refreshUser, refreshProfile, clearUser };
 }
 
