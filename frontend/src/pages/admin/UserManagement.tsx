@@ -1,5 +1,5 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
-import { Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { Pencil, Plus, RefreshCw, Search, Trash2, X } from "lucide-react";
 import {
   AdminUser,
   deleteAdminUser,
@@ -9,6 +9,7 @@ import {
 } from "../../api/admin";
 import FormInput from "../../components/FormInput";
 import Modal from "../../components/Modal";
+import { useUser } from "../../store/UserProvider";
 
 type UserForm = {
   firstName: string;
@@ -58,7 +59,9 @@ function FormActions({ submitLabel, onCancel, disabled }: { submitLabel: string;
 }
 
 export default function UserManagement() {
+  const { user: currentUser } = useUser();
   const [users, setUsers] = useState<AdminUser[]>([]);
+  const [emailSearch, setEmailSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [pageError, setPageError] = useState("");
   const [formError, setFormError] = useState("");
@@ -68,6 +71,10 @@ export default function UserManagement() {
   const [editingUser, setEditingUser] = useState<AdminUser | null>(null);
   const [editForm, setEditForm] = useState<UserForm>(emptyInviteForm);
   const [deletingUser, setDeletingUser] = useState<AdminUser | null>(null);
+  const normalizedSearch = emailSearch.trim().toLowerCase();
+  const visibleUsers = users.filter((user) =>
+    user.id !== currentUser?.id && user.email.toLowerCase().includes(normalizedSearch)
+  );
 
   const loadUsers = useCallback(async (showLoading = false) => {
     if (showLoading) setLoading(true);
@@ -155,18 +162,27 @@ export default function UserManagement() {
 
     {pageError && <div role="alert" className="mt-6 flex flex-col gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 sm:flex-row sm:items-center sm:justify-between"><span>{pageError}</span><button type="button" onClick={() => void loadUsers(true)} className="inline-flex items-center gap-2 font-semibold"><RefreshCw size={16} /> Try Again</button></div>}
 
+    <div className="mt-6 max-w-xl">
+      <label htmlFor="user-email-search" className="mb-2 block text-sm font-semibold text-slate-700">Search users by email</label>
+      <div className="relative">
+        <Search size={19} aria-hidden="true" className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+        <input id="user-email-search" type="search" value={emailSearch} onChange={(event) => setEmailSearch(event.target.value)} placeholder="Enter an email address" className="w-full rounded-xl border border-slate-300 bg-white py-3 pl-11 pr-11 text-sm outline-none transition placeholder:text-slate-400 focus:border-violet-500 focus:ring-4 focus:ring-violet-100" />
+        {emailSearch && <button type="button" onClick={() => setEmailSearch("")} aria-label="Clear email search" className="absolute right-2 top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700"><X size={17} /></button>}
+      </div>
+    </div>
+
     <div className="mt-8 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"><div className="overflow-x-auto"><table className="w-full min-w-[900px] text-left">
       <thead className="border-b border-slate-200 bg-slate-50/70 text-xs uppercase tracking-wide text-slate-500"><tr><th className="px-6 py-5">User ID</th><th className="px-6 py-5">Name</th><th className="px-6 py-5">Email</th><th className="px-6 py-5">Joined</th><th className="px-6 py-5">Status</th><th className="px-6 py-5">Actions</th></tr></thead>
       <tbody className="divide-y divide-slate-200">
         {loading && <tr><td colSpan={6} className="px-6 py-16 text-center text-slate-500">Loading users...</td></tr>}
-        {!loading && users.map((user) => <tr key={user.id} className="transition hover:bg-slate-50/70">
+        {!loading && visibleUsers.map((user) => <tr key={user.id} className="transition hover:bg-slate-50/70">
           <td className="px-6 py-6"><span className="rounded-lg bg-slate-100 px-3 py-2 font-mono text-sm text-slate-600">{user.user_id}</span></td>
           <td className="px-6 py-6"><div className="flex items-center gap-3"><span className="grid size-11 place-items-center rounded-full bg-violet-600 text-sm font-bold text-white">{initials(user)}</span><span className="font-semibold text-slate-950">{fullName(user)}</span></div></td>
           <td className="px-6 py-6 text-slate-600">{user.email}</td><td className="px-6 py-6 text-slate-600">{displayDate(user.created_at)}</td>
           <td className="px-6 py-6"><span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${user.is_online ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>{user.is_online ? "Online" : "Offline"}</span></td>
           <td className="px-6 py-6"><div className="flex items-center gap-5 whitespace-nowrap"><button type="button" onClick={() => openEdit(user)} className="inline-flex items-center gap-1.5 font-semibold text-indigo-600 hover:text-indigo-800"><Pencil size={17} /> Edit</button><button type="button" onClick={() => { setDeletingUser(user); setFormError(""); }} className="inline-flex items-center gap-1.5 font-semibold text-red-500 hover:text-red-700"><Trash2 size={17} /> Delete</button></div></td>
         </tr>)}
-        {!loading && users.length === 0 && !pageError && <tr><td colSpan={6} className="px-6 py-16 text-center text-slate-500">No users have been added yet.</td></tr>}
+        {!loading && visibleUsers.length === 0 && !pageError && <tr><td colSpan={6} className="px-6 py-16 text-center text-slate-500">{normalizedSearch ? "No users match this email search." : "No users have been added yet."}</td></tr>}
       </tbody>
     </table></div></div>
 

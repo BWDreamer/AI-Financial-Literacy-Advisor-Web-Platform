@@ -1,10 +1,17 @@
 import { Bot } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { adminNavigation } from "../config/adminNavigation";
+import { useUser } from "../store/UserProvider";
 import AppLayout from "./AppLayout";
 
 export default function AdminPortalLayout() {
   const navigate = useNavigate();
+  const { clearUser } = useUser();
+
+  function signOut() {
+    clearUser();
+    navigate("/login", { replace: true });
+  }
 
   return (
     <AppLayout
@@ -21,7 +28,7 @@ export default function AdminPortalLayout() {
       profile={{ avatarUrl: null, name: "Admin User", email: "admin@finai.com" }}
       onAction={() => undefined}
       onProfileClick={() => undefined}
-      onSignOut={() => navigate("/login")}
+      onSignOut={signOut}
     />
   );
 }
