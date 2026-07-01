@@ -1,8 +1,10 @@
-import { FormEvent, useState } from "react";
-import { Camera, Trash2, UserRound, WalletCards } from "lucide-react";
+import { useEffect, useState } from "react";
+import type { FormEvent, ReactNode } from "react";
+import { AlertTriangle, Camera, LockKeyhole, Mail, Trash2, UserRound, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { avatarUrl, deleteAccount, updateEmail, updatePassword, updateUsername, uploadAvatar } from "../api/auth";
-import { FinancialProfile, saveFinancialProfile } from "../api/profile";
+import { clearExtendedAccountSettings, deleteAccount, ExtendedAccountSettings, getExtendedAccountSettings, saveExtendedAccountSettings } from "../api/accountSettings";
+import { avatarUrl, updateEmail, updatePassword, updateUsername, uploadAvatar } from "../api/auth";
+import { saveFinancialProfile } from "../api/profile";
 import { useUser } from "../store/UserProvider";
 import FormInput from "./FormInput";
 import Modal from "./Modal";
@@ -125,22 +127,8 @@ function DeleteSection() {
   return <SettingsCard title="Delete Account"><div className="flex items-start justify-between gap-4 px-5 py-5"><div className="flex items-start gap-4"><span className="grid size-11 place-items-center rounded-full bg-red-50 text-red-600"><Trash2 size={20} /></span><div><p className="font-semibold text-red-900">Delete your account</p><p className="mt-1 max-w-xl text-sm text-red-700">This permanently removes your account access and user data. You will need your current password to continue.</p></div></div><button type="button" onClick={() => setOpen(true)} className="shrink-0 rounded-xl bg-red-600 px-4 py-3 text-sm font-semibold text-white hover:bg-red-700">Delete Account</button></div>{open && <DeleteAccountModal onClose={() => setOpen(false)} />}</SettingsCard>;
 }
 
-function DeleteAccountForm() {
-  const action = useAction(); const { clearUser } = useUser(); const navigate = useNavigate();
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const password = String(new FormData(event.currentTarget).get("password"));
-    const deleted = await action.run(() => deleteAccount(password), "Account deleted.");
-    if (deleted) { clearUser(); navigate("/login", { replace: true }); }
-  }
-  return <form className="space-y-4" onSubmit={submit}><SectionHeading title="Delete account" detail="Permanently delete your account and saved data." />
-    <FormInput id="delete-account-password" name="password" type="password" label="Current password" autoComplete="current-password" required />
-    <ActionMessage state={action.state} /><div className="flex justify-end"><button type="submit" disabled={action.state.loading} className="inline-flex items-center gap-2 rounded-xl bg-red-600 px-4 py-3 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"><Trash2 size={16} />{action.state.loading ? "Deleting..." : "Delete Account"}</button></div>
-  </form>;
-}
-
 function AccountTab() {
-  return <div className="space-y-7"><AvatarForm /><UsernameForm /><EmailForm /><PasswordForm /><DeleteAccountForm /></div>;
+  return <SettingsCard title="User Profile"><div className="px-6 pb-7 pt-6"><AccountDetailsForm /></div></SettingsCard>;
 }
 
 function SecurityActionRow({ icon, title, detail, action, onClick }: { icon: ReactNode; title: string; detail?: string; action: string; onClick: () => void }) {
