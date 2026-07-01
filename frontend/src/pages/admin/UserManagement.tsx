@@ -18,7 +18,7 @@ type UserForm = {
   password: string;
 };
 
-const DEFAULT_PASSWORD = "111111";
+const DEFAULT_PASSWORD = "11111111";
 const emptyInviteForm = (): UserForm => ({ firstName: "", lastName: "", email: "", password: DEFAULT_PASSWORD });
 
 function errorMessage(caught: unknown) {
@@ -186,7 +186,7 @@ export default function UserManagement() {
       </tbody>
     </table></div></div>
 
-    {inviteOpen && <Modal title="Invite User" wide onClose={() => !submitting && setInviteOpen(false)}><form onSubmit={submitInvite}>{formError && <p role="alert" className="mb-5 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">{formError}</p>}<UserFields form={inviteForm} setForm={setInviteForm} includePassword /><p className="mt-2 text-xs text-slate-500">The default password is 111111.</p><FormActions submitLabel="Add User" onCancel={() => setInviteOpen(false)} disabled={submitting} /></form></Modal>}
+    {inviteOpen && <Modal title="Invite User" wide onClose={() => !submitting && setInviteOpen(false)}><form onSubmit={submitInvite}>{formError && <p role="alert" className="mb-5 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">{formError}</p>}<UserFields form={inviteForm} setForm={setInviteForm} includePassword /><p className="mt-2 text-xs text-slate-500">The default password is 11111111.</p><FormActions submitLabel="Add User" onCancel={() => setInviteOpen(false)} disabled={submitting} /></form></Modal>}
     {editingUser && <Modal title="Edit User" wide onClose={() => !submitting && setEditingUser(null)}><form onSubmit={submitEdit}>{formError && <p role="alert" className="mb-5 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">{formError}</p>}<div className="mb-5 rounded-xl bg-slate-100 px-4 py-3"><span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">User ID</span><span className="mt-1 block font-semibold text-slate-900">{editingUser.user_id}</span></div><UserFields form={editForm} setForm={setEditForm} includePassword={false} /><div className="mt-5 rounded-xl bg-slate-100 px-4 py-3"><span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Joined</span><span className="mt-1 block font-semibold text-slate-900">{displayDate(editingUser.created_at)}</span></div><FormActions submitLabel="Save Changes" onCancel={() => setEditingUser(null)} disabled={submitting} /></form></Modal>}
     {deletingUser && <Modal title="Delete User" onClose={() => !submitting && setDeletingUser(null)}>{formError && <p role="alert" className="mb-5 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">{formError}</p>}<p className="text-sm leading-6 text-slate-600">Are you sure you want to delete <strong className="text-slate-900">{fullName(deletingUser)}</strong>? This action cannot be undone.</p><div className="mt-7 grid gap-3 sm:grid-cols-2"><button type="button" disabled={submitting} onClick={() => void confirmDelete()} className="rounded-xl bg-red-600 px-5 py-3 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60">{submitting ? "Deleting..." : "Delete User"}</button><button type="button" disabled={submitting} onClick={() => setDeletingUser(null)} className="rounded-xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold hover:bg-slate-50 disabled:opacity-60">Cancel</button></div></Modal>}
   </section>;

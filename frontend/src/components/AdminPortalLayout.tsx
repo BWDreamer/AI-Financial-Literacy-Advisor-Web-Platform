@@ -1,12 +1,13 @@
 import { Bot } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { avatarUrl } from "../api/auth";
 import { adminNavigation } from "../config/adminNavigation";
 import { useUser } from "../store/UserProvider";
 import AppLayout from "./AppLayout";
 
 export default function AdminPortalLayout() {
   const navigate = useNavigate();
-  const { clearUser } = useUser();
+  const { user, clearUser } = useUser();
 
   function signOut() {
     clearUser();
@@ -25,7 +26,11 @@ export default function AdminPortalLayout() {
         ),
       }}
       sections={adminNavigation}
-      profile={{ avatarUrl: null, name: "Admin User", email: "admin@finai.com" }}
+      profile={{
+        avatarUrl: avatarUrl(user?.avatar_url ?? null),
+        name: user?.username || "Admin User",
+        email: user?.email || "",
+      }}
       onAction={() => undefined}
       onProfileClick={() => undefined}
       onSignOut={signOut}

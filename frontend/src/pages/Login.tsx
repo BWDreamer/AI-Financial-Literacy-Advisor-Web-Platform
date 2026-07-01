@@ -20,8 +20,13 @@ function useLoginForm() {
     try {
       const result = await loginAccount(String(form.get("email")), String(form.get("password")));
       setToken(result.access_token);
-      await Promise.all([refreshUser(), refreshProfile()]);
-      navigate("/home");
+      const currentUser = await refreshUser();
+      if (currentUser.role === "admin") {
+        navigate("/admin", { replace: true });
+      } else {
+        await refreshProfile();
+        navigate("/home", { replace: true });
+      }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to sign in. Please try again.");
     } finally {
@@ -33,7 +38,7 @@ function useLoginForm() {
 
 export default function Login() {
   const { user, error, loading, handleSubmit } = useLoginForm();
-  if (user) return <Navigate to="/home" replace />;
+  if (user) return <Navigate to={user.role === "admin" ? "/admin" : "/home"} replace />;
   return (
     <AuthLayout activeTab="login" title="Welcome back" subtitle="Sign in to continue to your financial dashboard.">
       <form className="space-y-5" onSubmit={handleSubmit}>
