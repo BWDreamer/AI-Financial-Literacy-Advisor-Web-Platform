@@ -2,19 +2,26 @@ import { useEffect, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { AlertTriangle, Camera, LockKeyhole, Mail, Trash2, UserRound, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { clearExtendedAccountSettings, deleteAccount, ExtendedAccountSettings, getExtendedAccountSettings, saveExtendedAccountSettings } from "../api/accountSettings";
-import { avatarUrl, updateEmail, updatePassword, updateUsername, uploadAvatar } from "../api/auth";
+import { clearExtendedAccountSettings, ExtendedAccountSettings, getExtendedAccountSettings, saveExtendedAccountSettings } from "../api/accountSettings";
+import { avatarUrl, deleteAccount, updateEmail, updatePassword, updateUsername, uploadAvatar } from "../api/auth";
 import { saveFinancialProfile } from "../api/profile";
 import { useUser } from "../store/UserProvider";
 import FormInput from "./FormInput";
 import Modal from "./Modal";
 import PasswordInput from "./PasswordInput";
 import PrimaryButton from "./PrimaryButton";
+import DatePicker from "./DatePicker";
 
 type ActionState = { loading: boolean; error: string; success: string };
 type Tab = "account" | "security";
 
-const countries = ["Australia", "China", "India", "Indonesia", "Malaysia", "New Zealand", "Singapore", "United Kingdom", "United States", "Other"];
+const phoneRegions = [
+  { region: "Australia", code: "+61" }, { region: "China", code: "+86" },
+  { region: "India", code: "+91" }, { region: "Indonesia", code: "+62" },
+  { region: "Malaysia", code: "+60" }, { region: "New Zealand", code: "+64" },
+  { region: "Singapore", code: "+65" }, { region: "United Kingdom", code: "+44" },
+  { region: "United States", code: "+1" }, { region: "Other", code: "+999" },
+];
 const inputClass = "w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100";
 
 function useAction() {
@@ -61,27 +68,53 @@ function SettingRow({ icon, title, detail, children }: { icon: ReactNode; title:
   return <div className="grid gap-4 border-t border-slate-200 px-5 py-4 first:border-t-0 lg:grid-cols-[minmax(0,1fr)_minmax(20rem,1.2fr)]"><div className="flex min-w-0 items-center gap-4"><span className="grid size-10 shrink-0 place-items-center rounded-full bg-slate-100 text-slate-400">{icon}</span><div className="min-w-0"><p className="font-semibold text-slate-900">{title}</p>{detail && <p className="mt-1 truncate text-sm text-slate-500">{detail}</p>}</div></div><div className="min-w-0">{children}</div></div>;
 }
 
-function RegionSelect({ value }: { value: string }) {
-  return <select name="region" defaultValue={value} className={inputClass} required>{countries.map((country) => <option key={country} value={country}>{country}</option>)}</select>;
+function calculateAge(dateOfBirth: string) {
+  if (!dateOfBirth) return "";
+  const today = new Date(); const birth = new Date(dateOfBirth);
+  let age = today.getFullYear() - birth.getFullYear();
+  if (today < new Date(today.getFullYear(), birth.getMonth(), birth.getDate())) age -= 1;
+  return age >= 0 ? String(age) : "";
+}
+
+function codeForRegion(region = "Australia") {
+  return phoneRegions.find((item) => item.region === region)?.code || "+61";
+}
+
+function regionForCode(code: string) {
+  return phoneRegions.find((item) => item.code === code)?.region || "Other";
+}
+
+function splitPhone(value = "", fallbackRegion = "Australia") {
+  const match = value.match(/^(\+\d+)\s*(.*)$/);
+  return { code: match?.[1] || codeForRegion(fallbackRegion), number: (match?.[2] || value).replace(/\D/g, "") };
+}
+
+function formatPhone(code: string, number: string) {
+  return `${code} ${number.replace(/\D/g, "")}`;
 }
 
 function AvatarEditor() {
   const { refreshUser } = useUser(); const action = useAction();
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); const file = new FormData(event.currentTarget).get("avatar");
-    if (!(file instanceof File) || !file.size) return;
+  const [file, setFile] = useState<File | null>(null); const [preview, setPreview] = useState("");
+  async function uploadSelected() {
+    if (!file) { action.setState({ loading: false, error: "Please choose an avatar image first.", success: "" }); return; }
     await action.run(async () => { await uploadAvatar(file); await refreshUser(); }, "Avatar updated successfully.");
   }
-  return <form onSubmit={submit} className="space-y-2"><div className="flex flex-wrap items-center gap-4"><CurrentAvatar /><input id="avatar-file" name="avatar" type="file" accept="image/jpeg,image/png,image/webp" required className="sr-only" /><label htmlFor="avatar-file" className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"><Camera size={18} />Choose Image</label><PrimaryButton className="w-auto py-2.5" disabled={action.state.loading}>{action.state.loading ? "Uploading..." : "Upload"}</PrimaryButton></div><ActionMessage state={action.state} /></form>;
+  function choose(nextFile?: File) { setFile(nextFile || null); setPreview(nextFile ? URL.createObjectURL(nextFile) : ""); }
+  return <div className="space-y-2"><div className="flex flex-wrap items-center gap-3">{preview ? <img src={preview} alt="Selected avatar preview" className="size-12 rounded-full object-cover ring-4 ring-white shadow-lg" /> : <CurrentAvatar />}<input id="avatar-file" type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" onChange={(event) => choose(event.target.files?.[0])} /><label htmlFor="avatar-file" className="inline-flex h-11 cursor-pointer items-center gap-2 rounded-xl border border-slate-300 px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50"><Camera size={18} />Choose Image</label><span className="min-w-0 max-w-52 truncate text-sm text-slate-500">{file?.name || "No image selected"}</span><PrimaryButton type="button" onClick={() => void uploadSelected()} className="ml-auto h-11 w-full px-5 py-0 sm:w-[20%]" disabled={action.state.loading}>{action.state.loading ? "Uploading..." : "Upload"}</PrimaryButton></div><ActionMessage state={action.state} /></div>;
 }
 
 function AccountDetailsForm() {
   const { user, profile, refreshUser, refreshProfile } = useUser(); const action = useAction();
   const [settings, setSettings] = useState<ExtendedAccountSettings | null>(null);
+  const initialPhone = splitPhone(settings?.mobile, settings?.region || profile?.region);
+  const [dob, setDob] = useState(""); const [phoneCode, setPhoneCode] = useState("+61");
   useEffect(() => { void getExtendedAccountSettings(String(user?.id || "")).then(setSettings); }, [user?.id]);
+  useEffect(() => { setDob(settings?.dateOfBirth || ""); setPhoneCode(initialPhone.code); }, [settings?.dateOfBirth, initialPhone.code]);
   async function save(form: FormData) {
-    const firstName = String(form.get("firstName")); const lastName = String(form.get("lastName")); const region = String(form.get("region"));
-    await saveExtendedAccountSettings({ firstName, lastName, dateOfBirth: String(form.get("dob")), age: String(form.get("age")), mobile: String(form.get("mobile")), region }, String(user?.id || ""));
+    const firstName = String(form.get("firstName")); const lastName = String(form.get("lastName")); const region = regionForCode(phoneCode);
+    const mobile = formatPhone(phoneCode, String(form.get("mobile"))); const age = calculateAge(String(form.get("dob")));
+    await saveExtendedAccountSettings({ firstName, lastName, dateOfBirth: String(form.get("dob")), age, mobile, region }, String(user?.id || ""));
     await updateUsername(`${firstName} ${lastName}`.trim() || user?.username || user?.email || "FinanceAI User");
     await saveFinancialProfile({ region, monthly_income: profile?.monthly_income || 0, fixed_expenses: profile?.fixed_expenses || 0, current_savings: profile?.current_savings || 0, initial_savings_target: profile?.initial_savings_target || 0 });
     await Promise.all([refreshUser(), refreshProfile()]);
@@ -89,7 +122,7 @@ function AccountDetailsForm() {
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); await action.run(() => save(new FormData(event.currentTarget)), "Account details saved successfully.");
   }
-  return <form onSubmit={submit} className="space-y-5"><AvatarEditor /><div className="grid gap-x-6 gap-y-4 sm:grid-cols-2"><FormInput id="first-name" name="firstName" label="First Name" defaultValue={settings?.firstName || ""} /><FormInput id="last-name" name="lastName" label="Last Name" defaultValue={settings?.lastName || ""} /><FormInput id="date-of-birth" name="dob" type="date" label="Date of Birth" defaultValue={settings?.dateOfBirth || ""} /><FormInput id="age" name="age" type="number" min="0" max="130" label="Age" defaultValue={settings?.age || ""} /><label className="block"><span className="mb-2 block text-sm font-medium text-slate-700">Region</span><RegionSelect value={settings?.region || profile?.region || "Australia"} /></label><FormInput id="mobile" name="mobile" type="tel" label="Mobile" defaultValue={settings?.mobile || ""} /></div><div className="flex items-center justify-end gap-4 pt-2"><ActionMessage state={action.state} /><PrimaryButton className="w-auto py-2.5" disabled={action.state.loading}>{action.state.loading ? "Saving..." : "Save Account"}</PrimaryButton></div></form>;
+  return <form onSubmit={submit} className="space-y-4"><AvatarEditor /><div className="grid gap-x-5 gap-y-3 sm:grid-cols-2"><FormInput id="first-name" name="firstName" label="First Name" defaultValue={settings?.firstName || ""} /><FormInput id="last-name" name="lastName" label="Last Name" defaultValue={settings?.lastName || ""} /><DatePicker id="date-of-birth" name="dob" label="Date of Birth" value={dob} onChange={setDob} /><FormInput id="age" name="age" type="number" label="Age" value={calculateAge(dob)} readOnly /><label className="block"><span className="mb-2 block text-sm font-medium text-slate-700">Mobile</span><div className="grid grid-cols-[7rem_1fr] gap-2"><select value={phoneCode} onChange={(event) => setPhoneCode(event.target.value)} className={inputClass}>{phoneRegions.map((item) => <option key={item.code} value={item.code}>{item.code}</option>)}</select><input name="mobile" type="tel" pattern="[0-9]{4,15}" defaultValue={initialPhone.number} placeholder="405952873" className={inputClass} required /></div></label><FormInput id="region" name="region" label="Region" value={regionForCode(phoneCode)} readOnly /></div><div className="flex flex-col items-center gap-3 pt-1"><ActionMessage state={action.state} /><PrimaryButton className="w-full px-5 py-2.5 sm:w-[20%]" disabled={action.state.loading}>{action.state.loading ? "Saving..." : "Save Account"}</PrimaryButton></div></form>;
 }
 
 function EmailUpdateModal({ onClose }: { onClose: () => void }) {
@@ -128,7 +161,7 @@ function DeleteSection() {
 }
 
 function AccountTab() {
-  return <SettingsCard title="User Profile"><div className="px-6 pb-7 pt-6"><AccountDetailsForm /></div></SettingsCard>;
+  return <SettingsCard title="User Profile"><div className="px-5 pb-5 pt-5"><AccountDetailsForm /></div></SettingsCard>;
 }
 
 function SecurityActionRow({ icon, title, detail, action, onClick }: { icon: ReactNode; title: string; detail?: string; action: string; onClick: () => void }) {

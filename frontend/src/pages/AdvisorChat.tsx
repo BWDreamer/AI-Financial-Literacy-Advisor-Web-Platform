@@ -1,69 +1,111 @@
-import { FormEvent, useCallback, useEffect, useState } from "react";
-import { Conversation, ConversationDetail, createConversation, deleteConversation, getConversation, getConversations, sendAdvisorMessage } from "../api/chat";
+import { ChangeEvent, DragEvent, FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FileText, PanelLeft, Plus, Send, Trash2, X } from "lucide-react";
+import { ChatMessage, Conversation, ConversationDetail, createConversation, deleteConversation, getConversation, getConversations, sendAdvisorMessage } from "../api/chat";
+
+type AttachmentPreview = { id: string; name: string; extension: string; isImage: boolean; dataUrl?: string };
+type LocalAttachmentMap = Record<number, AttachmentPreview[]>;
+
+function sortedConversations(items: Conversation[]) {
+  return [...items].sort((a, b) => new Date(b.updated_at || b.created_at).getTime() - new Date(a.updated_at || a.created_at).getTime());
+}
+
+function attachmentText(files: AttachmentPreview[]) {
+  return files.length ? `\n\nAttached files: ${files.map((file) => file.name).join(", ")}` : "";
+}
+
+function fileExtension(file: File) {
+  return (file.name.split(".").pop() || "File").toUpperCase();
+}
+
+function readImage(file: File) {
+  return new Promise<string>((resolve) => {
+    const reader = new FileReader(); reader.onload = () => resolve(String(reader.result || "")); reader.onerror = () => resolve(""); reader.readAsDataURL(file);
+  });
+}
+
+function visibleMessage(content: string) {
+  return content.replace(/\n\nAttached files:.*$/s, "").trim();
+}
+
+function HistoryItem({ item, activeId, onSelect, onDelete }: { item: Conversation; activeId?: number; onSelect: () => void; onDelete: () => void }) {
+  return <button type="button" onClick={onSelect} title={item.title} className={`group flex w-full items-center gap-3 rounded-2xl p-3 text-left transition ${activeId === item.conversation_id ? "bg-blue-50 text-slate-900" : "text-slate-600 hover:bg-slate-50"}`}><span className="min-w-0 flex-1 truncate text-sm font-semibold">{item.title}</span><span onClick={(event) => { event.stopPropagation(); onDelete(); }} className="grid size-8 shrink-0 place-items-center rounded-xl text-red-500 hover:bg-red-50"><Trash2 size={16} /></span></button>;
+}
+
+function ConversationSidebar({ conversations, activeId, onNew, onSelect, onDelete }: { conversations: Conversation[]; activeId?: number; onNew: () => void; onSelect: (id: number) => void; onDelete: (id: number) => void }) {
+  return <aside className="sticky top-0 h-screen w-64 shrink-0 overflow-y-auto border-r border-slate-200 bg-white p-4"><button type="button" onClick={onNew} className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white"><Plus size={18} />New Conversation</button><p className="mt-5 px-1 text-xs font-bold uppercase tracking-[0.2em] text-slate-400">Historical Conversation</p><div className="mt-3 space-y-2">{conversations.length === 0 && <p className="p-3 text-sm text-slate-500">No saved conversations.</p>}{conversations.map((item) => <HistoryItem key={item.conversation_id} item={item} activeId={activeId} onSelect={() => onSelect(item.conversation_id)} onDelete={() => onDelete(item.conversation_id)} />)}</div></aside>;
+}
+
+function MessageList({ messages, attachments }: { messages: ChatMessage[]; attachments: LocalAttachmentMap }) {
+  return <div className="mt-8 flex-1 space-y-4 overflow-y-auto pr-1">{messages.map((message) => <div key={message.id} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}><article style={{ maxWidth: "61.8%" }} className={`inline-block w-fit rounded-2xl p-4 ${message.role === "user" ? "bg-blue-600 text-white" : "bg-white shadow-sm"}`}><MessageAttachments files={attachments[message.id] || []} inBubble />{visibleMessage(message.content) && <p className="max-w-full whitespace-pre-wrap break-words text-sm leading-6">{visibleMessage(message.content)}</p>}</article></div>)}</div>;
+}
+
+function isImageFile(file: File) {
+  return file.type.startsWith("image/") || /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(file.name);
+}
+
+function removeOnKey(event: KeyboardEvent, onRemove?: () => void) {
+  if (!onRemove || (event.key !== "Delete" && event.key !== "Backspace")) return;
+  event.preventDefault(); onRemove();
+}
+
+function AttachmentCard({ file, onRemove, inBubble = false }: { file: AttachmentPreview; onRemove?: () => void; inBubble?: boolean }) {
+  const fileBg = inBubble ? "bg-white/95 text-slate-900" : "bg-slate-50 text-slate-900";
+  if (file.isImage && file.dataUrl) return <div tabIndex={onRemove ? 0 : -1} onKeyDown={(event) => removeOnKey(event, onRemove)} className="group relative size-20 shrink-0 rounded-2xl focus:outline-none focus:ring-4 focus:ring-blue-100"><div className="size-20 overflow-hidden rounded-2xl bg-slate-100 ring-1 ring-slate-200"><img src={file.dataUrl} alt={file.name} className="block size-full object-cover" /></div>{onRemove && <button type="button" aria-label={`Delete ${file.name}`} onClick={onRemove} className="absolute right-1 top-1 z-20 grid size-6 place-items-center rounded-full bg-slate-800 text-white shadow-md ring-2 ring-white hover:bg-red-500"><X size={14} strokeWidth={3} /></button>}</div>;
+  return <div tabIndex={onRemove ? 0 : -1} onKeyDown={(event) => removeOnKey(event, onRemove)} className={`relative flex min-w-44 items-center gap-3 rounded-2xl p-3 focus:outline-none focus:ring-4 focus:ring-blue-100 ${fileBg}`}><span className="grid size-10 place-items-center rounded-xl bg-red-500 text-white"><FileText size={20} /></span><span className="min-w-0"><span className="block truncate text-sm font-bold">{file.name}</span><span className="text-xs uppercase text-slate-500">{file.extension}</span></span>{onRemove && <button type="button" aria-label={`Delete ${file.name}`} onClick={onRemove} className="absolute right-1 top-1 z-20 grid size-6 place-items-center rounded-full bg-slate-800 text-white shadow-md ring-2 ring-white hover:bg-red-500"><X size={14} strokeWidth={3} /></button>}</div>;
+}
+
+function MessageAttachments({ files, onRemove, inBubble = false }: { files: AttachmentPreview[]; onRemove?: (index: number) => void; inBubble?: boolean }) {
+  if (!files.length) return null;
+  return <div className={`flex flex-wrap items-start gap-3 ${inBubble ? "mb-3" : "px-2 pb-4"}`}>{files.map((file, index) => <AttachmentCard key={file.id} file={file} inBubble={inBubble} onRemove={onRemove ? () => onRemove(index) : undefined} />)}</div>;
+}
+
+function ChatComposer({ sending, onSubmit }: { sending: boolean; onSubmit: (message: string, files: AttachmentPreview[]) => Promise<void> }) {
+  const [message, setMessage] = useState(""); const [files, setFiles] = useState<AttachmentPreview[]>([]); const [dragging, setDragging] = useState(false); const inputRef = useRef<HTMLInputElement>(null); const textRef = useRef<HTMLTextAreaElement>(null);
+  const canSend = (message.trim().length > 0 || files.length > 0) && !sending;
+  async function addFiles(list?: FileList | null) {
+    if (!list) return; const previews = await Promise.all(Array.from(list).map(toPreview));
+    setFiles((current) => [...current, ...previews]);
+  }
+  useEffect(() => { if (textRef.current) { textRef.current.style.height = "auto"; textRef.current.style.height = `${Math.min(textRef.current.scrollHeight, 220)}px`; } }, [message]);
+  async function submit(event: FormEvent) {
+    event.preventDefault(); if (!canSend) return;
+    await onSubmit(message.trim(), files); setMessage(""); setFiles([]); if (inputRef.current) inputRef.current.value = "";
+  }
+  function removeLastOnEmpty(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (message || !files.length || (event.key !== "Delete" && event.key !== "Backspace")) return;
+    event.preventDefault(); setFiles((current) => current.slice(0, -1));
+  }
+  function drop(event: DragEvent<HTMLFormElement>) {
+    event.preventDefault(); setDragging(false); void addFiles(event.dataTransfer.files);
+  }
+  return <form onSubmit={submit} onDragOver={(event) => { event.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={drop} className={`rounded-3xl border bg-white p-3 shadow-sm transition ${dragging ? "border-blue-400 ring-4 ring-blue-100" : "border-slate-200"}`}><MessageAttachments files={files} onRemove={(index) => setFiles((current) => current.filter((_, itemIndex) => itemIndex !== index))} /><textarea ref={textRef} value={message} onKeyDown={removeLastOnEmpty} onChange={(event) => setMessage(event.target.value)} rows={1} placeholder="Ask anything about personal finance..." className={`max-h-56 w-full resize-none overflow-y-auto bg-transparent px-2 text-sm leading-6 outline-none placeholder:text-slate-400 ${files.length ? "min-h-16" : "min-h-12"}`} /><div className="mt-2 flex items-center justify-between"><input ref={inputRef} type="file" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt" className="hidden" onChange={(event: ChangeEvent<HTMLInputElement>) => void addFiles(event.target.files)} /><button type="button" onClick={() => inputRef.current?.click()} className="grid size-10 place-items-center rounded-full text-slate-600 hover:bg-slate-100" title="Upload images or files"><Plus size={24} /></button><button type="submit" disabled={!canSend} className={`grid size-10 place-items-center rounded-full transition ${canSend ? "bg-blue-600 text-white hover:bg-blue-700" : "bg-slate-200 text-slate-400"}`} title="Send message"><Send size={18} /></button></div></form>;
+}
+
+async function toPreview(file: File): Promise<AttachmentPreview> {
+  const isImage = isImageFile(file);
+  return { id: crypto.randomUUID(), name: file.name, extension: fileExtension(file), isImage, dataUrl: isImage ? await readImage(file) : undefined };
+}
 
 export default function AdvisorChat() {
-  const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [active, setActive] = useState<ConversationDetail | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [sending, setSending] = useState(false);
-  const [error, setError] = useState("");
-
-  const loadList = useCallback(async () => {
-    const items = await getConversations();
-    setConversations(items);
-    return items;
-  }, []);
-
-  useEffect(() => {
-    loadList().then(async (items) => {
-      if (items[0]) setActive(await getConversation(items[0].conversation_id));
-    }).catch((caught) => setError(caught instanceof Error ? caught.message : "Unable to load conversations."))
-      .finally(() => setLoading(false));
-  }, [loadList]);
-
-  async function selectConversation(id: number) {
-    setError("");
-    try { setActive(await getConversation(id)); }
-    catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to load this conversation."); }
+  const [conversations, setConversations] = useState<Conversation[]>([]); const [active, setActive] = useState<ConversationDetail | null>(null);
+  const [loading, setLoading] = useState(true); const [sending, setSending] = useState(false); const [error, setError] = useState(""); const [historyOpen, setHistoryOpen] = useState(false); const [localAttachments, setLocalAttachments] = useState<LocalAttachmentMap>({}); const [draftConversationId, setDraftConversationId] = useState<number | null>(null);
+  const orderedConversations = useMemo(() => sortedConversations(conversations).filter((item) => item.conversation_id !== draftConversationId), [conversations, draftConversationId]);
+  const loadList = useCallback(async () => { const items = sortedConversations(await getConversations()); setConversations(items); return items; }, []);
+  useEffect(() => { loadList().then(async (items) => { if (items[0]) setActive(await getConversation(items[0].conversation_id)); }).catch((caught) => setError(caught instanceof Error ? caught.message : "Unable to load conversations.")).finally(() => setLoading(false)); }, [loadList]);
+  async function selectConversation(id: number) { setError(""); setDraftConversationId(null); try { setActive(await getConversation(id)); } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to load this conversation."); } }
+  function startConversation() { setError(""); setDraftConversationId(null); setActive(null); }
+  async function removeConversation(id: number) { await deleteConversation(id); const items = await loadList(); setActive(items[0] ? await getConversation(items[0].conversation_id) : null); }
+  function attachToLatestUserMessage(next: ConversationDetail, files: AttachmentPreview[]) {
+    const userMessages = next.messages.filter((item) => item.role === "user");
+    const latest = userMessages[userMessages.length - 1]; if (!latest || !files.length) return;
+    setLocalAttachments((current) => ({ ...current, [latest.id]: files }));
   }
-
-  async function startConversation() {
-    const created = await createConversation();
-    await loadList();
-    setActive({ ...created, messages: [] });
-  }
-
-  async function removeConversation(id: number) {
-    await deleteConversation(id);
-    const items = await loadList();
-    setActive(items[0] ? await getConversation(items[0].conversation_id) : null);
-  }
-
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = event.currentTarget;
-    const message = String(new FormData(form).get("message")).trim();
-    if (!message) return;
+  async function sendMessage(message: string, files: AttachmentPreview[]) {
     setSending(true); setError("");
-    try {
-      let conversation = active;
-      if (!conversation) {
-        const created = await createConversation();
-        conversation = { ...created, messages: [] };
-      }
-      await sendAdvisorMessage(message, conversation.conversation_id);
-      form.reset();
-      setActive(await getConversation(conversation.conversation_id));
-      await loadList();
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Unable to send your message.");
-    } finally { setSending(false); }
+    try { const conversation = active || { ...(await createConversation()), messages: [] }; await sendAdvisorMessage(`${message}${attachmentText(files)}`.trim(), conversation.conversation_id); const next = await getConversation(conversation.conversation_id); attachToLatestUserMessage(next, files); setDraftConversationId(conversation.conversation_id); setActive(next); await loadList(); }
+    catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to send your message."); }
+    finally { setSending(false); }
   }
-
   if (loading) return <main className="p-10 text-slate-500">Loading conversations...</main>;
-
-  return <main className="flex min-h-screen bg-slate-50">
-    <aside className="w-64 border-r border-slate-200 bg-white p-4"><button type="button" onClick={() => void startConversation()} className="w-full rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white">New Conversation</button><div className="mt-4 space-y-2">{conversations.length === 0 && <p className="p-3 text-sm text-slate-500">No saved conversations.</p>}{conversations.map((item) => <div key={item.conversation_id} className={`rounded-xl p-3 ${active?.conversation_id === item.conversation_id ? "bg-blue-50" : "hover:bg-slate-50"}`}><button type="button" className="w-full truncate text-left text-sm font-medium" onClick={() => void selectConversation(item.conversation_id)}>{item.title}</button><button type="button" className="mt-2 text-xs text-red-500" onClick={() => void removeConversation(item.conversation_id)}>Delete</button></div>)}</div></aside>
-    <section className="flex min-w-0 flex-1 flex-col p-8"><div><h1 className="text-3xl font-bold tracking-tight">Advisor Chat</h1><p className="mt-2 text-slate-500">Ask educational questions about personal finance.</p></div>{error && <p className="mt-5 rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>}<div className="mt-6 flex-1 space-y-4">{!active?.messages.length && <p className="rounded-2xl border border-dashed border-slate-300 p-8 text-center text-slate-500">Start a conversation with your advisor.</p>}{active?.messages.map((message) => <article key={message.id} className={`max-w-2xl rounded-2xl p-4 ${message.role === "user" ? "ml-auto bg-blue-600 text-white" : "bg-white shadow-sm"}`}><p className="whitespace-pre-wrap text-sm leading-6">{message.content}</p></article>)}</div><form onSubmit={submit} className="mt-6 flex gap-3"><input name="message" required placeholder="Ask a financial question..." className="min-w-0 flex-1 rounded-xl border border-slate-300 bg-white px-4 py-3 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100" /><button disabled={sending} className="rounded-xl bg-blue-600 px-6 py-3 font-semibold text-white disabled:opacity-60">{sending ? "Sending..." : "Send"}</button></form></section>
-  </main>;
+  return <main className="flex min-h-screen bg-slate-50">{historyOpen && <ConversationSidebar conversations={orderedConversations} activeId={active?.conversation_id} onNew={() => void startConversation()} onSelect={(id) => void selectConversation(id)} onDelete={(id) => void removeConversation(id)} />}<section className="flex min-w-0 flex-1 flex-col p-8"><div className="flex items-start gap-4"><button type="button" onClick={() => setHistoryOpen(!historyOpen)} className="grid size-11 shrink-0 place-items-center rounded-full bg-white text-slate-600 shadow-sm ring-1 ring-slate-200 hover:bg-slate-50"><PanelLeft size={22} /></button><div><h1 className="text-3xl font-bold tracking-tight">Advisor Chat</h1><p className="mt-2 text-slate-500">Ask educational questions about personal finance.</p></div></div>{error && <p className="mt-5 rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>}<MessageList messages={active?.messages || []} attachments={localAttachments} /><div className="mt-6"><ChatComposer sending={sending} onSubmit={sendMessage} /></div></section></main>;
 }
