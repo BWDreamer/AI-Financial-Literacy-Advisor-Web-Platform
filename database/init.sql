@@ -75,7 +75,19 @@ CREATE TABLE IF NOT EXISTS cash_flows (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS user_memories (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    category VARCHAR(50) NOT NULL DEFAULT 'other',
+    fact TEXT NOT NULL,
+    source VARCHAR(50) NOT NULL DEFAULT 'manual',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_used_at TIMESTAMP
+);
+
 CREATE INDEX IF NOT EXISTS ix_assets_user_id ON assets(user_id);
 CREATE INDEX IF NOT EXISTS ix_cash_flows_user_id ON cash_flows(user_id);
 CREATE INDEX IF NOT EXISTS ix_ai_conversations_user_id ON ai_conversations(user_id);
 CREATE INDEX IF NOT EXISTS ix_ai_messages_conversation_id ON ai_messages(conversation_id);
+CREATE INDEX IF NOT EXISTS ix_user_memories_user_id ON user_memories(user_id);

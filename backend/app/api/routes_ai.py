@@ -22,6 +22,11 @@ from app.schemas.ai import (
     AIChatResponse,
 )
 from app.services.ai_advisor_service import AIAdvisorService
+from app.services.memory_service import (
+    build_memory_context,
+    remember_from_message,
+    retrieve_relevant_memories,
+)
 from app.services.rule_lookup_service import (
     build_financial_rule_answer,
     build_financial_rule_context,
@@ -45,7 +50,7 @@ def ping_ai():
 )
 async def chat_with_advisor(
     request: AIChatRequest,
-    _current_user: User = Depends(
+    current_user: User = Depends(
         get_current_user
     ),
     advisor_service: AIAdvisorService = Depends(
@@ -59,7 +64,7 @@ async def chat_with_advisor(
         conversation = None
         if request.conversation_id is not None:
             conversation = get_conversation(
-                db, _current_user.id, request.conversation_id
+                db, current_user.id, request.conversation_id
             )
             if conversation is None:
                 raise HTTPException(
@@ -73,12 +78,24 @@ async def chat_with_advisor(
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail="Financial rule was not found.",
                 )
+            memory_context = build_memory_context(
+                retrieve_relevant_memories(
+                    db,
+                    current_user.id,
+                    request.message,
+                )
+            )
             message = (
                 f"Verified financial rule:\n{rule.rule_value}\n"
                 f"Source: {rule.source_name or 'Not provided'} - "
                 f"{rule.source_url or 'Not provided'}\n\n"
                 f"User question: {request.message}"
             )
+            if memory_context is not None:
+                message = (
+                    f"{memory_context}\n\n"
+                    f"{message}"
+                )
         else:
             rule_answer = build_financial_rule_answer(
                 db,
@@ -100,17 +117,39 @@ async def chat_with_advisor(
                         rule_answer,
                     )
 
+                remember_from_message(db, current_user.id, request.message)
+
                 return AIChatResponse(
                     answer=rule_answer,
                     model=RULE_KNOWLEDGE_BASE_MODEL,
                 )
 
+            memory_context = build_memory_context(
+                retrieve_relevant_memories(
+                    db,
+                    current_user.id,
+                    request.message,
+                )
+            )
             rule_context = build_financial_rule_context(
                 db,
                 request.message,
             )
 
-            if rule_context is not None:
+            if memory_context is not None and rule_context is not None:
+                message = (
+                    f"{memory_context}\n\n"
+                    f"{rule_context}\n\n"
+                    "User question:\n"
+                    f"{request.message}"
+                )
+            elif memory_context is not None:
+                message = (
+                    f"{memory_context}\n\n"
+                    "User question:\n"
+                    f"{request.message}"
+                )
+            elif rule_context is not None:
                 message = (
                     f"{rule_context}\n\n"
                     "User question:\n"
@@ -121,6 +160,8 @@ async def chat_with_advisor(
             add_message(db, conversation, "user", request.message)
 
         answer = await advisor_service.reply(message)
+
+        remember_from_message(db, current_user.id, request.message)
 
         if conversation is not None:
             add_message(db, conversation, "assistant", answer)
