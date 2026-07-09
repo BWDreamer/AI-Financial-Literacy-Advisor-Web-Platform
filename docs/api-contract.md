@@ -12,6 +12,11 @@
 - GET /api/rules/superannuation/employer-contribution?region=Australia&rule_year=2025-2026
 - GET /api/ai/ping
 - POST /api/ai/chat
+- GET /api/memory
+- POST /api/memory
+- PUT /api/memory/{memory_id}
+- DELETE /api/memory/{memory_id}
+- GET /api/memory/export
 - GET /api/goals/ping
 - GET /api/admin/ping
 - GET /api/admin/users (admin only)
@@ -45,6 +50,14 @@ for creation. Update requests omit `password`. User responses include `id`,
 
 `POST /api/ai/chat` accepts optional `conversation_id` and `rule_id` fields.
 When `conversation_id` is supplied, the user and assistant messages are saved.
+Relevant long-term memories are retrieved before the AI drafts a response.
+
+## Long-term memory
+
+Memory requests use `fact` and `category`. Supported categories are `asset`,
+`debt`, `expense`, `goal`, `income`, `preference`, `profile`, and `other`.
+Responses include `source`, timestamps, and `last_used_at`. Users can export
+all stored facts through `/api/memory/export`.
 
 ## Account deletion
 

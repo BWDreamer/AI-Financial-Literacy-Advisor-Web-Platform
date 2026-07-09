@@ -56,6 +56,7 @@ docker compose down
 * Savings-goal calculation
 * Financial-rules listing and filtering
 * Structured ATO tax-bracket and superannuation rule lookup
+* Long-term AI memory with user-managed financial facts
 * PostgreSQL data storage
 * Automated backend tests
 
@@ -90,6 +91,16 @@ GET /api/rules
 GET /api/rules/{rule_id}
 GET /api/rules/tax-bracket?region=Australia&rule_year=2025-2026&income=80000
 GET /api/rules/superannuation/employer-contribution?region=Australia&rule_year=2025-2026
+```
+
+### Long-term Memory
+
+```text
+GET    /api/memory
+POST   /api/memory
+PUT    /api/memory/{memory_id}
+DELETE /api/memory/{memory_id}
+GET    /api/memory/export
 ```
 
 Detailed request and response formats are available in the FastAPI documentation:
