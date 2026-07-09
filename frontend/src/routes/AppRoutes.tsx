@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import AdminPortalLayout from "../components/AdminPortalLayout";
 import UserPortalLayout from "../components/UserPortalLayout";
 import AdvisorChat from "../pages/AdvisorChat";
+import ArticleDetailPage from "../pages/ArticleDetailPage";
 import HomePage from "../pages/HomePage";
 import KnowledgeHub from "../pages/KnowledgeHub";
 import Login from "../pages/Login";
@@ -35,6 +36,7 @@ export default function AppRoutes() {
       <Route path="/advisor-chat" element={<AdvisorChat />} />
       <Route path="/goals" element={<MyGoals />} />
       <Route path="/knowledge-hub" element={<KnowledgeHub />} />
+      <Route path="/knowledge-hub/:articleId" element={<ArticleDetailPage />} />
     </Route>
     <Route path="/dashboard" element={<Navigate to="/home" replace />} />
     <Route path="*" element={<LandingRoute />} />
