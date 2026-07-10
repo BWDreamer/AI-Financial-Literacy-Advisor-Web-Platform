@@ -1,5 +1,7 @@
 import asyncio
+import json
 import logging
+from typing import Any
 
 import httpx
 from google import genai
@@ -79,19 +81,30 @@ class GeminiProvider:
     async def _generate_once(
         self,
         message: str,
+        *,
+        response_schema: dict[str, Any] | None = None,
     ):
+        config_kwargs: dict[str, Any] = {
+            "system_instruction": FINANCIAL_ADVISOR_INSTRUCTIONS,
+            "temperature": 0.3,
+        }
+
+        if response_schema is not None:
+            config_kwargs.update(
+                {
+                    "response_mime_type": "application/json",
+                    "response_schema": response_schema,
+                    "temperature": 0,
+                }
+            )
+
         async with asyncio.timeout(
             self._timeout_seconds
         ):
             return await self._client.aio.models.generate_content(
                 model=self.model,
                 contents=message,
-                config=types.GenerateContentConfig(
-                    system_instruction=(
-                        FINANCIAL_ADVISOR_INSTRUCTIONS
-                    ),
-                    temperature=0.3,
-                ),
+                config=types.GenerateContentConfig(**config_kwargs),
             )
 
     async def _sleep_before_retry(
@@ -105,10 +118,12 @@ class GeminiProvider:
             self._retry_delay_seconds * (2 ** attempt_index)
         )
 
-    async def generate_reply(
+    async def _generate_with_retries(
         self,
         message: str,
-    ) -> str:
+        *,
+        response_schema: dict[str, Any] | None = None,
+    ):
         if not self._api_key:
             raise LLMConfigurationError(
                 "The Gemini API key is not configured."
@@ -118,7 +133,10 @@ class GeminiProvider:
 
         for attempt_index in range(max_attempts):
             try:
-                response = await self._generate_once(message)
+                response = await self._generate_once(
+                    message,
+                    response_schema=response_schema,
+                )
                 break
             except (
                 TimeoutError,
@@ -169,6 +187,13 @@ class GeminiProvider:
                     "The AI provider rejected the request."
                 ) from error
 
+        return response
+
+    async def generate_reply(
+        self,
+        message: str,
+    ) -> str:
+        response = await self._generate_with_retries(message)
         answer = (response.text or "").strip()
 
         if not answer:
@@ -177,3 +202,37 @@ class GeminiProvider:
             )
 
         return answer
+
+    async def generate_json(
+        self,
+        message: str,
+        response_schema: dict[str, Any],
+    ) -> dict[str, Any]:
+        response = await self._generate_with_retries(
+            message,
+            response_schema=response_schema,
+        )
+        parsed = getattr(response, "parsed", None)
+
+        if isinstance(parsed, dict):
+            return parsed
+
+        answer = (response.text or "").strip()
+        if not answer:
+            raise LLMServiceError(
+                "The AI provider returned an empty JSON response."
+            )
+
+        try:
+            payload = json.loads(answer)
+        except json.JSONDecodeError as error:
+            raise LLMServiceError(
+                "The AI provider returned invalid structured JSON."
+            ) from error
+
+        if not isinstance(payload, dict):
+            raise LLMServiceError(
+                "The AI provider returned a non-object JSON response."
+            )
+
+        return payload
