@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     gemini_api_key: str = ""
     llm_model: str = "gemini-2.5-flash"
     llm_timeout_seconds: float = 15
+    # Model self-assessed routing confidence, not a calibrated probability.
+    rule_intent_confidence_threshold: float = 0.55
 
     upload_dir: str = "uploads"
     max_upload_size_mb: int = 10

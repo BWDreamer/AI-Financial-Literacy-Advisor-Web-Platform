@@ -1,4 +1,4 @@
-from typing import Protocol
+from typing import Any, Protocol
 
 
 class LLMProvider(Protocol):
@@ -9,6 +9,13 @@ class LLMProvider(Protocol):
         message: str,
     ) -> str:
         """Generate one assistant reply for a user message."""
+
+    async def generate_json(
+        self,
+        message: str,
+        response_schema: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Generate one JSON object using provider structured output."""
 
 
 class AIAdvisorService:
@@ -30,4 +37,14 @@ class AIAdvisorService:
     ) -> str:
         return await self._provider.generate_reply(
             message
+        )
+
+    async def reply_json(
+        self,
+        message: str,
+        response_schema: dict[str, Any],
+    ) -> dict[str, Any]:
+        return await self._provider.generate_json(
+            message,
+            response_schema,
         )

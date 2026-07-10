@@ -32,3 +32,19 @@ class AIChatRequest(BaseModel):
 class AIChatResponse(BaseModel):
     answer: str
     model: str
+
+
+class ImportedFinancialRecordResponse(BaseModel):
+    record_type: str
+    name: str
+    amount: float
+    asset_type: str | None = None
+    flow_type: str | None = None
+    date: str | None = None
+
+
+class AIPdfChatResponse(AIChatResponse):
+    low_confidence: bool
+    extracted_text_characters: int
+    imported_records: list[ImportedFinancialRecordResponse]
+    fallback_reason: str | None = None

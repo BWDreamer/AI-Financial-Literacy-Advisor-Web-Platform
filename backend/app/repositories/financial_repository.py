@@ -1,3 +1,5 @@
+from datetime import date as Date
+
 from sqlalchemy.orm import Session
 
 from app.models.financial import Asset, CashFlow
@@ -10,6 +12,23 @@ def list_assets(db: Session, user_id: int) -> list[Asset]:
 
 def get_asset(db: Session, user_id: int, asset_id: int) -> Asset | None:
     return db.query(Asset).filter(Asset.id == asset_id, Asset.user_id == user_id).first()
+
+
+def get_asset_by_type_and_name(
+    db: Session,
+    user_id: int,
+    asset_type: str,
+    name: str,
+) -> Asset | None:
+    return (
+        db.query(Asset)
+        .filter(
+            Asset.user_id == user_id,
+            Asset.asset_type == asset_type,
+            Asset.name == name,
+        )
+        .first()
+    )
 
 
 def save_asset(db: Session, user_id: int, data: AssetRequest, asset: Asset | None = None) -> Asset:
@@ -42,6 +61,25 @@ def get_cash_flow(db: Session, user_id: int, cash_flow_id: int) -> CashFlow | No
         CashFlow.id == cash_flow_id,
         CashFlow.user_id == user_id,
     ).first()
+
+
+def get_cash_flow_by_identity(
+    db: Session,
+    user_id: int,
+    flow_type: str,
+    name: str,
+    date: Date,
+) -> CashFlow | None:
+    return (
+        db.query(CashFlow)
+        .filter(
+            CashFlow.user_id == user_id,
+            CashFlow.flow_type == flow_type,
+            CashFlow.name == name,
+            CashFlow.date == date,
+        )
+        .first()
+    )
 
 
 def save_cash_flow(

@@ -1,84 +1,20 @@
 import json
-import re
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
 
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.models.financial_rule import FinancialRule
 from app.repositories.rule_repository import list_financial_rules
+from app.services.financial_rule_intents import (
+    FinancialRuleIntent,
+    FinancialRuleIntentName,
+)
 
 
 MONEY_PRECISION = Decimal("0.01")
-DEFAULT_RULE_YEAR = "2025-2026"
-DEFAULT_SUPER_RULE_YEAR = "2025-2026"
-
-TAX_INTENT_KEYWORDS = (
-    "tax",
-    "taxable",
-    "income tax",
-    "marginal rate",
-    "ato",
-    "税",
-    "税率",
-    "所得税",
-    "纳税",
-    "缴纳",
-    "工资",
-    "年薪",
-    "收入",
-)
-KNOWLEDGE_BASE_KEYWORDS = (
-    "knowledge base",
-    "rules database",
-    "rule database",
-    "知识库",
-    "规则库",
-    "更新到哪",
-    "覆盖到哪",
-    "支持哪些",
-)
-SUPER_INTENT_KEYWORDS = (
-    "super",
-    "superannuation",
-    "super guarantee",
-    "sg",
-    "employer contribution",
-    "payday super",
-    "养老金",
-    "退休金",
-    "雇主缴纳",
-    "雇主供款",
-    "养老金比例",
-)
-SUPER_CONTRIBUTION_CAP_KEYWORDS = (
-    "contribution cap",
-    "contributions cap",
-    "super cap",
-    "super caps",
-    "concessional",
-    "non-concessional",
-    "salary sacrifice",
-    "extra super",
-    "personal contribution",
-    "contribute to super",
-    "养老金上限",
-    "缴纳上限",
-    "供款上限",
-    "税前养老金",
-    "税后养老金",
-    "自愿缴纳",
-    "额外存",
-)
-AUSTRALIA_REGION_KEYWORDS = (
-    "australia",
-    "australian",
-    "sydney",
-    "nsw",
-    "澳大利亚",
-    "澳洲",
-    "悉尼",
-)
+SUPPORTED_REGION = "Australia"
 
 
 def _normalize_rule_year(rule_year: str) -> str:
@@ -89,93 +25,94 @@ def _normalize_region(region: str) -> str:
     return region.strip()
 
 
-def _contains_any(
-    text: str,
-    keywords: tuple[str, ...],
-) -> bool:
-    normalized_text = text.lower()
+def _rule_year_sort_key(rule_year: str) -> tuple[int, int]:
+    normalized_rule_year = _normalize_rule_year(rule_year)
+    year_parts = normalized_rule_year.split("-", maxsplit=1)
 
-    return any(
-        keyword.lower() in normalized_text
-        for keyword in keywords
+    try:
+        start_year = int(year_parts[0])
+        end_year = int(year_parts[1]) if len(year_parts) > 1 else start_year
+    except ValueError:
+        return (0, 0)
+
+    return (start_year, end_year)
+
+
+def _latest_supported_rule_year(
+    db: Session,
+    *,
+    region: str,
+    category: str,
+    rule_keys: set[str] | None = None,
+    rule_key_prefix: str | None = None,
+) -> str | None:
+    rules = list_financial_rules(
+        db=db,
+        region=region,
+        category=category,
     )
-
-
-def _infer_region(message: str) -> str:
-    if _contains_any(message, AUSTRALIA_REGION_KEYWORDS):
-        return "Australia"
-
-    return "Australia"
-
-
-def _normalize_year_pair(
-    first_year: str,
-    second_year: str,
-) -> str:
-    first = int(first_year)
-    second = int(second_year)
-
-    if second < 100:
-        second += (first // 100) * 100
-
-    return f"{first}-{second}"
-
-
-def _infer_rule_year(message: str) -> str:
-    explicit_match = re.search(
-        r"(?<!\d)(20\d{2})\s*[-/–]\s*(\d{2}|\d{4})(?!\d)",
-        message,
-    )
-
-    if explicit_match:
-        return _normalize_year_pair(
-            explicit_match.group(1),
-            explicit_match.group(2),
+    supported_years = {
+        rule.rule_year
+        for rule in rules
+        if (
+            rule_keys is None
+            or rule.rule_key in rule_keys
         )
+        and (
+            rule_key_prefix is None
+            or rule.rule_key.startswith(rule_key_prefix)
+        )
+    }
 
-    single_year_match = re.search(
-        r"(?<!\d)(20\d{2})(?!\d)",
-        message,
+    if not supported_years:
+        return None
+
+    return max(
+        supported_years,
+        key=_rule_year_sort_key,
     )
 
-    if single_year_match:
-        year = int(single_year_match.group(1))
-        return f"{year - 1}-{year}"
 
-    return DEFAULT_RULE_YEAR
-
-
-def _infer_super_rule_year(message: str) -> str:
-    if re.search(
-        r"(?<!\d)2026\s*[-/–]\s*(27|2027)(?!\d)",
-        message,
-    ):
-        return "2026-2027"
-
-    if "1 july 2026" in message.lower() or "payday super" in message.lower():
-        return "2026-2027"
-
-    if "2026年7月1日" in message or "payday super" in message.lower():
-        return "2026-2027"
-
-    return DEFAULT_SUPER_RULE_YEAR
-
-
-def _extract_income(message: str) -> float | None:
-    matches = re.findall(
-        r"(?<!\d)(\d{1,3}(?:,\d{3})+|\d{4,})(?!\d)",
-        message,
+def _latest_tax_rule_year(
+    db: Session,
+    *,
+    region: str,
+) -> str | None:
+    return _latest_supported_rule_year(
+        db,
+        region=region,
+        category="tax",
+        rule_key_prefix="resident_income_tax_bracket_",
     )
 
-    for match in matches:
-        value = int(match.replace(",", ""))
 
-        if 1900 <= value <= 2099:
-            continue
+def _latest_employer_super_rule_year(
+    db: Session,
+    *,
+    region: str,
+) -> str | None:
+    return _latest_supported_rule_year(
+        db,
+        region=region,
+        category="superannuation",
+        rule_keys={"employer_super_contribution"},
+    )
 
-        return float(value)
 
-    return None
+def _latest_super_contribution_cap_rule_year(
+    db: Session,
+    *,
+    region: str,
+) -> str | None:
+    return _latest_supported_rule_year(
+        db,
+        region=region,
+        category="superannuation",
+        rule_keys={
+            "concessional_contributions_cap",
+            "non_concessional_contributions_cap",
+        },
+    )
 
 
 def _parse_rule_value(rule: FinancialRule) -> dict[str, Any]:
@@ -296,11 +233,6 @@ def _format_tax_brackets_context(
             "These rates do not include the Medicare levy unless "
             "a bracket explicitly says otherwise."
         ),
-        (
-            "Sydney/NSW does not use a separate city income-tax "
-            "rate for this lookup; use Australian resident ATO "
-            "rates."
-        ),
         "Tax brackets:",
     ]
 
@@ -335,11 +267,6 @@ def _format_tax_lookup_context(
                 "rules knowledge base:"
             ),
             lookup_result["llm_context"],
-            (
-                "Sydney/NSW does not use a separate city income-tax "
-                "rate for this lookup; use Australian resident ATO "
-                "rates."
-            ),
             (
                 "When answering, cite the source and clearly state "
                 "that this is educational information, not personal "
@@ -507,244 +434,6 @@ def _format_missing_rule_context(
     )
 
 
-def _format_money_amount(value: float | Decimal) -> str:
-    return f"${float(value):,.2f}"
-
-
-def _format_rule_source(
-    source_name: str | None,
-    source_url: str | None,
-) -> str:
-    source_label = source_name or "Not provided"
-    source_link = source_url or "Not provided"
-
-    return f"Source: {source_label} ({source_link})."
-
-
-def _format_tax_brackets_answer(
-    brackets: list[dict[str, Any]],
-) -> str:
-    first_bracket = brackets[0]
-    lines = [
-        (
-            f"According to the structured rules knowledge base, "
-            f"Australian resident income tax rates for "
-            f"{first_bracket['rule_year']} are:"
-        ),
-    ]
-
-    for bracket in brackets:
-        lines.append(
-            f"- {bracket['bracket']}: {bracket['formula']}"
-        )
-
-    lines.extend(
-        [
-            (
-                "These rates do not include the Medicare levy or "
-                "Medicare levy surcharge."
-            ),
-            (
-                "Sydney/NSW does not use a separate city income-tax "
-                "rate for this lookup; use Australian resident ATO "
-                "rates."
-            ),
-            _format_rule_source(
-                first_bracket["source_name"],
-                first_bracket["source_url"],
-            ),
-            (
-                "This is educational information, not personal tax "
-                "advice."
-            ),
-        ]
-    )
-
-    return "\n".join(lines)
-
-
-def _format_tax_lookup_answer(
-    lookup_result: dict[str, Any],
-) -> str:
-    return "\n".join(
-        [
-            (
-                f"According to the structured rules knowledge base, "
-                f"for {lookup_result['region']} resident tax rates "
-                f"in {lookup_result['rule_year']}:"
-            ),
-            (
-                f"- taxable income "
-                f"{_format_money_amount(lookup_result['taxable_income'])} "
-                f"falls in the {lookup_result['bracket']} bracket."
-            ),
-            (
-                f"- Marginal rate: "
-                f"{lookup_result['marginal_rate_label']}."
-            ),
-            (
-                f"- ATO formula: {lookup_result['formula']}."
-            ),
-            (
-                "- Estimated tax from this bracket formula: "
-                f"{_format_money_amount(lookup_result['estimated_tax_excluding_medicare'])}, "
-                "excluding Medicare levy."
-            ),
-            (
-                "These rates do not include the Medicare levy or "
-                "Medicare levy surcharge."
-            ),
-            _format_rule_source(
-                lookup_result["source_name"],
-                lookup_result["source_url"],
-            ),
-            (
-                "This is educational information, not personal tax "
-                "advice."
-            ),
-        ]
-    )
-
-
-def _format_superannuation_answer(
-    lookup_result: dict[str, Any],
-) -> str:
-    lines = [
-        (
-            f"According to the structured rules knowledge base, "
-            f"for {lookup_result['region']} employer super "
-            f"guarantee in {lookup_result['rule_year']}:"
-        ),
-        (
-            f"- General super guarantee rate: "
-            f"{lookup_result['rate_label']}."
-        ),
-        f"- Period: {lookup_result['period']}.",
-        (
-            f"- Earnings basis: "
-            f"{lookup_result['earnings_basis']}."
-        ),
-    ]
-
-    if lookup_result.get("payment_timing"):
-        lines.append(
-            f"- Payment timing: {lookup_result['payment_timing']}."
-        )
-
-    lines.extend(
-        [
-            _format_rule_source(
-                lookup_result["source_name"],
-                lookup_result["source_url"],
-            ),
-            (
-                "This is educational information, not personal "
-                "financial advice."
-            ),
-        ]
-    )
-
-    return "\n".join(lines)
-
-
-def _format_super_contribution_caps_answer(
-    cap_rules: list[dict[str, Any]],
-) -> str:
-    first_rule = cap_rules[0]
-    lines = [
-        (
-            f"According to the structured rules knowledge base, "
-            f"Australian superannuation contribution caps for "
-            f"{first_rule['rule_year']} "
-            f"({first_rule['period']}) are:"
-        ),
-    ]
-
-    for rule in cap_rules:
-        lines.append(
-            f"- {rule['cap_type'].title()} contributions cap: "
-            f"${rule['cap_amount']:,.0f}."
-        )
-        lines.append(
-            f"  Applies to: {rule['applies_to']}."
-        )
-
-        if rule["includes"]:
-            lines.append(
-                "  Includes: "
-                f"{', '.join(str(item) for item in rule['includes'])}."
-            )
-
-        if rule["important_condition"]:
-            lines.append(
-                f"  Important condition: "
-                f"{rule['important_condition']}"
-            )
-
-    lines.extend(
-        [
-            _format_rule_source(
-                first_rule["source_name"],
-                first_rule["source_url"],
-            ),
-            (
-                "This is educational information, not personal "
-                "financial advice."
-            ),
-        ]
-    )
-
-    return "\n".join(lines)
-
-
-def _format_missing_rule_answer(
-    *,
-    region: str,
-    rule_year: str,
-    rule_label: str,
-) -> str:
-    return "\n".join(
-        [
-            (
-                f"The local structured rules knowledge base does "
-                f"not contain {rule_label} for {region} in "
-                f"{rule_year}."
-            ),
-            (
-                "I should not infer a specific rate from model "
-                "memory. Please check the official ATO source for "
-                "that year."
-            ),
-        ]
-    )
-
-
-def _format_supported_rule_years_answer(
-    db: Session,
-    *,
-    region: str,
-) -> str | None:
-    summary = _summarize_supported_rule_years(
-        db,
-        region=region,
-    )
-
-    if not summary:
-        return None
-
-    return summary.replace(
-        "Use this database for tax and super answers instead of "
-        "model memory. If a requested year is missing, say that "
-        "the rule is not available in the local rules database "
-        "and recommend checking the official ATO source.",
-        (
-            "For demo-safe rule questions, I answer directly from "
-            "this local rules database instead of calling the "
-            "external LLM provider."
-        ),
-    )
-
-
 def _summarize_supported_rule_years(
     db: Session,
     *,
@@ -829,15 +518,21 @@ def _summarize_supported_rule_years(
     return "\n".join(lines)
 
 
-def build_financial_rule_context(
+def build_financial_rule_context_from_intent(
     db: Session,
-    message: str,
+    intent: FinancialRuleIntent,
 ) -> str | None:
-    """Infer and return verified rules context relevant to a user message."""
+    """Return verified rules context for a structured LLM intent."""
 
-    region = _infer_region(message)
+    region = SUPPORTED_REGION
 
-    if _contains_any(message, KNOWLEDGE_BASE_KEYWORDS):
+    if (
+        intent.confidence < settings.rule_intent_confidence_threshold
+        or intent.intent == FinancialRuleIntentName.OUT_OF_SCOPE
+    ):
+        return None
+
+    if intent.intent == FinancialRuleIntentName.KNOWLEDGE_BASE_STATUS:
         summary = _summarize_supported_rule_years(
             db,
             region=region,
@@ -845,32 +540,51 @@ def build_financial_rule_context(
 
         return summary or None
 
-    if _contains_any(message, SUPER_INTENT_KEYWORDS):
-        if _contains_any(
-            message,
-            SUPER_CONTRIBUTION_CAP_KEYWORDS,
-        ):
-            cap_context = list_super_contribution_caps(
-                db=db,
-                region=region,
-                rule_year=_infer_super_rule_year(message),
-            )
-
-            if cap_context:
-                return _format_super_contribution_caps_context(
-                    cap_context
-                )
-
+    if intent.intent == FinancialRuleIntentName.SUPER_CONTRIBUTION_CAPS:
+        rule_year = intent.rule_year or _latest_super_contribution_cap_rule_year(
+            db,
+            region=region,
+        )
+        if rule_year is None:
             return _format_missing_rule_context(
                 region=region,
-                rule_year=_infer_super_rule_year(message),
+                rule_year="the latest supported year",
                 rule_label="super contribution cap rules",
+            )
+
+        cap_context = list_super_contribution_caps(
+            db=db,
+            region=region,
+            rule_year=rule_year,
+        )
+
+        if cap_context:
+            return _format_super_contribution_caps_context(
+                cap_context
+            )
+
+        return _format_missing_rule_context(
+            region=region,
+            rule_year=rule_year,
+            rule_label="super contribution cap rules",
+        )
+
+    if intent.intent == FinancialRuleIntentName.EMPLOYER_SUPER:
+        rule_year = intent.rule_year or _latest_employer_super_rule_year(
+            db,
+            region=region,
+        )
+        if rule_year is None:
+            return _format_missing_rule_context(
+                region=region,
+                rule_year="the latest supported year",
+                rule_label="employer super guarantee rules",
             )
 
         super_context = lookup_employer_superannuation_rule(
             db=db,
             region=region,
-            rule_year=_infer_super_rule_year(message),
+            rule_year=rule_year,
         )
 
         if super_context is not None:
@@ -880,22 +594,36 @@ def build_financial_rule_context(
 
         return _format_missing_rule_context(
             region=region,
-            rule_year=_infer_super_rule_year(message),
+            rule_year=rule_year,
             rule_label="employer super guarantee rules",
         )
 
-    if not _contains_any(message, TAX_INTENT_KEYWORDS):
+    if intent.intent not in {
+        FinancialRuleIntentName.TAX_BRACKETS,
+        FinancialRuleIntentName.TAX_CALCULATION,
+    }:
         return None
 
-    rule_year = _infer_rule_year(message)
-    income = _extract_income(message)
+    rule_year = intent.rule_year or _latest_tax_rule_year(
+        db,
+        region=region,
+    )
+    if rule_year is None:
+        return _format_missing_rule_context(
+            region=region,
+            rule_year="the latest supported year",
+            rule_label="resident income tax rates",
+        )
 
-    if income is not None:
+    if (
+        intent.intent == FinancialRuleIntentName.TAX_CALCULATION
+        and intent.taxable_income is not None
+    ):
         lookup_result = lookup_tax_bracket(
             db=db,
             region=region,
             rule_year=rule_year,
-            income=income,
+            income=intent.taxable_income,
         )
 
         if lookup_result is not None:
@@ -911,92 +639,6 @@ def build_financial_rule_context(
         return _format_tax_brackets_context(brackets)
 
     return _format_missing_rule_context(
-        region=region,
-        rule_year=rule_year,
-        rule_label="resident income tax rates",
-    )
-
-
-def build_financial_rule_answer(
-    db: Session,
-    message: str,
-) -> str | None:
-    """Return a deterministic answer for rule-backed finance questions."""
-
-    region = _infer_region(message)
-
-    if _contains_any(message, KNOWLEDGE_BASE_KEYWORDS):
-        return _format_supported_rule_years_answer(
-            db,
-            region=region,
-        )
-
-    if _contains_any(message, SUPER_INTENT_KEYWORDS):
-        rule_year = _infer_super_rule_year(message)
-
-        if _contains_any(
-            message,
-            SUPER_CONTRIBUTION_CAP_KEYWORDS,
-        ):
-            cap_rules = list_super_contribution_caps(
-                db=db,
-                region=region,
-                rule_year=rule_year,
-            )
-
-            if cap_rules:
-                return _format_super_contribution_caps_answer(
-                    cap_rules
-                )
-
-            return _format_missing_rule_answer(
-                region=region,
-                rule_year=rule_year,
-                rule_label="super contribution cap rules",
-            )
-
-        super_context = lookup_employer_superannuation_rule(
-            db=db,
-            region=region,
-            rule_year=rule_year,
-        )
-
-        if super_context is not None:
-            return _format_superannuation_answer(super_context)
-
-        return _format_missing_rule_answer(
-            region=region,
-            rule_year=rule_year,
-            rule_label="employer super guarantee rules",
-        )
-
-    if not _contains_any(message, TAX_INTENT_KEYWORDS):
-        return None
-
-    rule_year = _infer_rule_year(message)
-    income = _extract_income(message)
-
-    if income is not None:
-        lookup_result = lookup_tax_bracket(
-            db=db,
-            region=region,
-            rule_year=rule_year,
-            income=income,
-        )
-
-        if lookup_result is not None:
-            return _format_tax_lookup_answer(lookup_result)
-
-    brackets = list_tax_brackets(
-        db=db,
-        region=region,
-        rule_year=rule_year,
-    )
-
-    if brackets:
-        return _format_tax_brackets_answer(brackets)
-
-    return _format_missing_rule_answer(
         region=region,
         rule_year=rule_year,
         rule_label="resident income tax rates",
