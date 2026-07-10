@@ -30,6 +30,11 @@ from app.schemas.ai import (
     AIPdfChatResponse,
 )
 from app.services.ai_advisor_service import AIAdvisorService
+from app.services.memory_service import (
+    build_memory_context,
+    remember_from_message,
+    retrieve_relevant_memories,
+)
 from app.services.pdf_financial_service import (
     AmbiguousTransactionCandidate,
     PdfExtractionError,
@@ -88,14 +93,21 @@ def _build_selected_rule_context(rule: FinancialRule) -> str:
 def _build_grounded_message(
     *,
     user_message: str,
+    memory_context: str | None,
     rule_context: str | None,
 ) -> str:
-    if rule_context is None:
+    context_sections = [
+        context
+        for context in (memory_context, rule_context)
+        if context is not None
+    ]
+
+    if not context_sections:
         return user_message
 
     return "\n\n".join(
-        [
-            rule_context,
+        context_sections
+        + [
             "User question:",
             user_message,
         ]
@@ -227,7 +239,7 @@ async def _classify_pdf_transactions(
 )
 async def chat_with_advisor(
     request: AIChatRequest,
-    _current_user: User = Depends(
+    current_user: User = Depends(
         get_current_user
     ),
     advisor_service: AIAdvisorService = Depends(
@@ -237,11 +249,12 @@ async def chat_with_advisor(
 ):
     """Return an educational reply from the configured LLM."""
     try:
+        memory_context = None
         rule_context = None
         conversation = None
         if request.conversation_id is not None:
             conversation = get_conversation(
-                db, _current_user.id, request.conversation_id
+                db, current_user.id, request.conversation_id
             )
             if conversation is None:
                 raise HTTPException(
@@ -261,27 +274,40 @@ async def chat_with_advisor(
             add_message(db, conversation, "user", request.message)
 
         if request.rule_id is None:
-            intent_payload = await advisor_service.reply_json(
-                build_financial_rule_intent_prompt(
-                    request.message,
-                ),
-                FINANCIAL_RULE_INTENT_RESPONSE_SCHEMA,
+            reply_json = getattr(advisor_service, "reply_json", None)
+            if reply_json is not None:
+                intent_payload = await reply_json(
+                    build_financial_rule_intent_prompt(
+                        request.message,
+                    ),
+                    FINANCIAL_RULE_INTENT_RESPONSE_SCHEMA,
+                )
+                rule_intent = normalize_financial_rule_intent_payload(
+                    intent_payload,
+                )
+                rule_context = build_financial_rule_context_from_intent(
+                    db=db,
+                    intent=rule_intent,
+                )
+
+        memory_context = build_memory_context(
+            retrieve_relevant_memories(
+                db,
+                current_user.id,
+                request.message,
             )
-            rule_intent = normalize_financial_rule_intent_payload(
-                intent_payload,
-            )
-            rule_context = build_financial_rule_context_from_intent(
-                db=db,
-                intent=rule_intent,
-            )
+        )
 
         message = _build_grounded_message(
             user_message=request.message,
+            memory_context=memory_context,
             rule_context=rule_context,
         )
         answer = _plain_text_answer(
             await advisor_service.reply(message)
         )
+
+        remember_from_message(db, current_user.id, request.message)
 
         if conversation is not None:
             add_message(db, conversation, "assistant", answer)

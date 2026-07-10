@@ -12,6 +12,7 @@ from app.api import (
     routes_chat,
     routes_financials,
     routes_goals,
+    routes_memory,
     routes_profile,
     routes_rules,
 )
@@ -98,6 +99,12 @@ app.include_router(
     routes_goals.router,
     prefix="/api/goals",
     tags=["Goals"],
+)
+
+app.include_router(
+    routes_memory.router,
+    prefix="/api/memory",
+    tags=["Long-term Memory"],
 )
 
 app.include_router(

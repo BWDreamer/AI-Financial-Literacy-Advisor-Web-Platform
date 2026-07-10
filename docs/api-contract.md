@@ -13,6 +13,12 @@
 - GET /api/ai/ping
 - POST /api/ai/chat
 - POST /api/ai/chat/pdf
+- GET /api/memory
+- POST /api/memory
+- PUT /api/memory/{memory_id}
+- DELETE /api/memory/{memory_id}
+- GET /api/memory/export
+- GET /api/goals/ping
 - GET /api/admin/ping
 - GET /api/admin/users (admin only)
 - POST /api/admin/users (admin only)
@@ -51,6 +57,7 @@ for a structured intent classification (`knowledge_base_status`,
 `super_contribution_caps`, or `out_of_scope`). The backend then performs
 database retrieval and tax calculations from verified rules before sending
 grounded context back to the LLM for the final plain-English answer.
+Relevant long-term memories are retrieved before the AI drafts a response.
 
 `POST /api/ai/chat/pdf` accepts multipart form data with `message`,
 `conversation_id`, and one or more `files`. It supports text-based PDFs,
@@ -64,6 +71,13 @@ Ambiguous unsigned transaction lines are batched into one LLM structured
 classification request. The LLM classifies direction and transaction type only;
 amount extraction, validation, totals, and database writes remain backend
 responsibilities.
+
+## Long-term memory
+
+Memory requests use `fact` and `category`. Supported categories are `asset`,
+`debt`, `expense`, `goal`, `income`, `preference`, `profile`, and `other`.
+Responses include `source`, timestamps, and `last_used_at`. Users can export
+all stored facts through `/api/memory/export`.
 
 ## Account deletion
 

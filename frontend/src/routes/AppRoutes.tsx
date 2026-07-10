@@ -5,6 +5,7 @@ import AdvisorChat from "../pages/AdvisorChat";
 import HomePage from "../pages/HomePage";
 import KnowledgeHub from "../pages/KnowledgeHub";
 import Login from "../pages/Login";
+import MemoryPage from "../pages/Memory";
 import MyGoals from "../pages/MyGoals";
 import Register from "../pages/Register";
 import AdminPlaceholder from "../pages/admin/AdminPlaceholder";
@@ -33,6 +34,7 @@ export default function AppRoutes() {
     <Route element={<UserPortalLayout />}>
       <Route path="/home" element={<HomePage />} />
       <Route path="/advisor-chat" element={<AdvisorChat />} />
+      <Route path="/memory" element={<MemoryPage />} />
       <Route path="/goals" element={<MyGoals />} />
       <Route path="/knowledge-hub" element={<KnowledgeHub />} />
     </Route>
