@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 60
 
-    llm_provider: Literal["gemini"] = "gemini"
+    llm_provider: Literal["gemini", "mock"] = "gemini"
     gemini_api_key: str = ""
     llm_model: str = "gemini-2.5-flash"
     llm_timeout_seconds: float = 15

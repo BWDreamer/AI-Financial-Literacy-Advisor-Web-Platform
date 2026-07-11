@@ -1,4 +1,4 @@
-import type { Article } from "../../data/articlesMock";
+import type { Article } from "../../api/articles";
 import ArticleCard from "./ArticleCard";
 
 type ArticleListProps = {

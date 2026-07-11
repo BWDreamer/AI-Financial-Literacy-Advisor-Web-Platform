@@ -1,12 +1,13 @@
 import { Bookmark, Eye, Heart } from "lucide-react";
 import { Link } from "react-router-dom";
-import type { Article } from "../../data/articlesMock";
+import type { Article } from "../../api/articles";
 
 type ArticleCardProps = {
   article: Article;
 };
 
-function formatDate(value: string) {
+function formatDate(value: string | null) {
+  if (!value) return "";
   return new Date(value).toLocaleDateString("en-AU", { month: "short", day: "numeric", year: "numeric" });
 }
 
@@ -32,7 +33,7 @@ export default function ArticleCard({ article }: ArticleCardProps) {
           <span className="inline-flex items-center gap-1"><Bookmark size={15} />{compactNumber(article.saves)}</span>
         </div>
       </div>
-      <img src={article.coverImageUrl} alt={article.title} className="h-36 w-full rounded-xl object-cover sm:h-32" />
+        {article.coverImageUrl && <img src={article.coverImageUrl} alt={article.title} className="h-36 w-full rounded-xl object-cover sm:h-32" />}
     </Link>
   </article>;
 }

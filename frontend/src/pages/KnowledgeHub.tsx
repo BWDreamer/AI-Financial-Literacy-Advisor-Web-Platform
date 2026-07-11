@@ -2,21 +2,18 @@ import { useEffect, useMemo, useState } from "react";
 import { ChevronDown, Search } from "lucide-react";
 import { Link } from "react-router-dom";
 import ArticleList from "../components/knowledge/ArticleList";
-import { articlesMock, type Article, type ArticleCategory } from "../data/articlesMock";
-import { getLikedArticleIds, getSavedArticleIds } from "../utils/articleEngagement";
+import {
+  getArticleCategories,
+  getArticles,
+  getFeaturedArticles,
+  getLikedArticleIds,
+  getSavedArticleIds,
+  type Article,
+  type ArticleSortBy,
+} from "../api/articles";
+import { ApiError } from "../api/client";
 
 type KnowledgeTab = "all" | "saved" | "liked";
-type SortBy = "latest" | "most-viewed" | "most-liked" | "most-saved";
-
-const categories: (ArticleCategory | "All")[] = [
-  "All",
-  "Budgeting",
-  "Saving",
-  "Tax",
-  "Superannuation",
-  "Investing",
-  "Security",
-];
 
 const knowledgeTabs: { id: KnowledgeTab; label: string }[] = [
   { id: "all", label: "All Articles" },
@@ -24,80 +21,16 @@ const knowledgeTabs: { id: KnowledgeTab; label: string }[] = [
   { id: "liked", label: "Liked" },
 ];
 
-const sortOptions: { id: SortBy; label: string }[] = [
+const sortOptions: { id: ArticleSortBy; label: string }[] = [
   { id: "latest", label: "Latest" },
-  { id: "most-viewed", label: "Most Viewed" },
-  { id: "most-liked", label: "Most Liked" },
-  { id: "most-saved", label: "Most Saved" },
+  { id: "most_viewed", label: "Most Viewed" },
+  { id: "most_liked", label: "Most Liked" },
+  { id: "most_saved", label: "Most Saved" },
 ];
 
-function formatDate(value: string) {
+function formatDate(value: string | null) {
+  if (!value) return "";
   return new Date(value).toLocaleDateString("en-AU", { month: "long", day: "numeric", year: "numeric" });
-}
-
-function todaySeed() {
-  const today = new Date();
-  return Number(`${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, "0")}${String(today.getDate()).padStart(2, "0")}`);
-}
-
-function seededScore(articleId: string, seed: number) {
-  return articleId.split("").reduce((score, character, index) => score + character.charCodeAt(0) * (index + 3), seed);
-}
-
-function dailyFeaturedArticles() {
-  return [...articlesMock]
-    .sort((left, right) => seededScore(left.id, todaySeed()) - seededScore(right.id, todaySeed()))
-    .slice(0, 5);
-}
-
-function matchesSearch(article: Article, query: string) {
-  if (!query) return true;
-
-  const searchableText = [
-    article.title,
-    article.summary,
-    article.authorName,
-    article.sourceName,
-    article.category,
-  ].join(" ").toLowerCase();
-
-  return searchableText.includes(query);
-}
-
-function matchesTab(article: Article, tab: KnowledgeTab, likedArticleIds: Set<string>, savedArticleIds: Set<string>) {
-  if (tab === "saved") return savedArticleIds.has(article.id);
-  if (tab === "liked") return likedArticleIds.has(article.id);
-  return true;
-}
-
-function sortArticles(articles: Article[], sortBy: SortBy) {
-  return [...articles].sort((left, right) => {
-    if (sortBy === "most-viewed") return right.views - left.views;
-    if (sortBy === "most-liked") return right.likes - left.likes;
-    if (sortBy === "most-saved") return right.saves - left.saves;
-    return new Date(right.publishedAt).getTime() - new Date(left.publishedAt).getTime();
-  });
-}
-
-function filterAndSortArticles(options: {
-  query: string;
-  selectedCategory: ArticleCategory | "All";
-  selectedTab: KnowledgeTab;
-  sortBy: SortBy;
-  likedArticleIds: Set<string>;
-  savedArticleIds: Set<string>;
-}) {
-  const normalizedQuery = options.query.trim().toLowerCase();
-
-  const filteredArticles = articlesMock.filter((article) => {
-    const matchesCategory = options.selectedCategory === "All" || article.category === options.selectedCategory;
-
-    return matchesCategory
-      && matchesSearch(article, normalizedQuery)
-      && matchesTab(article, options.selectedTab, options.likedArticleIds, options.savedArticleIds);
-  });
-
-  return sortArticles(filteredArticles, options.sortBy);
 }
 
 function emptyStateForTab(tab: KnowledgeTab) {
@@ -110,7 +43,6 @@ function ArticlePersonalTabs({ selectedTab, onChange }: { selectedTab: Knowledge
   return <div className="inline-flex rounded-2xl border border-slate-200 bg-white p-1.5 shadow-sm" role="tablist" aria-label="Knowledge article views">
     {knowledgeTabs.map((tab) => {
       const active = selectedTab === tab.id;
-
       return <button
         key={tab.id}
         type="button"
@@ -126,11 +58,11 @@ function ArticlePersonalTabs({ selectedTab, onChange }: { selectedTab: Knowledge
   </div>;
 }
 
-function ArticleSortControl({ sortBy, onChange }: { sortBy: SortBy; onChange: (sortBy: SortBy) => void }) {
+function ArticleSortControl({ sortBy, onChange }: { sortBy: ArticleSortBy; onChange: (sortBy: ArticleSortBy) => void }) {
   const [open, setOpen] = useState(false);
   const selectedLabel = sortOptions.find((option) => option.id === sortBy)?.label || "Latest";
 
-  function chooseSort(nextSortBy: SortBy) {
+  function chooseSort(nextSortBy: ArticleSortBy) {
     onChange(nextSortBy);
     setOpen(false);
   }
@@ -151,7 +83,6 @@ function ArticleSortControl({ sortBy, onChange }: { sortBy: SortBy; onChange: (s
     {open && <div className="absolute right-0 z-20 mt-2 w-full overflow-hidden rounded-2xl border border-slate-200 bg-white p-1 shadow-xl shadow-slate-200/70 sm:w-48">
       {sortOptions.map((option) => {
         const active = option.id === sortBy;
-
         return <button
           key={option.id}
           type="button"
@@ -168,12 +99,11 @@ function ArticleSortControl({ sortBy, onChange }: { sortBy: SortBy; onChange: (s
   </div>;
 }
 
-function ArticleCategoryChips({ selectedCategory, onChange }: { selectedCategory: ArticleCategory | "All"; onChange: (category: ArticleCategory | "All") => void }) {
+function ArticleCategoryChips({ categories, selectedCategory, onChange }: { categories: string[]; selectedCategory: string; onChange: (category: string) => void }) {
   return <nav className="-mx-4 mt-4 overflow-x-auto px-4 pb-1 sm:mx-0 sm:px-0" aria-label="Article categories">
     <div className="flex min-w-max gap-2">
-      {categories.map((category) => {
+      {["All", ...categories].map((category) => {
         const active = selectedCategory === category;
-
         return <button
           key={category}
           type="button"
@@ -190,24 +120,23 @@ function ArticleCategoryChips({ selectedCategory, onChange }: { selectedCategory
   </nav>;
 }
 
-function FeaturedHero() {
-  const featuredArticles = useMemo(() => dailyFeaturedArticles(), []);
+function FeaturedHero({ featuredArticles }: { featuredArticles: Article[] }) {
   const [activeIndex, setActiveIndex] = useState(0);
   const activeArticle = featuredArticles[activeIndex] || featuredArticles[0];
 
   useEffect(() => {
     if (featuredArticles.length < 2) return undefined;
-
     const timer = window.setInterval(() => {
       setActiveIndex((currentIndex) => (currentIndex + 1) % featuredArticles.length);
     }, 5500);
-
     return () => window.clearInterval(timer);
   }, [featuredArticles.length]);
 
+  if (!activeArticle) return null;
+
   return <header className="relative overflow-hidden rounded-[2rem] bg-slate-950 shadow-xl shadow-slate-300/60">
     <div className="absolute inset-0">
-      {featuredArticles.map((article, index) => <img
+      {featuredArticles.map((article, index) => article.coverImageUrl && <img
         key={article.id}
         src={article.coverImageUrl}
         alt=""
@@ -222,12 +151,7 @@ function FeaturedHero() {
 
     <div className="relative grid min-h-[13rem] gap-5 p-4 text-white sm:p-5 lg:grid-cols-[minmax(0,1fr)_16rem] lg:p-6">
       <div className="flex max-w-3xl flex-col justify-between gap-4">
-        <div>
-          <div>
-            <p className="text-sm font-bold uppercase tracking-[0.22em] text-blue-200">Daily Knowledge Mix</p>
-          </div>
-        </div>
-
+        <p className="text-sm font-bold uppercase tracking-[0.22em] text-blue-200">Daily Knowledge Mix</p>
         <section className="max-w-2xl">
           <div className="flex flex-wrap items-center gap-3 text-sm font-semibold text-blue-100">
             <span className="rounded-full bg-blue-500 px-3 py-1 text-white">{activeArticle.category}</span>
@@ -256,40 +180,81 @@ function FeaturedHero() {
           </button>)}
         </div>
       </aside>
-
-      <div className="absolute bottom-4 left-4 flex gap-2 sm:left-5 lg:left-6">
-        {featuredArticles.map((article, index) => <button
-          key={article.id}
-          type="button"
-          aria-label={`Show featured article ${index + 1}`}
-          onClick={() => setActiveIndex(index)}
-          className={[
-            "h-2 rounded-full transition-all",
-            index === activeIndex ? "w-8 bg-blue-400" : "w-2 bg-white/50 hover:bg-white",
-          ].join(" ")}
-        />)}
-      </div>
     </div>
   </header>;
 }
 
 export default function KnowledgeBasePage() {
   const [query, setQuery] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState<ArticleCategory | "All">("All");
+  const [selectedCategory, setSelectedCategory] = useState("All");
   const [selectedTab, setSelectedTab] = useState<KnowledgeTab>("all");
-  const [sortBy, setSortBy] = useState<SortBy>("latest");
-  const [likedArticleIds] = useState(() => getLikedArticleIds());
-  const [savedArticleIds] = useState(() => getSavedArticleIds());
+  const [sortBy, setSortBy] = useState<ArticleSortBy>("latest");
+  const [articles, setArticles] = useState<Article[]>([]);
+  const [featuredArticles, setFeaturedArticles] = useState<Article[]>([]);
+  const [categories, setCategories] = useState<string[]>([]);
+  const [likedArticleIds, setLikedArticleIds] = useState<Set<string>>(new Set());
+  const [savedArticleIds, setSavedArticleIds] = useState<Set<string>>(new Set());
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setError(null);
+
+    Promise.all([
+      getArticles({ keyword: query.trim(), category: selectedCategory, sortBy, page: 1, pageSize: 50 }),
+      getFeaturedArticles(5),
+      getArticleCategories(),
+    ])
+      .then(([articlePage, featured, categoryList]) => {
+        if (!active) return;
+        setArticles(articlePage.items);
+        setFeaturedArticles(featured);
+        setCategories(categoryList);
+      })
+      .catch((err) => {
+        if (!active) return;
+        setError(err instanceof Error ? err.message : "Unable to load articles.");
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [query, selectedCategory, sortBy]);
+
+  useEffect(() => {
+    let active = true;
+    Promise.all([getLikedArticleIds(), getSavedArticleIds()])
+      .then(([liked, saved]) => {
+        if (!active) return;
+        setLikedArticleIds(new Set(liked.articleIds));
+        setSavedArticleIds(new Set(saved.articleIds));
+      })
+      .catch((err) => {
+        if (err instanceof ApiError && err.status === 401) return;
+        console.error(err);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const visibleArticles = useMemo(() => {
-    return filterAndSortArticles({ query, selectedCategory, selectedTab, sortBy, likedArticleIds, savedArticleIds });
-  }, [query, selectedCategory, selectedTab, sortBy, likedArticleIds, savedArticleIds]);
+    if (selectedTab === "saved") return articles.filter((article) => savedArticleIds.has(article.id));
+    if (selectedTab === "liked") return articles.filter((article) => likedArticleIds.has(article.id));
+    return articles;
+  }, [articles, likedArticleIds, savedArticleIds, selectedTab]);
 
   const emptyState = emptyStateForTab(selectedTab);
 
   return <main className="min-h-screen bg-slate-50 px-4 py-6 sm:px-6 lg:px-8">
     <section className="mx-auto max-w-6xl">
-      <FeaturedHero />
+      <FeaturedHero featuredArticles={featuredArticles} />
 
       <div className="mt-8 grid gap-4 lg:grid-cols-[minmax(0,1fr)_26rem] lg:items-end">
         <div>
@@ -317,13 +282,13 @@ export default function KnowledgeBasePage() {
         <ArticleSortControl sortBy={sortBy} onChange={setSortBy} />
       </div>
 
-      <ArticleCategoryChips selectedCategory={selectedCategory} onChange={setSelectedCategory} />
+      <ArticleCategoryChips categories={categories} selectedCategory={selectedCategory} onChange={setSelectedCategory} />
 
       <div className="mt-5">
-        <ArticleList articles={visibleArticles} emptyTitle={emptyState.title} emptyDescription={emptyState.description} />
+        {loading && <section className="rounded-2xl border border-slate-200 bg-white p-8 text-center text-slate-500">Loading articles...</section>}
+        {!loading && error && <section className="rounded-2xl border border-red-100 bg-red-50 p-8 text-center text-red-600">{error}</section>}
+        {!loading && !error && <ArticleList articles={visibleArticles} emptyTitle={emptyState.title} emptyDescription={emptyState.description} />}
       </div>
     </section>
   </main>;
 }
-
-
