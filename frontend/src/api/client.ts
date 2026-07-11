@@ -2,7 +2,22 @@
 
 import { getToken } from "../store/tokenService";
 
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api";
+function resolveApiBaseUrl() {
+  const configured = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api";
+  const browserHost = window.location.hostname;
+
+  if (
+    configured.includes("localhost:8000")
+    && browserHost !== "localhost"
+    && browserHost !== "127.0.0.1"
+  ) {
+    return `http://${browserHost}:8000/api`;
+  }
+
+  return configured;
+}
+
+export const API_BASE_URL = resolveApiBaseUrl();
 export const API_ORIGIN = new URL(API_BASE_URL).origin;
 
 type ApiOptions = RequestInit & { authenticated?: boolean };
