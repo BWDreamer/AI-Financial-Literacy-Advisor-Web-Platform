@@ -1,4 +1,9 @@
-import { ChangeEvent, FormEvent, useMemo, useRef, useState } from "react";
+import { ChangeEvent, Dispatch, FormEvent, SetStateAction, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Image from "@tiptap/extension-image";
+import TextAlign from "@tiptap/extension-text-align";
+import UnderlineExtension from "@tiptap/extension-underline";
+import { Editor, EditorContent, JSONContent, useEditor } from "@tiptap/react";
+import StarterKit from "@tiptap/starter-kit";
 import {
   AlignCenter,
   AlignLeft,
@@ -13,161 +18,55 @@ import {
   List,
   Pencil,
   Plus,
+  RefreshCw,
   Trash2,
   Underline,
   Upload,
   X,
 } from "lucide-react";
-
-type ArticleStatus = "Published" | "Draft";
-
-type KnowledgeArticle = {
-  id: number;
-  title: string;
-  excerpt: string;
-  body: string;
-  category: string;
-  status: ArticleStatus;
-  publishedAt: string | null;
-  source: string;
-  coverImage: string | null;
-  inlineImages: string[];
-  views: number;
-  likes: number;
-  saves: number;
-};
+import { API_ORIGIN } from "../../api/client";
+import {
+  AdminArticleContentBlock,
+  createAdminArticle,
+  deleteAdminArticle,
+  getPublishedAdminArticle,
+  getPublishedAdminArticles,
+  updateAdminArticle,
+  uploadAdminArticleImage,
+} from "../../api/admin";
+import type { Article, ArticleDetail } from "../../api/articles";
 
 type ArticleForm = {
   title: string;
-  excerpt: string;
-  body: string;
+  summary: string;
+  contentBlocks: AdminArticleContentBlock[];
   category: string;
-  source: string;
-  status: ArticleStatus;
-  coverImage: string | null;
-  inlineImages: string[];
+  authorName: string;
+  sourceName: string;
+  coverImageUrl: string | null;
 };
 
 const categories = ["All", "Budgeting", "Saving", "Tax", "Superannuation", "Investing", "Security"];
 
-const sampleArticles: KnowledgeArticle[] = [
-  {
-    id: 1,
-    title: "How to Build a Budget That Survives Real Life",
-    excerpt: "A simple guide to tracking income, planning spending and leaving room for irregular costs.",
-    body: "A realistic budget starts with the money that actually arrives in your account and the spending that actually leaves it. Before setting a target, collect recent income, bills, subscriptions, groceries, transport costs and debt repayments.\n\nGroup your spending into needs, wants and savings. Needs are the costs required to keep daily life running. Wants are flexible lifestyle choices. Savings include emergency funds, short term goals and longer term wealth building.\n\nThe best budget is not the strictest one. It is the one you can review and actually keep using.",
-    category: "Budgeting",
-    status: "Published",
-    publishedAt: "2026-07-02",
-    source: "Knowledge Base Week",
-    coverImage: null,
-    inlineImages: [],
-    views: 1800,
-    likes: 127,
-    saves: 88,
-  },
-  {
-    id: 2,
-    title: "Emergency Funds: Why Cash Still Matters",
-    excerpt: "Before investing, keep enough cash aside for bills, repairs and unexpected income gaps.",
-    body: "An emergency fund gives you time to respond when something expensive or stressful happens. It can reduce the chance of relying on credit cards or selling investments at the wrong time.",
-    category: "Saving",
-    status: "Published",
-    publishedAt: "2026-06-26",
-    source: "FinanceAI Learning Team",
-    coverImage: null,
-    inlineImages: [],
-    views: 1360,
-    likes: 98,
-    saves: 64,
-  },
-  {
-    id: 3,
-    title: "Tax Time Checklist for First-Time Investors",
-    excerpt: "A draft checklist for keeping records, statements and dividend information organised.",
-    body: "Keep records of purchases, sales, dividends, interest and fees. This draft should be reviewed before publication.",
-    category: "Tax",
-    status: "Draft",
-    publishedAt: null,
-    source: "FinanceAI Learning Team",
-    coverImage: null,
-    inlineImages: [],
-    views: 0,
-    likes: 0,
-    saves: 0,
-  },
-  {
-    id: 4,
-    title: "Superannuation Basics in Plain English",
-    excerpt: "What super is, why it matters, and the first settings most people should check.",
-    body: "Superannuation is a long-term retirement savings system. Small decisions around fund choice, insurance and contributions can compound over time.",
-    category: "Superannuation",
-    status: "Published",
-    publishedAt: "2026-06-18",
-    source: "Knowledge Base Week",
-    coverImage: null,
-    inlineImages: [],
-    views: 920,
-    likes: 73,
-    saves: 41,
-  },
-  {
-    id: 5,
-    title: "Avoiding Common Online Finance Scams",
-    excerpt: "Warning signs to look for before clicking links or sharing account details.",
-    body: "Scammers often use urgency, impersonation and unusual payment requests. Pause, verify the source and never share codes or passwords.",
-    category: "Security",
-    status: "Published",
-    publishedAt: "2026-06-12",
-    source: "FinanceAI Learning Team",
-    coverImage: null,
-    inlineImages: [],
-    views: 2140,
-    likes: 166,
-    saves: 102,
-  },
-  {
-    id: 6,
-    title: "Investing Terms New Users Ask About",
-    excerpt: "A glossary draft covering ETFs, diversification, volatility and risk tolerance.",
-    body: "This article draft will explain key investment terms in simple language.",
-    category: "Investing",
-    status: "Draft",
-    publishedAt: null,
-    source: "FinanceAI Learning Team",
-    coverImage: null,
-    inlineImages: [],
-    views: 0,
-    likes: 0,
-    saves: 0,
-  },
-  {
-    id: 7,
-    title: "Saving for Short-Term Goals",
-    excerpt: "How to separate travel, study and home deposit goals without mixing up your everyday money.",
-    body: "Short-term savings work best when each goal is named, measured and reviewed regularly.",
-    category: "Saving",
-    status: "Published",
-    publishedAt: "2026-06-05",
-    source: "FinanceAI Learning Team",
-    coverImage: null,
-    inlineImages: [],
-    views: 740,
-    likes: 52,
-    saves: 37,
-  },
-];
-
 const emptyForm = (): ArticleForm => ({
   title: "",
-  excerpt: "",
-  body: "",
+  summary: "",
+  contentBlocks: [],
   category: "Budgeting",
-  source: "FinanceAI Learning Team",
-  status: "Draft",
-  coverImage: null,
-  inlineImages: [],
+  authorName: "FinanceAI Learning Team",
+  sourceName: "Knowledge Base",
+  coverImageUrl: null,
 });
+
+function errorMessage(caught: unknown) {
+  return caught instanceof Error ? caught.message : "Something went wrong. Please try again.";
+}
+
+function imageSrc(value: string | null) {
+  if (!value) return null;
+  if (/^https?:\/\//i.test(value) || value.startsWith("data:")) return value;
+  return `${API_ORIGIN}${value}`;
+}
 
 function formatPublishedDate(value: string | null) {
   if (!value) return "—";
@@ -190,25 +89,95 @@ function categoryTone(category: string) {
   return tones[category] ?? "bg-slate-100 text-slate-600";
 }
 
-function readImageFile(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(new Error("Unable to read the selected image."));
-    reader.readAsDataURL(file);
-  });
+function slugify(value: string) {
+  const slug = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 70);
+  return `${slug || "article"}-${Date.now().toString(36)}`;
 }
 
-function createFormFromArticle(article: KnowledgeArticle): ArticleForm {
+function contentBlocksToText(blocks: AdminArticleContentBlock[]) {
+  return blocks
+    .filter((block): block is Extract<AdminArticleContentBlock, { type: "paragraph" }> => block.type === "paragraph")
+    .map((block) => block.text.trim())
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+function blocksToTipTapContent(blocks: AdminArticleContentBlock[]): JSONContent {
+  const content = blocks.flatMap((block): JSONContent[] => {
+    if (block.type === "image") {
+      return [{
+        type: "image",
+        attrs: {
+          src: imageSrc(block.src) ?? block.src,
+          alt: block.alt,
+          title: block.caption ?? null,
+        },
+      }];
+    }
+
+    return block.text.split("\n").map((line) => ({
+      type: "paragraph",
+      content: line ? [{ type: "text", text: line }] : [],
+    }));
+  });
+
+  return {
+    type: "doc",
+    content: content.length ? content : [{ type: "paragraph" }],
+  };
+}
+
+function extractText(node: JSONContent): string {
+  if (node.type === "text") return node.text ?? "";
+  return node.content?.map(extractText).join("") ?? "";
+}
+
+function normalizeStoredImageUrl(src: string) {
+  if (src.startsWith(API_ORIGIN)) return src.slice(API_ORIGIN.length);
+  return src;
+}
+
+function tipTapContentToBlocks(doc: JSONContent): AdminArticleContentBlock[] {
+  const blocks: AdminArticleContentBlock[] = [];
+
+  function visit(node: JSONContent) {
+    if (node.type === "image" && typeof node.attrs?.src === "string") {
+      blocks.push({
+        type: "image",
+        src: normalizeStoredImageUrl(node.attrs.src),
+        alt: typeof node.attrs.alt === "string" && node.attrs.alt ? node.attrs.alt : `Article image ${blocks.filter((block) => block.type === "image").length + 1}`,
+        ...(typeof node.attrs.title === "string" && node.attrs.title ? { caption: node.attrs.title } : {}),
+      });
+      return;
+    }
+
+    if (node.type === "paragraph" || node.type === "heading") {
+      const text = extractText(node).trim();
+      if (text) blocks.push({ type: "paragraph", text });
+      return;
+    }
+
+    node.content?.forEach(visit);
+  }
+
+  doc.content?.forEach(visit);
+  return blocks;
+}
+
+function articleDetailToForm(article: ArticleDetail): ArticleForm {
   return {
     title: article.title,
-    excerpt: article.excerpt,
-    body: article.body,
+    summary: article.summary,
+    contentBlocks: article.contentBlocks,
     category: article.category,
-    source: article.source,
-    status: article.status,
-    coverImage: article.coverImage,
-    inlineImages: [...article.inlineImages],
+    authorName: article.authorName,
+    sourceName: article.sourceName,
+    coverImageUrl: article.coverImageUrl,
   };
 }
 
@@ -216,10 +185,12 @@ function ImageDropzone({
   image,
   onUpload,
   onRemove,
+  disabled,
 }: {
   image: string | null;
   onUpload: (event: ChangeEvent<HTMLInputElement>) => void;
   onRemove: () => void;
+  disabled: boolean;
 }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
 
@@ -228,11 +199,12 @@ function ImageDropzone({
       <h2 className="text-xl font-semibold text-slate-950">Cover Image</h2>
       <button
         type="button"
+        disabled={disabled}
         onClick={() => inputRef.current?.click()}
-        className="mt-4 grid min-h-44 w-full place-items-center overflow-hidden rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50/60 text-center transition hover:border-violet-300 hover:bg-violet-50/40"
+        className="mt-4 grid min-h-44 w-full place-items-center overflow-hidden rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50/60 text-center transition hover:border-violet-300 hover:bg-violet-50/40 disabled:cursor-not-allowed disabled:opacity-70"
       >
         {image ? (
-          <img src={image} alt="Cover preview" className="h-44 w-full object-cover" />
+          <img src={imageSrc(image) ?? undefined} alt="Cover preview" className="h-44 w-full object-cover" />
         ) : (
           <span className="flex flex-col items-center gap-3 px-4 text-slate-400">
             <Upload size={30} aria-hidden="true" />
@@ -241,9 +213,9 @@ function ImageDropzone({
           </span>
         )}
       </button>
-      <input ref={inputRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={onUpload} />
+      <input ref={inputRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={onUpload} disabled={disabled} />
       {image && (
-        <button type="button" onClick={onRemove} className="mt-3 inline-flex items-center gap-2 text-sm font-semibold text-red-500 hover:text-red-700">
+        <button type="button" disabled={disabled} onClick={onRemove} className="mt-3 inline-flex items-center gap-2 text-sm font-semibold text-red-500 hover:text-red-700 disabled:opacity-60">
           <X size={16} /> Remove cover
         </button>
       )}
@@ -251,39 +223,46 @@ function ImageDropzone({
   );
 }
 
-function EditorToolbar({ onImageUpload }: { onImageUpload: (event: ChangeEvent<HTMLInputElement>) => void }) {
+function toolbarButtonClass(active = false) {
+  return [
+    "grid size-9 place-items-center rounded-lg transition",
+    active ? "bg-violet-100 text-violet-700" : "hover:bg-white",
+  ].join(" ");
+}
+
+function EditorToolbar({ editor, onImageUpload, disabled }: { editor: Editor | null; onImageUpload: (event: ChangeEvent<HTMLInputElement>) => void; disabled: boolean }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   return (
     <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-slate-50 p-3 text-slate-600">
-      <button type="button" className="grid size-9 place-items-center rounded-lg bg-violet-100 text-violet-700" aria-label="Paragraph"><List size={18} /></button>
-      <button type="button" className="rounded-lg px-3 py-2 text-sm font-semibold hover:bg-white">H1</button>
-      <button type="button" className="rounded-lg px-3 py-2 text-sm font-semibold hover:bg-white">H2</button>
+      <button type="button" disabled={disabled || !editor} onClick={() => editor?.chain().focus().setParagraph().run()} className={toolbarButtonClass(editor?.isActive("paragraph"))} aria-label="Paragraph"><List size={18} /></button>
+      <button type="button" disabled={disabled || !editor} onClick={() => editor?.chain().focus().toggleHeading({ level: 1 }).run()} className={`rounded-lg px-3 py-2 text-sm font-semibold transition ${editor?.isActive("heading", { level: 1 }) ? "bg-violet-100 text-violet-700" : "hover:bg-white"}`}>H1</button>
+      <button type="button" disabled={disabled || !editor} onClick={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()} className={`rounded-lg px-3 py-2 text-sm font-semibold transition ${editor?.isActive("heading", { level: 2 }) ? "bg-violet-100 text-violet-700" : "hover:bg-white"}`}>H2</button>
       <span className="h-7 w-px bg-slate-200" />
-      <select className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none">
+      <select disabled className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none disabled:opacity-60">
         <option>Size</option>
         <option>Small</option>
         <option>Normal</option>
         <option>Large</option>
       </select>
       <span className="h-7 w-px bg-slate-200" />
-      <button type="button" className="grid size-9 place-items-center rounded-lg hover:bg-white" aria-label="Bold"><Bold size={18} /></button>
-      <button type="button" className="grid size-9 place-items-center rounded-lg hover:bg-white" aria-label="Italic"><Italic size={18} /></button>
-      <button type="button" className="grid size-9 place-items-center rounded-lg hover:bg-white" aria-label="Underline"><Underline size={18} /></button>
+      <button type="button" disabled={disabled || !editor} onClick={() => editor?.chain().focus().toggleBold().run()} className={toolbarButtonClass(editor?.isActive("bold"))} aria-label="Bold"><Bold size={18} /></button>
+      <button type="button" disabled={disabled || !editor} onClick={() => editor?.chain().focus().toggleItalic().run()} className={toolbarButtonClass(editor?.isActive("italic"))} aria-label="Italic"><Italic size={18} /></button>
+      <button type="button" disabled={disabled || !editor} onClick={() => editor?.chain().focus().toggleUnderline().run()} className={toolbarButtonClass(editor?.isActive("underline"))} aria-label="Underline"><Underline size={18} /></button>
       <span className="h-7 w-px bg-slate-200" />
-      <button type="button" className="grid size-9 place-items-center rounded-lg hover:bg-white" aria-label="Align left"><AlignLeft size={18} /></button>
-      <button type="button" className="grid size-9 place-items-center rounded-lg hover:bg-white" aria-label="Align center"><AlignCenter size={18} /></button>
-      <button type="button" className="grid size-9 place-items-center rounded-lg hover:bg-white" aria-label="Align right"><AlignRight size={18} /></button>
+      <button type="button" disabled={disabled || !editor} onClick={() => editor?.chain().focus().setTextAlign("left").run()} className={toolbarButtonClass(editor?.isActive({ textAlign: "left" }))} aria-label="Align left"><AlignLeft size={18} /></button>
+      <button type="button" disabled={disabled || !editor} onClick={() => editor?.chain().focus().setTextAlign("center").run()} className={toolbarButtonClass(editor?.isActive({ textAlign: "center" }))} aria-label="Align center"><AlignCenter size={18} /></button>
+      <button type="button" disabled={disabled || !editor} onClick={() => editor?.chain().focus().setTextAlign("right").run()} className={toolbarButtonClass(editor?.isActive({ textAlign: "right" }))} aria-label="Align right"><AlignRight size={18} /></button>
       <span className="h-7 w-px bg-slate-200" />
-      <select className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none">
+      <select disabled className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none disabled:opacity-60">
         <option>Spacing</option>
         <option>Compact</option>
         <option>Relaxed</option>
       </select>
-      <button type="button" onClick={() => inputRef.current?.click()} className="grid size-9 place-items-center rounded-lg hover:bg-white" aria-label="Insert image">
+      <button type="button" disabled={disabled} onClick={() => inputRef.current?.click()} className="grid size-9 place-items-center rounded-lg hover:bg-white disabled:opacity-50" aria-label="Insert image">
         <ImageIcon size={18} />
       </button>
-      <input ref={inputRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={onImageUpload} />
+      <input ref={inputRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={onImageUpload} disabled={disabled} />
     </div>
   );
 }
@@ -295,25 +274,52 @@ function ArticleEditor({
   metrics,
   onBack,
   onSave,
+  saving,
 }: {
   mode: "new" | "edit";
   form: ArticleForm;
-  setForm: (form: ArticleForm) => void;
-  metrics?: Pick<KnowledgeArticle, "views" | "likes" | "saves">;
+  setForm: Dispatch<SetStateAction<ArticleForm>>;
+  metrics?: Pick<Article, "views" | "likes" | "saves">;
   onBack: () => void;
-  onSave: (status: ArticleStatus) => void;
+  onSave: (contentBlocks: AdminArticleContentBlock[]) => Promise<void>;
+  saving: boolean;
 }) {
-  const [imageError, setImageError] = useState("");
+  const [formError, setFormError] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const disabled = saving || uploading;
+  const editor = useEditor({
+    extensions: [
+      StarterKit,
+      UnderlineExtension,
+      Image.configure({ inline: false, allowBase64: false }),
+      TextAlign.configure({ types: ["heading", "paragraph"] }),
+    ],
+    content: blocksToTipTapContent(form.contentBlocks),
+    editorProps: {
+      attributes: {
+        class: "min-h-80 px-7 py-6 text-lg leading-8 text-slate-950 outline-none prose prose-slate max-w-none [&_img]:mx-auto [&_img]:my-6 [&_img]:max-h-80 [&_img]:rounded-2xl [&_img]:object-cover",
+      },
+    },
+    onUpdate: ({ editor: updatedEditor }) => {
+      setForm((current) => ({
+        ...current,
+        contentBlocks: tipTapContentToBlocks(updatedEditor.getJSON()),
+      }));
+    },
+  });
 
   async function handleCoverUpload(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
     try {
-      setImageError("");
-      setForm({ ...form, coverImage: await readImageFile(file) });
+      setUploading(true);
+      setFormError("");
+      const { imageUrl } = await uploadAdminArticleImage(file);
+      setForm({ ...form, coverImageUrl: imageUrl });
     } catch (caught) {
-      setImageError(caught instanceof Error ? caught.message : "Unable to upload image.");
+      setFormError(errorMessage(caught));
     } finally {
+      setUploading(false);
       event.target.value = "";
     }
   }
@@ -322,129 +328,76 @@ function ArticleEditor({
     const file = event.target.files?.[0];
     if (!file) return;
     try {
-      setImageError("");
-      const image = await readImageFile(file);
-      setForm({ ...form, inlineImages: [...form.inlineImages, image] });
+      setUploading(true);
+      setFormError("");
+      const { imageUrl } = await uploadAdminArticleImage(file);
+      editor?.chain().focus().setImage({ src: imageSrc(imageUrl) ?? imageUrl, alt: "Article image" }).run();
     } catch (caught) {
-      setImageError(caught instanceof Error ? caught.message : "Unable to upload image.");
+      setFormError(errorMessage(caught));
     } finally {
+      setUploading(false);
       event.target.value = "";
     }
   }
 
-  function submit(status: ArticleStatus) {
-    if (!form.title.trim()) {
-      setImageError("Please enter an article title before saving.");
+  async function submit() {
+    const currentBlocks = editor ? tipTapContentToBlocks(editor.getJSON()) : form.contentBlocks;
+    if (!form.title.trim() || !form.summary.trim() || !contentBlocksToText(currentBlocks).trim()) {
+      setFormError("Please complete the title, excerpt and article body before saving.");
       return;
     }
-    onSave(status);
+    setForm((current) => ({ ...current, contentBlocks: currentBlocks }));
+    setFormError("");
+    await onSave(currentBlocks);
   }
 
   return (
     <section className="min-h-screen bg-slate-50 p-5 sm:p-8 lg:p-10">
       <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <button type="button" onClick={onBack} className="inline-flex items-center gap-3 text-sm font-semibold text-slate-600 hover:text-slate-950">
+        <button type="button" onClick={onBack} disabled={disabled} className="inline-flex items-center gap-3 text-sm font-semibold text-slate-600 hover:text-slate-950 disabled:opacity-60">
           <ArrowLeft size={19} /> Back to Knowledge Hub
         </button>
-        <div className="flex flex-wrap items-center gap-3">
-          {mode === "new" && (
-            <select
-              value={form.status}
-              onChange={(event) => setForm({ ...form, status: event.target.value as ArticleStatus })}
-              className="rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-medium text-slate-800 outline-none transition focus:border-violet-500 focus:ring-4 focus:ring-violet-100"
-            >
-              <option value="Draft">Save as Draft</option>
-              <option value="Published">Publish Now</option>
-            </select>
-          )}
-          <button type="button" onClick={() => submit(mode === "new" ? form.status : "Published")} className="rounded-xl bg-slate-950 px-6 py-3 text-sm font-semibold text-white transition hover:bg-slate-800">
-            {mode === "new" ? (form.status === "Published" ? "Publish Article" : "Save Draft") : "Save Changes"}
-          </button>
-        </div>
+        <button type="button" onClick={() => void submit()} disabled={disabled} className="rounded-xl bg-slate-950 px-6 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60">
+          {saving ? "Saving..." : mode === "new" ? "Publish Article" : "Save Changes"}
+        </button>
       </header>
 
-      {imageError && <p role="alert" className="mt-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{imageError}</p>}
+      {formError && <p role="alert" className="mt-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{formError}</p>}
+      {uploading && <p className="mt-6 rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-700">Uploading image...</p>}
 
-      <form onSubmit={(event: FormEvent) => { event.preventDefault(); submit(mode === "new" ? form.status : "Published"); }} className="mt-8 grid gap-7 xl:grid-cols-[minmax(0,1fr)_360px]">
+      <form onSubmit={(event: FormEvent) => { event.preventDefault(); void submit(); }} className="mt-8 grid gap-7 xl:grid-cols-[minmax(0,1fr)_360px]">
         <div className="space-y-7">
           <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
             <label htmlFor="article-title" className="text-lg font-semibold text-slate-950">Title</label>
-            <input
-              id="article-title"
-              value={form.title}
-              onChange={(event) => setForm({ ...form, title: event.target.value })}
-              placeholder="Article title..."
-              className="mt-3 w-full rounded-xl border-0 bg-slate-100 px-5 py-4 text-lg text-slate-950 outline-none transition placeholder:text-slate-400 focus:ring-4 focus:ring-violet-100"
-            />
+            <input id="article-title" value={form.title} disabled={disabled} onChange={(event) => setForm({ ...form, title: event.target.value })} placeholder="Article title..." className="mt-3 w-full rounded-xl border-0 bg-slate-100 px-5 py-4 text-lg text-slate-950 outline-none transition placeholder:text-slate-400 focus:ring-4 focus:ring-violet-100 disabled:opacity-70" />
           </div>
 
           <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-            <label htmlFor="article-excerpt" className="text-lg font-semibold text-slate-950">Excerpt</label>
-            <p className="mt-1 text-sm text-slate-500">Shown on the article card in the Knowledge Hub listing.</p>
-            <textarea
-              id="article-excerpt"
-              value={form.excerpt}
-              onChange={(event) => setForm({ ...form, excerpt: event.target.value })}
-              placeholder="A short summary of the article..."
-              rows={4}
-              className="mt-4 w-full resize-none rounded-xl border border-slate-200 px-5 py-4 text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-violet-500 focus:ring-4 focus:ring-violet-100"
-            />
+            <label htmlFor="article-summary" className="text-lg font-semibold text-slate-950">Excerpt</label>
+            <textarea id="article-summary" value={form.summary} disabled={disabled} onChange={(event) => setForm({ ...form, summary: event.target.value })} placeholder="A short summary of the article..." rows={4} className="mt-4 w-full resize-none rounded-xl border border-slate-200 px-5 py-4 text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-violet-500 focus:ring-4 focus:ring-violet-100 disabled:opacity-70" />
           </div>
 
           <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
             <div className="p-6 pb-4">
               <label htmlFor="article-body" className="text-lg font-semibold text-slate-950">Article Body</label>
-              <p className="mt-1 text-sm text-slate-500">Use the toolbar to format text and insert images inline.</p>
             </div>
-            <EditorToolbar onImageUpload={handleInlineUpload} />
-            <textarea
-              id="article-body"
-              value={form.body}
-              onChange={(event) => setForm({ ...form, body: event.target.value })}
-              placeholder="Start writing your article..."
-              rows={12}
-              className="w-full resize-y border-0 px-7 py-6 text-lg leading-8 text-slate-950 outline-none placeholder:text-slate-400"
-            />
-            {form.inlineImages.length > 0 && (
-              <div className="grid gap-4 border-t border-slate-100 p-6 sm:grid-cols-2">
-                {form.inlineImages.map((image, index) => (
-                  <div key={`${image.slice(0, 40)}-${index}`} className="relative overflow-hidden rounded-xl border border-slate-200">
-                    <img src={image} alt={`Inline article upload ${index + 1}`} className="h-44 w-full object-cover" />
-                    <button
-                      type="button"
-                      onClick={() => setForm({ ...form, inlineImages: form.inlineImages.filter((_, imageIndex) => imageIndex !== index) })}
-                      className="absolute right-2 top-2 grid size-8 place-items-center rounded-full bg-white/90 text-slate-600 shadow-sm hover:text-red-600"
-                      aria-label="Remove inline image"
-                    >
-                      <X size={16} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
+            <EditorToolbar editor={editor} onImageUpload={handleInlineUpload} disabled={disabled} />
+            <EditorContent id="article-body" editor={editor} className="border-0 bg-white" />
           </div>
         </div>
 
         <aside className="space-y-6">
-          <ImageDropzone image={form.coverImage} onUpload={handleCoverUpload} onRemove={() => setForm({ ...form, coverImage: null })} />
+          <ImageDropzone image={form.coverImageUrl} onUpload={handleCoverUpload} onRemove={() => setForm({ ...form, coverImageUrl: null })} disabled={disabled} />
           <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <h2 className="text-xl font-semibold text-slate-950">Article Details</h2>
             <label htmlFor="article-category" className="mt-6 block text-sm font-semibold text-slate-500">Category</label>
-            <select
-              id="article-category"
-              value={form.category}
-              onChange={(event) => setForm({ ...form, category: event.target.value })}
-              className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-800 outline-none transition focus:border-violet-500 focus:ring-4 focus:ring-violet-100"
-            >
+            <select id="article-category" value={form.category} disabled={disabled} onChange={(event) => setForm({ ...form, category: event.target.value })} className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-800 outline-none transition focus:border-violet-500 focus:ring-4 focus:ring-violet-100 disabled:opacity-70">
               {categories.filter((category) => category !== "All").map((category) => <option key={category}>{category}</option>)}
             </select>
-            <label htmlFor="article-source" className="mt-6 block text-sm font-semibold text-slate-500">Source / Author</label>
-            <input
-              id="article-source"
-              value={form.source}
-              onChange={(event) => setForm({ ...form, source: event.target.value })}
-              className="mt-2 w-full rounded-xl border-0 bg-slate-100 px-4 py-3 text-slate-950 outline-none focus:ring-4 focus:ring-violet-100"
-            />
+            <label htmlFor="article-author" className="mt-6 block text-sm font-semibold text-slate-500">Author</label>
+            <input id="article-author" value={form.authorName} disabled={disabled} onChange={(event) => setForm({ ...form, authorName: event.target.value })} className="mt-2 w-full rounded-xl border-0 bg-slate-100 px-4 py-3 text-slate-950 outline-none focus:ring-4 focus:ring-violet-100 disabled:opacity-70" />
+            <label htmlFor="article-source" className="mt-6 block text-sm font-semibold text-slate-500">Source</label>
+            <input id="article-source" value={form.sourceName} disabled={disabled} onChange={(event) => setForm({ ...form, sourceName: event.target.value })} className="mt-2 w-full rounded-xl border-0 bg-slate-100 px-4 py-3 text-slate-950 outline-none focus:ring-4 focus:ring-violet-100 disabled:opacity-70" />
             <span className={`mt-6 inline-flex rounded-full px-3 py-1 text-sm font-medium ${categoryTone(form.category)}`}>{form.category}</span>
           </div>
           {metrics && (
@@ -464,85 +417,124 @@ function ArticleEditor({
 }
 
 export default function AdminKnowledgeHub() {
-  const [articles, setArticles] = useState<KnowledgeArticle[]>(sampleArticles);
+  const [articles, setArticles] = useState<Article[]>([]);
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [editorMode, setEditorMode] = useState<"list" | "new" | "edit">("list");
-  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editingArticle, setEditingArticle] = useState<Article | null>(null);
   const [form, setForm] = useState<ArticleForm>(emptyForm);
+  const [loading, setLoading] = useState(true);
+  const [pageError, setPageError] = useState("");
+  const [saving, setSaving] = useState(false);
 
-  const counts = useMemo(() => ({
-    published: articles.filter((article) => article.status === "Published").length,
-    drafts: articles.filter((article) => article.status === "Draft").length,
-  }), [articles]);
+  const loadArticles = useCallback(async () => {
+    setLoading(true);
+    try {
+      const page = await getPublishedAdminArticles();
+      setArticles(page.items);
+      setPageError("");
+    } catch (caught) {
+      setPageError(errorMessage(caught));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadArticles();
+  }, [loadArticles]);
 
   const visibleArticles = useMemo(() => (
     selectedCategory === "All" ? articles : articles.filter((article) => article.category === selectedCategory)
   ), [articles, selectedCategory]);
 
-  const editingArticle = editingId ? articles.find((article) => article.id === editingId) ?? null : null;
-
   function openNewArticle() {
     setForm(emptyForm());
-    setEditingId(null);
+    setEditingArticle(null);
     setEditorMode("new");
   }
 
-  function openEditArticle(article: KnowledgeArticle) {
-    setForm(createFormFromArticle(article));
-    setEditingId(article.id);
-    setEditorMode("edit");
+  async function openEditArticle(article: Article) {
+    setSaving(true);
+    setPageError("");
+    try {
+      const detail = await getPublishedAdminArticle(article.id);
+      setForm(articleDetailToForm(detail));
+      setEditingArticle(detail);
+      setEditorMode("edit");
+    } catch (caught) {
+      setPageError(errorMessage(caught));
+    } finally {
+      setSaving(false);
+    }
   }
 
-  function saveNewArticle(status: ArticleStatus) {
-    const nextArticle: KnowledgeArticle = {
-      id: Math.max(...articles.map((article) => article.id), 0) + 1,
+  function requestFromForm(id?: string, contentBlocks = form.contentBlocks) {
+    return {
+      ...(id ? { id } : {}),
       title: form.title.trim(),
-      excerpt: form.excerpt.trim(),
-      body: form.body.trim(),
+      summary: form.summary.trim(),
+      coverImageUrl: form.coverImageUrl,
+      authorName: form.authorName.trim() || "FinanceAI Learning Team",
+      sourceName: form.sourceName.trim() || "Knowledge Base",
       category: form.category,
-      status,
-      publishedAt: status === "Published" ? new Date().toISOString().slice(0, 10) : null,
-      source: form.source.trim() || "FinanceAI Learning Team",
-      coverImage: form.coverImage,
-      inlineImages: [...form.inlineImages],
-      views: 0,
-      likes: 0,
-      saves: 0,
+      status: "published" as const,
+      publishedAt: new Date().toISOString(),
+      contentBlocks,
     };
-    setArticles((current) => [nextArticle, ...current]);
-    setEditorMode("list");
   }
 
-  function saveEditedArticle(status: ArticleStatus) {
+  async function saveNewArticle(contentBlocks: AdminArticleContentBlock[]) {
+    setSaving(true);
+    try {
+      const request = {
+        ...requestFromForm(undefined, contentBlocks),
+        id: slugify(form.title),
+      };
+      await createAdminArticle(request);
+      await loadArticles();
+      setEditorMode("list");
+    } catch (caught) {
+      setPageError(errorMessage(caught));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveEditedArticle(contentBlocks: AdminArticleContentBlock[]) {
     if (!editingArticle) return;
-    setArticles((current) => current.map((article) => article.id === editingArticle.id ? {
-      ...article,
-      title: form.title.trim(),
-      excerpt: form.excerpt.trim(),
-      body: form.body.trim(),
-      category: form.category,
-      status,
-      publishedAt: status === "Published" ? article.publishedAt ?? new Date().toISOString().slice(0, 10) : null,
-      source: form.source.trim() || "FinanceAI Learning Team",
-      coverImage: form.coverImage,
-      inlineImages: [...form.inlineImages],
-    } : article));
-    setEditorMode("list");
-    setEditingId(null);
+    setSaving(true);
+    try {
+      await updateAdminArticle(editingArticle.id, requestFromForm(undefined, contentBlocks));
+      await loadArticles();
+      setEditorMode("list");
+      setEditingArticle(null);
+    } catch (caught) {
+      setPageError(errorMessage(caught));
+    } finally {
+      setSaving(false);
+    }
   }
 
-  function deleteArticle(articleId: number) {
-    const article = articles.find((item) => item.id === articleId);
-    if (!article || !window.confirm(`Delete "${article.title}"? This action cannot be undone.`)) return;
-    setArticles((current) => current.filter((item) => item.id !== articleId));
+  async function removeArticle(article: Article) {
+    if (!window.confirm(`Delete "${article.title}"? This action cannot be undone.`)) return;
+    setSaving(true);
+    try {
+      await deleteAdminArticle(article.id);
+      setArticles((current) => current.filter((item) => item.id !== article.id));
+      setPageError("");
+    } catch (caught) {
+      setPageError(errorMessage(caught));
+    } finally {
+      setSaving(false);
+    }
   }
 
   if (editorMode === "new") {
-    return <ArticleEditor mode="new" form={form} setForm={setForm} onBack={() => setEditorMode("list")} onSave={saveNewArticle} />;
+    return <ArticleEditor mode="new" form={form} setForm={setForm} onBack={() => setEditorMode("list")} onSave={saveNewArticle} saving={saving} />;
   }
 
   if (editorMode === "edit" && editingArticle) {
-    return <ArticleEditor mode="edit" form={form} setForm={setForm} metrics={editingArticle} onBack={() => setEditorMode("list")} onSave={saveEditedArticle} />;
+    return <ArticleEditor mode="edit" form={form} setForm={setForm} metrics={editingArticle} onBack={() => setEditorMode("list")} onSave={saveEditedArticle} saving={saving} />;
   }
 
   return (
@@ -551,23 +543,24 @@ export default function AdminKnowledgeHub() {
         <div>
           <h1 className="text-3xl font-semibold tracking-tight text-slate-950 sm:text-4xl">Knowledge Hub</h1>
           <div className="mt-3 flex flex-wrap gap-3 text-sm font-medium">
-            <span className="rounded-full bg-emerald-50 px-4 py-1.5 text-emerald-700">{counts.published} published</span>
-            <span className="rounded-full bg-amber-50 px-4 py-1.5 text-amber-700">{counts.drafts} drafts</span>
+            <span className="rounded-full bg-emerald-50 px-4 py-1.5 text-emerald-700">{articles.length} published</span>
           </div>
         </div>
-        <button type="button" onClick={openNewArticle} className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-950 px-6 py-3.5 font-semibold text-white transition hover:bg-slate-800">
+        <button type="button" onClick={openNewArticle} disabled={saving} className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-950 px-6 py-3.5 font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60">
           <Plus size={20} /> New Article
         </button>
       </header>
 
+      {pageError && (
+        <div role="alert" className="mt-6 flex flex-col gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 sm:flex-row sm:items-center sm:justify-between">
+          <span>{pageError}</span>
+          <button type="button" onClick={() => void loadArticles()} className="inline-flex items-center gap-2 font-semibold"><RefreshCw size={16} /> Try Again</button>
+        </div>
+      )}
+
       <div className="mt-8 flex flex-wrap gap-3">
         {categories.map((category) => (
-          <button
-            key={category}
-            type="button"
-            onClick={() => setSelectedCategory(category)}
-            className={`rounded-full px-5 py-2.5 text-sm font-semibold transition ${selectedCategory === category ? "bg-indigo-500 text-white shadow-sm" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
-          >
+          <button key={category} type="button" onClick={() => setSelectedCategory(category)} className={`rounded-full px-5 py-2.5 text-sm font-semibold transition ${selectedCategory === category ? "bg-indigo-500 text-white shadow-sm" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>
             {category}
           </button>
         ))}
@@ -589,41 +582,42 @@ export default function AdminKnowledgeHub() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
-              {visibleArticles.map((article) => (
+              {loading && <tr><td colSpan={8} className="px-6 py-16 text-center text-slate-500">Loading articles...</td></tr>}
+              {!loading && visibleArticles.map((article) => (
                 <tr key={article.id} className="align-middle transition hover:bg-slate-50/70">
                   <td className="px-6 py-6">
                     <div className="flex max-w-md gap-4">
                       <div className="grid size-20 shrink-0 place-items-center overflow-hidden rounded-xl border border-slate-200 bg-slate-100 text-slate-300">
-                        {article.coverImage ? <img src={article.coverImage} alt="" className="h-full w-full object-cover" /> : <ImageIcon size={24} />}
+                        {article.coverImageUrl ? <img src={imageSrc(article.coverImageUrl) ?? undefined} alt="" className="h-full w-full object-cover" /> : <ImageIcon size={24} />}
                       </div>
                       <div>
                         <h2 className="font-bold leading-snug text-slate-900">{article.title}</h2>
-                        <p className="mt-2 text-sm leading-5 text-slate-500">{shortText(article.excerpt, 58)}</p>
-                        <p className="mt-2 text-xs font-semibold text-slate-300">{article.source}</p>
+                        <p className="mt-2 text-sm leading-5 text-slate-500">{shortText(article.summary, 58)}</p>
+                        <p className="mt-2 text-xs font-semibold text-slate-300">{article.sourceName}</p>
                       </div>
                     </div>
                   </td>
                   <td className="px-6 py-6"><span className={`rounded-full px-3 py-1 text-sm font-medium ${categoryTone(article.category)}`}>{article.category}</span></td>
-                  <td className="px-6 py-6"><span className={`rounded-full px-3 py-1 text-sm font-semibold ${article.status === "Published" ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>{article.status}</span></td>
+                  <td className="px-6 py-6"><span className="rounded-full bg-emerald-50 px-3 py-1 text-sm font-semibold text-emerald-700">Published</span></td>
                   <td className="px-6 py-6 text-sm text-slate-500">{formatPublishedDate(article.publishedAt)}</td>
                   <td className="px-6 py-6 text-sm text-slate-600"><span className="inline-flex items-center gap-2"><Eye size={16} className="text-slate-400" />{article.views.toLocaleString()}</span></td>
                   <td className="px-6 py-6 text-sm text-slate-600"><span className="inline-flex items-center gap-2"><Heart size={16} className="text-red-500" />{article.likes.toLocaleString()}</span></td>
                   <td className="px-6 py-6 text-sm text-slate-600"><span className="inline-flex items-center gap-2"><Bookmark size={16} className="text-indigo-500" />{article.saves.toLocaleString()}</span></td>
                   <td className="px-6 py-6">
                     <div className="flex items-center gap-4 whitespace-nowrap">
-                      <button type="button" onClick={() => openEditArticle(article)} className="inline-flex items-center gap-1.5 font-semibold text-indigo-600 hover:text-indigo-800">
+                      <button type="button" disabled={saving} onClick={() => void openEditArticle(article)} className="inline-flex items-center gap-1.5 font-semibold text-indigo-600 hover:text-indigo-800 disabled:opacity-60">
                         <Pencil size={17} /> Edit
                       </button>
-                      <button type="button" onClick={() => deleteArticle(article.id)} className="inline-flex items-center gap-1.5 font-semibold text-red-500 hover:text-red-700">
+                      <button type="button" disabled={saving} onClick={() => void removeArticle(article)} className="inline-flex items-center gap-1.5 font-semibold text-red-500 hover:text-red-700 disabled:opacity-60">
                         <Trash2 size={17} /> Delete
                       </button>
                     </div>
                   </td>
                 </tr>
               ))}
-              {visibleArticles.length === 0 && (
+              {!loading && visibleArticles.length === 0 && !pageError && (
                 <tr>
-                  <td colSpan={8} className="px-6 py-16 text-center text-slate-500">No articles in this category yet.</td>
+                  <td colSpan={8} className="px-6 py-16 text-center text-slate-500">No published articles in this category yet.</td>
                 </tr>
               )}
             </tbody>

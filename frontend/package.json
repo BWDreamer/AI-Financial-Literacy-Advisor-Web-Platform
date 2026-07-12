@@ -5,6 +5,11 @@
     "preview": "vite preview --host 0.0.0.0"
   },
   "dependencies": {
+    "@tiptap/extension-image": "^3.27.3",
+    "@tiptap/extension-text-align": "^3.27.3",
+    "@tiptap/extension-underline": "^3.27.3",
+    "@tiptap/react": "^3.27.3",
+    "@tiptap/starter-kit": "^3.27.3",
     "@vitejs/plugin-react": "latest",
     "lucide-react": "latest",
     "react": "latest",

@@ -12,6 +12,7 @@ import {
   type ArticleSortBy,
 } from "../api/articles";
 import { ApiError } from "../api/client";
+import { resolveImageUrl } from "../utils/imageUrl";
 
 type KnowledgeTab = "all" | "saved" | "liked";
 
@@ -136,15 +137,18 @@ function FeaturedHero({ featuredArticles }: { featuredArticles: Article[] }) {
 
   return <header className="relative overflow-hidden rounded-[2rem] bg-slate-950 shadow-xl shadow-slate-300/60">
     <div className="absolute inset-0">
-      {featuredArticles.map((article, index) => article.coverImageUrl && <img
-        key={article.id}
-        src={article.coverImageUrl}
-        alt=""
-        className={[
-          "absolute inset-0 h-full w-full object-cover transition-opacity duration-700",
-          index === activeIndex ? "opacity-100" : "opacity-0",
-        ].join(" ")}
-      />)}
+      {featuredArticles.map((article, index) => {
+        const coverImageUrl = resolveImageUrl(article.coverImageUrl);
+        return coverImageUrl && <img
+          key={article.id}
+          src={coverImageUrl}
+          alt=""
+          className={[
+            "absolute inset-0 h-full w-full object-cover transition-opacity duration-700",
+            index === activeIndex ? "opacity-100" : "opacity-0",
+          ].join(" ")}
+        />;
+      })}
       <div className="absolute inset-0 bg-gradient-to-r from-slate-950 via-slate-950/80 to-slate-950/20" />
       <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-transparent to-slate-950/40" />
     </div>
