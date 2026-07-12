@@ -18,3 +18,4 @@ reportlab
 PyMuPDF
 pytesseract
 Pillow
+httpx2
