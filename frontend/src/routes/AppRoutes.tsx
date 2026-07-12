@@ -9,6 +9,7 @@ import MemoryPage from "../pages/Memory";
 import MyGoals from "../pages/MyGoals";
 import Register from "../pages/Register";
 import AdminPlaceholder from "../pages/admin/AdminPlaceholder";
+import AdminKnowledgeHub from "../pages/admin/KnowledgeHub";
 import UserManagement from "../pages/admin/UserManagement";
 import { useUser } from "../store/UserProvider";
 
@@ -29,7 +30,7 @@ export default function AppRoutes() {
       <Route path="dashboard" element={<AdminPlaceholder title="Dashboard" />} />
       <Route path="users" element={<UserManagement />} />
       <Route path="settings" element={<AdminPlaceholder title="Advisory Settings" />} />
-      <Route path="knowledge" element={<AdminPlaceholder title="Knowledge Hub" />} />
+      <Route path="knowledge" element={<AdminKnowledgeHub />} />
     </Route>
     <Route element={<UserPortalLayout />}>
       <Route path="/home" element={<HomePage />} />
