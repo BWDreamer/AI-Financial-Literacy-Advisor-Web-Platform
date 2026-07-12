@@ -12,9 +12,13 @@ type ActiveMode = AddMode | null;
 const assetOptions: AssetType[] = ["cash", "stocks", "bonds", "property", "vehicle", "others"];
 const selectClass = "w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100";
 
+function cashSavingsTotal(entries: FinancialEntry[]) {
+  return assetTotal(entries, "cash") + cashFlowTotal(entries, "income") - cashFlowTotal(entries, "expense");
+}
+
 function SummaryCard({ mode, entries, active, onClick }: { mode: AddMode; entries: FinancialEntry[]; active: boolean; onClick: () => void }) {
   const isAsset = mode === "asset"; const Icon = isAsset ? Home : Banknote;
-  const total = isAsset ? assetTotal(entries) : cashFlowTotal(entries, "income", (entry) => sameMonth(entry.date)) - cashFlowTotal(entries, "expense", (entry) => sameMonth(entry.date));
+  const total = isAsset ? assetTotal(entries) - assetTotal(entries, "cash") + cashSavingsTotal(entries) : cashFlowTotal(entries, "income", (entry) => sameMonth(entry.date)) - cashFlowTotal(entries, "expense", (entry) => sameMonth(entry.date));
   return <button type="button" onClick={onClick} className={`rounded-2xl border border-dashed p-4 text-left transition ${active ? "border-blue-400 bg-blue-50" : "border-slate-300 bg-white hover:border-blue-300"}`}><div className="flex items-center justify-between"><span className="flex items-center gap-3 font-bold text-slate-900"><span className={`grid size-10 place-items-center rounded-full ${isAsset ? "bg-blue-100 text-blue-600" : "bg-emerald-100 text-emerald-600"}`}><Icon size={20} /></span>{isAsset ? "Assets" : "Cash Flow"}</span><Plus size={18} className="text-blue-600" /></div><p className="mt-3 text-2xl font-bold">{money(total)}</p><p className="text-xs text-slate-500">{isAsset ? "Total assets" : "This month net cash flow"}</p></button>;
 }
 
