@@ -1,5 +1,20 @@
 # Initial API Contract
 
+## Goals
+
+- GET /api/goals
+- POST /api/goals
+- GET /api/goals/summary
+- GET /api/goals/{goal_id}
+- PUT /api/goals/{goal_id}
+- DELETE /api/goals/{goal_id}
+- POST /api/goals/{goal_id}/contributions
+- GET /api/goals/{goal_id}/contributions
+
+Goal requests contain `name`, `category`, `target_amount`, `current_amount`,
+`monthly_contribution`, `target_date`, and `priority` (1-5). Contribution
+requests contain a positive `amount`.
+
 - GET /api/health
 - GET /api/auth/ping
 - GET /api/profile/ping

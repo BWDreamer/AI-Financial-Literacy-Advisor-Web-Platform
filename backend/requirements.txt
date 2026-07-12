@@ -11,5 +11,5 @@ python-jose[cryptography]
 python-multipart
 email-validator
 pytest
-httpx
+httpx2
 google-genai
