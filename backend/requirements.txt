@@ -11,5 +11,11 @@ python-jose[cryptography]
 python-multipart
 email-validator
 pytest
-httpx2
+httpx
 google-genai
+pypdf
+reportlab
+PyMuPDF
+pytesseract
+Pillow
+httpx2

@@ -14,6 +14,12 @@ from app.schemas.calculator import (
     GoalMonthlySavingRequest,
     GoalMonthlySavingResponse,
 )
+from app.schemas.ai import (
+    AIChatRequest,
+    AIChatResponse,
+    AIPdfChatResponse,
+    ImportedFinancialRecordResponse,
+)
 from app.schemas.profile import (
     ProfileResponse,
     ProfileUpsertRequest,
@@ -27,6 +33,9 @@ from app.schemas.rules import (
 
 __all__ = [
     "AvatarResponse",
+    "AIChatRequest",
+    "AIChatResponse",
+    "AIPdfChatResponse",
     "EmailUpdateRequest",
     "PasswordUpdateRequest",
     "TokenResponse",
@@ -38,6 +47,7 @@ __all__ = [
     "CompoundInterestResponse",
     "GoalMonthlySavingRequest",
     "GoalMonthlySavingResponse",
+    "ImportedFinancialRecordResponse",
     "ProfileResponse",
     "ProfileUpsertRequest",
     "FinancialRuleResponse",

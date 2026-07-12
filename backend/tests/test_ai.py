@@ -1,7 +1,9 @@
 import asyncio
 import json
+from io import BytesIO
 
 import httpx
+from reportlab.pdfgen import canvas
 
 from app.ai.dependencies import get_ai_advisor_service
 from app.ai.exceptions import (
@@ -13,20 +15,221 @@ from app.ai.prompts import FINANCIAL_ADVISOR_INSTRUCTIONS
 from app.ai.provider import GeminiProvider
 from app.main import app
 from app.models.financial_rule import FinancialRule
+from app.services import pdf_financial_service
 
 
 class SuccessfulTestAdvisorService:
     model = "test-model"
 
+    def __init__(self) -> None:
+        self.messages: list[str] = []
+        self.rule_classification_messages: list[str] = []
+        self.transaction_classification_messages: list[str] = []
+
+    def _rule_classification(self, message: str) -> dict:
+        user_question = message.rsplit(
+            "User question:",
+            maxsplit=1,
+        )[-1]
+        lowered_message = user_question.lower()
+
+        if "which years" in lowered_message:
+            intent = "knowledge_base_status"
+            rule_year = None
+            taxable_income = None
+        elif (
+            "contribution cap" in lowered_message
+            or "contribution caps" in lowered_message
+        ):
+            intent = "super_contribution_caps"
+            rule_year = (
+                "2026-2027"
+                if "2026" in lowered_message
+                else None
+            )
+            taxable_income = None
+        elif (
+            "super guarantee" in lowered_message
+            or "employer super" in lowered_message
+        ):
+            intent = "employer_super"
+            rule_year = (
+                "2026-2027"
+                if "2026" in lowered_message
+                else None
+            )
+            taxable_income = None
+        elif (
+            "taxable income" in lowered_message
+            or "how much income tax" in lowered_message
+            or "goes to the government" in lowered_message
+        ):
+            intent = "tax_calculation"
+            rule_year = None
+            taxable_income = 80000
+        elif "tax rate" in lowered_message or "tax rates" in lowered_message:
+            intent = "tax_brackets"
+            rule_year = (
+                "2021-2022"
+                if "2022" in lowered_message
+                else None
+            )
+            taxable_income = None
+        else:
+            intent = "out_of_scope"
+            rule_year = None
+            taxable_income = None
+
+        return {
+            "intent": intent,
+            "rule_year": rule_year,
+            "taxable_income": taxable_income,
+            "confidence": 0.97,
+        }
+
+    def _transaction_classification(self, message: str) -> dict:
+        rows = []
+
+        if "School Scholarship" in message:
+            rows.append(
+                {
+                    "transaction_id": "txn_1",
+                    "direction": "inflow",
+                    "transaction_type": "income",
+                    "confidence": 0.96,
+                }
+            )
+
+        if "Woolworths 120" in message:
+            rows.extend(
+                [
+                    {
+                        "transaction_id": "txn_1",
+                        "direction": "inflow",
+                        "transaction_type": "income",
+                        "confidence": 0.96,
+                    },
+                    {
+                        "transaction_id": "txn_2",
+                        "direction": "outflow",
+                        "transaction_type": "expense",
+                        "confidence": 0.95,
+                    },
+                    {
+                        "transaction_id": "txn_3",
+                        "direction": "none",
+                        "transaction_type": "transfer",
+                        "confidence": 0.92,
+                    },
+                ]
+            )
+
+        return {
+            "transactions": rows,
+        }
+
     async def reply(
         self,
         message: str,
     ) -> str:
+        if message.startswith(
+            "Classify the user's Australian personal finance rule question."
+        ):
+            self.rule_classification_messages.append(message)
+            return json.dumps(
+                self._rule_classification(message)
+            )
+
+        if message.startswith(
+            "Classify ambiguous personal finance transaction lines."
+        ):
+            self.transaction_classification_messages.append(message)
+            return json.dumps(
+                self._transaction_classification(message)
+            )
+
+        self.messages.append(message)
+
         return f"Educational response for: {message}"
+
+    async def reply_json(
+        self,
+        message: str,
+        response_schema: dict,
+    ) -> dict:
+        del response_schema
+
+        if message.startswith(
+            "Classify the user's Australian personal finance "
+            "rule lookup request."
+        ):
+            self.rule_classification_messages.append(message)
+            return self._rule_classification(message)
+
+        return {
+            "intent": "out_of_scope",
+            "rule_year": None,
+            "taxable_income": None,
+            "confidence": 0.0,
+        }
+
+
+class SuccessfulPdfAdvisorService(SuccessfulTestAdvisorService):
+    async def reply(
+        self,
+        message: str,
+    ) -> str:
+        if message.startswith("Classify "):
+            return await super().reply(message)
+
+        self.messages.append(message)
+
+        return f"Financial document response for: {message}"
+
+
+class MarkdownTestAdvisorService:
+    model = "test-model"
+
+    async def reply_json(
+        self,
+        message: str,
+        response_schema: dict,
+    ) -> dict:
+        del message, response_schema
+
+        return {
+            "intent": "out_of_scope",
+            "rule_year": None,
+            "taxable_income": None,
+            "confidence": 0.0,
+        }
+
+    async def reply(
+        self,
+        message: str,
+    ) -> str:
+        del message
+
+        return (
+            "### AI analysis\n"
+            "* **Cash balance:** $12,500\n"
+            "`HomePage` was updated."
+        )
 
 
 class UnconfiguredTestAdvisorService:
     model = "test-model"
+
+    async def reply_json(
+        self,
+        message: str,
+        response_schema: dict,
+    ) -> dict:
+        del message, response_schema
+
+        raise LLMConfigurationError(
+            "Test provider is not configured."
+        )
 
     async def reply(
         self,
@@ -42,6 +245,17 @@ class UnconfiguredTestAdvisorService:
 class RateLimitedTestAdvisorService:
     model = "test-model"
 
+    async def reply_json(
+        self,
+        message: str,
+        response_schema: dict,
+    ) -> dict:
+        del message, response_schema
+
+        raise LLMRateLimitError(
+            "Test provider rate limit."
+        )
+
     async def reply(
         self,
         message: str,
@@ -55,6 +269,17 @@ class RateLimitedTestAdvisorService:
 
 class FailingTestAdvisorService:
     model = "test-model"
+
+    async def reply_json(
+        self,
+        message: str,
+        response_schema: dict,
+    ) -> dict:
+        del message, response_schema
+
+        raise LLMServiceError(
+            "Test provider failure."
+        )
 
     async def reply(
         self,
@@ -230,6 +455,32 @@ def create_2025_2026_tax_rules(db_session) -> None:
     db_session.commit()
 
 
+def create_2026_2027_tax_rule(db_session) -> None:
+    db_session.add(
+        FinancialRule(
+            region="Australia",
+            category="tax",
+            rule_year="2026-2027",
+            rule_key="resident_income_tax_bracket_0_over",
+            rule_value=json.dumps(
+                {
+                    "bracket_label": "$0 and over",
+                    "income_from": 0,
+                    "income_to": None,
+                    "base_tax": 0,
+                    "threshold": 0,
+                    "marginal_rate": 0.31,
+                    "formula": "31c for each $1",
+                    "medicare_levy_included": False,
+                }
+            ),
+            source_name="Australian Taxation Office",
+            source_url=ATO_TAX_RATES_URL,
+        )
+    )
+    db_session.commit()
+
+
 def create_current_superannuation_rules(db_session) -> None:
     rules = [
         FinancialRule(
@@ -396,18 +647,26 @@ def test_gemini_provider_retries_transient_transport_error():
     assert models.calls == 2
 
 
-def test_financial_advisor_prompt_requires_readable_lists():
+def test_financial_advisor_prompt_requires_readable_plain_text():
     normalized_prompt = " ".join(
         FINANCIAL_ADVISOR_INSTRUCTIONS.split()
     )
 
+    assert "Use plain text only" in normalized_prompt
+    assert "Do not use Markdown syntax" in normalized_prompt
     assert "Format responses for readability" in normalized_prompt
-    assert "put each list item on its own separate line" in (
+
+
+def test_financial_advisor_prompt_hides_explicit_ai_analysis_label():
+    normalized_prompt = " ".join(
+        FINANCIAL_ADVISOR_INSTRUCTIONS.split()
+    )
+
+    assert 'Do not include a visible section titled "AI analysis"' in (
         normalized_prompt
     )
-    assert "Do not compress multiple list items" in (
-        normalized_prompt
-    )
+    assert "verified financial rule context" in normalized_prompt
+    assert "Always reply in English" in normalized_prompt
 
 
 def create_authorization_headers(client) -> dict[str, str]:
@@ -434,6 +693,25 @@ def create_authorization_headers(client) -> dict[str, str]:
     return {
         "Authorization": f"Bearer {access_token}",
     }
+
+
+def make_pdf_bytes(lines: list[str]) -> bytes:
+    buffer = BytesIO()
+    pdf = canvas.Canvas(buffer)
+    y_position = 800
+    for line in lines:
+        pdf.drawString(72, y_position, line)
+        y_position -= 18
+    pdf.save()
+    return buffer.getvalue()
+
+
+def make_blank_pdf_bytes() -> bytes:
+    buffer = BytesIO()
+    pdf = canvas.Canvas(buffer)
+    pdf.showPage()
+    pdf.save()
+    return buffer.getvalue()
 
 
 def test_chat_requires_authentication(client):
@@ -476,6 +754,37 @@ def test_chat_returns_advisor_response(client):
         ),
         "model": "test-model",
     }
+
+
+def test_chat_strips_markdown_and_ai_analysis_heading(client):
+    app.dependency_overrides[
+        get_ai_advisor_service
+    ] = lambda: MarkdownTestAdvisorService()
+
+    try:
+        response = client.post(
+            "/api/ai/chat",
+            headers=create_authorization_headers(
+                client
+            ),
+            json={
+                "message": "Read my financial details.",
+            },
+        )
+    finally:
+        app.dependency_overrides.pop(
+            get_ai_advisor_service,
+            None,
+        )
+
+    assert response.status_code == 200
+    answer = response.json()["answer"]
+    assert "AI analysis" not in answer
+    assert "#" not in answer
+    assert "*" not in answer
+    assert "`" not in answer
+    assert "Cash balance: $12,500" in answer
+    assert "HomePage was updated." in answer
 
 
 def test_chat_rejects_blank_message(client):
@@ -573,6 +882,11 @@ def test_chat_includes_selected_rule_context(client, db_session):
         app.dependency_overrides.pop(get_ai_advisor_service, None)
 
     assert response.status_code == 200
+    assert response.json()["model"] == "test-model"
+    assert len(service.messages) == 1
+    assert "Verified financial rule context" in service.messages[0]
+    assert "Rule value: Verified test rule content." in service.messages[0]
+    assert "User question:" in service.messages[0]
     answer = response.json()["answer"]
     assert "Verified test rule content." in answer
     assert "Australian Taxation Office" in answer
@@ -583,139 +897,10 @@ def test_chat_automatically_injects_current_tax_table_context(
     db_session,
 ):
     create_2025_2026_tax_rules(db_session)
+    service = SuccessfulTestAdvisorService()
     app.dependency_overrides[
         get_ai_advisor_service
-    ] = lambda: RateLimitedTestAdvisorService()
-
-    try:
-        response = client.post(
-            "/api/ai/chat",
-            headers=create_authorization_headers(client),
-            json={
-                "message": "查询今年澳大利亚悉尼的税率。",
-            },
-        )
-    finally:
-        app.dependency_overrides.pop(
-            get_ai_advisor_service,
-            None,
-        )
-
-    assert response.status_code == 200
-    assert response.json()["model"] == "rules-knowledge-base"
-    answer = response.json()["answer"]
-    assert "2025-2026" in answer
-    assert "16c for each $1 over $18,200" in answer
-    assert "Sydney/NSW does not use a separate" in answer
-    assert ATO_TAX_RATES_URL in answer
-
-
-def test_chat_automatically_injects_current_tax_bracket_context(
-    client,
-    db_session,
-):
-    create_2025_2026_tax_rules(db_session)
-    app.dependency_overrides[
-        get_ai_advisor_service
-    ] = lambda: RateLimitedTestAdvisorService()
-
-    try:
-        response = client.post(
-            "/api/ai/chat",
-            headers=create_authorization_headers(client),
-            json={
-                "message": "我的年薪是80,000澳元，今年要交多少税？",
-            },
-        )
-    finally:
-        app.dependency_overrides.pop(
-            get_ai_advisor_service,
-            None,
-        )
-
-    assert response.status_code == 200
-    assert response.json()["model"] == "rules-knowledge-base"
-    answer = response.json()["answer"]
-    assert "2025-2026" in answer
-    assert "taxable income $80,000.00 falls in" in answer
-    assert "Marginal rate: 30%" in answer
-    assert "$14,788.00" in answer
-    assert ATO_TAX_RATES_URL in answer
-
-
-def test_chat_warns_when_requested_tax_year_is_not_available(
-    client,
-    db_session,
-):
-    create_2025_2026_tax_rules(db_session)
-    app.dependency_overrides[
-        get_ai_advisor_service
-    ] = lambda: RateLimitedTestAdvisorService()
-
-    try:
-        response = client.post(
-            "/api/ai/chat",
-            headers=create_authorization_headers(client),
-            json={
-                "message": "查询2022年澳大利亚悉尼的税率。",
-            },
-        )
-    finally:
-        app.dependency_overrides.pop(
-            get_ai_advisor_service,
-            None,
-        )
-
-    assert response.status_code == 200
-    assert response.json()["model"] == "rules-knowledge-base"
-    answer = response.json()["answer"]
-    assert "does not contain resident income tax rates" in answer
-    assert "2021-2022" in answer
-    assert "should not infer a specific rate from model memory" in answer
-    assert "19c for each $1 over $18,200" not in answer
-
-
-def test_chat_automatically_injects_payday_super_context(
-    client,
-    db_session,
-):
-    create_current_superannuation_rules(db_session)
-    app.dependency_overrides[
-        get_ai_advisor_service
-    ] = lambda: RateLimitedTestAdvisorService()
-
-    try:
-        response = client.post(
-            "/api/ai/chat",
-            headers=create_authorization_headers(client),
-            json={
-                "message": "2026年7月1日后雇主养老金比例是多少？",
-            },
-        )
-    finally:
-        app.dependency_overrides.pop(
-            get_ai_advisor_service,
-            None,
-        )
-
-    assert response.status_code == 200
-    assert response.json()["model"] == "rules-knowledge-base"
-    answer = response.json()["answer"]
-    assert "2026-2027" in answer
-    assert "General super guarantee rate: 12%" in answer
-    assert "qualifying earnings" in answer
-    assert "Payday Super from 1 July 2026" in answer
-    assert ATO_SUPER_GUARANTEE_URL in answer
-
-
-def test_chat_automatically_injects_super_contribution_cap_context(
-    client,
-    db_session,
-):
-    create_super_contribution_cap_rules(db_session)
-    app.dependency_overrides[
-        get_ai_advisor_service
-    ] = lambda: RateLimitedTestAdvisorService()
+    ] = lambda: service
 
     try:
         response = client.post(
@@ -723,8 +908,8 @@ def test_chat_automatically_injects_super_contribution_cap_context(
             headers=create_authorization_headers(client),
             json={
                 "message": (
-                    "2026-27 年我能额外存多少 super？"
-                    " concessional 和 non-concessional cap 是多少？"
+                    "What are the current Australian resident "
+                    "income tax rates?"
                 ),
             },
         )
@@ -735,33 +920,36 @@ def test_chat_automatically_injects_super_contribution_cap_context(
         )
 
     assert response.status_code == 200
-    assert response.json()["model"] == "rules-knowledge-base"
+    assert response.json()["model"] == "test-model"
+    assert len(service.messages) == 1
+    assert "Verified financial rule context" in service.messages[0]
+    assert "User question:" in service.messages[0]
     answer = response.json()["answer"]
-    assert "2026-2027" in answer
-    assert "Concessional contributions cap: $32,500" in answer
-    assert "Non-Concessional contributions cap: $130,000" in answer
-    assert "salary sacrifice contributions" in answer
-    assert "The non-concessional cap can be nil" in answer
-    assert ATO_SUPER_CAPS_URL in answer
+    assert "2025-2026" in answer
+    assert "16c for each $1 over $18,200" in answer
+    assert ATO_TAX_RATES_URL in answer
 
 
-def test_chat_summarizes_supported_rule_years(
+def test_chat_uses_latest_supported_tax_year_from_database(
     client,
     db_session,
 ):
     create_2025_2026_tax_rules(db_session)
-    create_current_superannuation_rules(db_session)
-    create_super_contribution_cap_rules(db_session)
+    create_2026_2027_tax_rule(db_session)
+    service = SuccessfulTestAdvisorService()
     app.dependency_overrides[
         get_ai_advisor_service
-    ] = lambda: RateLimitedTestAdvisorService()
+    ] = lambda: service
 
     try:
         response = client.post(
             "/api/ai/chat",
             headers=create_authorization_headers(client),
             json={
-                "message": "你的规则知识库更新到哪一年？",
+                "message": (
+                    "What are the current Australian resident "
+                    "income tax rates?"
+                ),
             },
         )
     finally:
@@ -771,7 +959,784 @@ def test_chat_summarizes_supported_rule_years(
         )
 
     assert response.status_code == 200
-    assert response.json()["model"] == "rules-knowledge-base"
+    answer = response.json()["answer"]
+    assert "2026-2027" in answer
+    assert "31c for each $1" in answer
+
+
+def test_chat_automatically_injects_current_tax_bracket_context(
+    client,
+    db_session,
+):
+    create_2025_2026_tax_rules(db_session)
+    service = SuccessfulTestAdvisorService()
+    app.dependency_overrides[
+        get_ai_advisor_service
+    ] = lambda: service
+
+    try:
+        response = client.post(
+            "/api/ai/chat",
+            headers=create_authorization_headers(client),
+            json={
+                "message": (
+                    "My taxable income is 80,000 AUD. "
+                    "How much income tax applies this year?"
+                ),
+            },
+        )
+    finally:
+        app.dependency_overrides.pop(
+            get_ai_advisor_service,
+            None,
+        )
+
+    assert response.status_code == 200
+    assert response.json()["model"] == "test-model"
+    assert len(service.messages) == 1
+    assert "Verified financial rule context" in service.messages[0]
+    answer = response.json()["answer"]
+    assert "2025-2026" in answer
+    assert "taxable income $80,000.00 falls in" in answer
+    assert "marginal rate is 30%" in answer
+    assert "$14,788.00" in answer
+    assert ATO_TAX_RATES_URL in answer
+
+
+def test_chat_uses_llm_intent_for_fuzzy_tax_calculation(
+    client,
+    db_session,
+):
+    create_2025_2026_tax_rules(db_session)
+    service = SuccessfulTestAdvisorService()
+    app.dependency_overrides[
+        get_ai_advisor_service
+    ] = lambda: service
+
+    try:
+        response = client.post(
+            "/api/ai/chat",
+            headers=create_authorization_headers(client),
+            json={
+                "message": (
+                    "I earn 80k. What portion of that goes "
+                    "to the government?"
+                ),
+            },
+        )
+    finally:
+        app.dependency_overrides.pop(
+            get_ai_advisor_service,
+            None,
+        )
+
+    assert response.status_code == 200
+    assert len(service.rule_classification_messages) == 1
+    assert len(service.messages) == 1
+    assert "Verified financial rule context" in service.messages[0]
+    answer = response.json()["answer"]
+    assert "taxable income $80,000.00 falls in" in answer
+    assert "$14,788.00" in answer
+
+
+def test_chat_warns_when_requested_tax_year_is_not_available(
+    client,
+    db_session,
+):
+    create_2025_2026_tax_rules(db_session)
+    service = SuccessfulTestAdvisorService()
+    app.dependency_overrides[
+        get_ai_advisor_service
+    ] = lambda: service
+
+    try:
+        response = client.post(
+            "/api/ai/chat",
+            headers=create_authorization_headers(client),
+            json={
+                "message": "What were the Australian tax rates in 2022?",
+            },
+        )
+    finally:
+        app.dependency_overrides.pop(
+            get_ai_advisor_service,
+            None,
+        )
+
+    assert response.status_code == 200
+    assert response.json()["model"] == "test-model"
+    assert len(service.messages) == 1
+    assert "Verified financial rule context" in service.messages[0]
+    answer = response.json()["answer"]
+    assert "does not contain resident income tax rates" in answer
+    assert "2021-2022" in answer
+    assert "Do not infer a specific rate from model memory" in answer
+    assert "19c for each $1 over $18,200" not in answer
+
+
+def test_chat_automatically_injects_payday_super_context(
+    client,
+    db_session,
+):
+    create_current_superannuation_rules(db_session)
+    service = SuccessfulTestAdvisorService()
+    app.dependency_overrides[
+        get_ai_advisor_service
+    ] = lambda: service
+
+    try:
+        response = client.post(
+            "/api/ai/chat",
+            headers=create_authorization_headers(client),
+            json={
+                "message": (
+                    "What is the employer super guarantee "
+                    "after 1 July 2026?"
+                ),
+            },
+        )
+    finally:
+        app.dependency_overrides.pop(
+            get_ai_advisor_service,
+            None,
+        )
+
+    assert response.status_code == 200
+    assert response.json()["model"] == "test-model"
+    assert len(service.messages) == 1
+    assert "Verified financial rule context" in service.messages[0]
+    answer = response.json()["answer"]
+    assert "2026-2027" in answer
+    assert "general super guarantee rate is 12%" in answer
+    assert "qualifying earnings" in answer
+    assert "Payday Super from 1 July 2026" in answer
+    assert ATO_SUPER_GUARANTEE_URL in answer
+
+
+def test_chat_automatically_injects_super_contribution_cap_context(
+    client,
+    db_session,
+):
+    create_super_contribution_cap_rules(db_session)
+    service = SuccessfulTestAdvisorService()
+    app.dependency_overrides[
+        get_ai_advisor_service
+    ] = lambda: service
+
+    try:
+        response = client.post(
+            "/api/ai/chat",
+            headers=create_authorization_headers(client),
+            json={
+                "message": (
+                    "What are the 2026-27 concessional and "
+                    "non-concessional super contribution caps?"
+                ),
+            },
+        )
+    finally:
+        app.dependency_overrides.pop(
+            get_ai_advisor_service,
+            None,
+        )
+
+    assert response.status_code == 200
+    assert response.json()["model"] == "test-model"
+    assert len(service.messages) == 1
+    assert "Verified financial rule context" in service.messages[0]
+    answer = response.json()["answer"]
+    assert "2026-2027" in answer
+    assert "Concessional contributions cap: $32,500" in answer
+    assert "Non-Concessional contributions cap: $130,000" in answer
+    assert "salary sacrifice contributions" in answer
+    assert "The non-concessional cap can be nil" in answer
+    assert ATO_SUPER_CAPS_URL in answer
+
+
+def test_chat_routes_contribution_cap_without_super_intent(
+    client,
+    db_session,
+):
+    create_super_contribution_cap_rules(db_session)
+    service = SuccessfulTestAdvisorService()
+    app.dependency_overrides[
+        get_ai_advisor_service
+    ] = lambda: service
+
+    try:
+        response = client.post(
+            "/api/ai/chat",
+            headers=create_authorization_headers(client),
+            json={
+                "message": (
+                    "What is the 2026-27 concessional "
+                    "contribution cap?"
+                ),
+            },
+        )
+    finally:
+        app.dependency_overrides.pop(
+            get_ai_advisor_service,
+            None,
+        )
+
+    assert response.status_code == 200
+    assert response.json()["model"] == "test-model"
+    assert len(service.messages) == 1
+    assert "Verified financial rule context" in service.messages[0]
+    assert "superannuation contribution caps" in service.messages[0]
+    assert "employer super guarantee" not in service.messages[0]
+    answer = response.json()["answer"]
+    assert "2026-2027" in answer
+    assert "Concessional contributions cap: $32,500" in answer
+    assert ATO_SUPER_CAPS_URL in answer
+
+
+def test_chat_does_not_route_partial_english_keyword_matches(
+    client,
+    db_session,
+):
+    create_2025_2026_tax_rules(db_session)
+    create_current_superannuation_rules(db_session)
+    service = SuccessfulTestAdvisorService()
+    app.dependency_overrides[
+        get_ai_advisor_service
+    ] = lambda: service
+
+    try:
+        headers = create_authorization_headers(client)
+        taxi_response = client.post(
+            "/api/ai/chat",
+            headers=headers,
+            json={
+                "message": "The taxi fare was higher than expected.",
+            },
+        )
+        superb_response = client.post(
+            "/api/ai/chat",
+            headers=headers,
+            json={
+                "message": "That was a superb explanation.",
+            },
+        )
+    finally:
+        app.dependency_overrides.pop(
+            get_ai_advisor_service,
+            None,
+        )
+
+    assert taxi_response.status_code == 200
+    assert superb_response.status_code == 200
+    assert len(service.messages) == 2
+    assert service.messages[0] == (
+        "The taxi fare was higher than expected."
+    )
+    assert service.messages[1] == "That was a superb explanation."
+
+
+def test_pdf_chat_extracts_financials_and_updates_homepage_data(client):
+    headers = create_authorization_headers(client)
+    conversation_id = client.post(
+        "/api/chat/conversations",
+        headers=headers,
+        json={},
+    ).json()["conversation_id"]
+    service = SuccessfulPdfAdvisorService()
+    app.dependency_overrides[
+        get_ai_advisor_service
+    ] = lambda: service
+    pdf_bytes = make_pdf_bytes(
+        [
+            "Financial Summary",
+            "Cash savings: $12,500.00",
+            "Monthly income: $4,200.00",
+            "Monthly expenses: $2,100.00",
+        ]
+    )
+
+    try:
+        response = client.post(
+            "/api/ai/chat/pdf",
+            headers=headers,
+            data={
+                "message": "Extract the financial basics.",
+                "conversation_id": str(conversation_id),
+            },
+            files={
+                "files": (
+                    "statement.pdf",
+                    pdf_bytes,
+                    "application/pdf",
+                ),
+            },
+        )
+    finally:
+        app.dependency_overrides.pop(
+            get_ai_advisor_service,
+            None,
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["model"] == "test-model"
+    assert data["low_confidence"] is False
+    assert data["extracted_text_characters"] > 30
+    assert {
+        record["name"]
+        for record in data["imported_records"]
+    } == {
+        "Imported cash balance",
+        "Imported monthly income",
+        "Imported monthly expenses",
+    }
+    assert len(service.messages) == 1
+    assert "HomePage financial basics updated" in service.messages[0]
+    assert "Cash savings: $12,500.00" in service.messages[0]
+
+    financials = client.get(
+        "/api/financials",
+        headers=headers,
+    ).json()
+    assert financials["assets"][0]["asset_type"] == "cash"
+    assert financials["assets"][0]["amount"] == "12500.00"
+    assert {
+        item["flow_type"]: item["amount"]
+        for item in financials["cash_flows"]
+    } == {
+        "income": "4200.00",
+        "expense": "2100.00",
+    }
+
+    detail = client.get(
+        f"/api/chat/conversations/{conversation_id}",
+        headers=headers,
+    ).json()
+    assert [message["role"] for message in detail["messages"]] == [
+        "user",
+        "assistant",
+    ]
+    assert "Uploaded PDF(s): statement.pdf" in detail["messages"][0]["content"]
+
+
+def test_pdf_chat_calculates_income_and_expenses_from_transactions(client):
+    headers = create_authorization_headers(client)
+    conversation_id = client.post(
+        "/api/chat/conversations",
+        headers=headers,
+        json={},
+    ).json()["conversation_id"]
+    service = SuccessfulPdfAdvisorService()
+    app.dependency_overrides[
+        get_ai_advisor_service
+    ] = lambda: service
+    pdf_bytes = make_pdf_bytes(
+        [
+            "Bank Statement",
+            "Opening Balance: $12,500.00",
+            "Salary               +$3,000",
+            "Rent                  -$1,500",
+            "Woolworths              -$120",
+            "Electricity              -$90",
+            "Freelance              +$800",
+        ]
+    )
+
+    try:
+        response = client.post(
+            "/api/ai/chat/pdf",
+            headers=headers,
+            data={
+                "message": "Update my financial information.",
+                "conversation_id": str(conversation_id),
+            },
+            files={
+                "files": (
+                    "transactions.pdf",
+                    pdf_bytes,
+                    "application/pdf",
+                ),
+            },
+        )
+    finally:
+        app.dependency_overrides.pop(
+            get_ai_advisor_service,
+            None,
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["low_confidence"] is False
+    assert {
+        record["name"]: record["amount"]
+        for record in data["imported_records"]
+    } == {
+        "Imported cash balance": 12500.0,
+        "Imported monthly income": 3800.0,
+        "Imported monthly expenses": 1710.0,
+    }
+    assert "Transaction summary: income=$3,800.00" in service.messages[0]
+    assert "expenses=$1,710.00" in service.messages[0]
+
+    financials = client.get(
+        "/api/financials",
+        headers=headers,
+    ).json()
+    assert financials["assets"][0]["amount"] == "12500.00"
+    assert {
+        item["flow_type"]: item["amount"]
+        for item in financials["cash_flows"]
+    } == {
+        "income": "3800.00",
+        "expense": "1710.00",
+    }
+
+
+def test_pdf_chat_batches_ambiguous_transactions_for_llm_classification(client):
+    headers = create_authorization_headers(client)
+    conversation_id = client.post(
+        "/api/chat/conversations",
+        headers=headers,
+        json={},
+    ).json()["conversation_id"]
+    service = SuccessfulPdfAdvisorService()
+    app.dependency_overrides[
+        get_ai_advisor_service
+    ] = lambda: service
+    pdf_bytes = make_pdf_bytes(
+        [
+            "Bank Statement",
+            "Salary 3000",
+            "Woolworths 120",
+            "Transfer 500",
+        ]
+    )
+
+    try:
+        response = client.post(
+            "/api/ai/chat/pdf",
+            headers=headers,
+            data={
+                "message": "Update my financial information.",
+                "conversation_id": str(conversation_id),
+            },
+            files={
+                "files": (
+                    "ambiguous.pdf",
+                    pdf_bytes,
+                    "application/pdf",
+                ),
+            },
+        )
+    finally:
+        app.dependency_overrides.pop(
+            get_ai_advisor_service,
+            None,
+        )
+
+    assert response.status_code == 200
+    assert len(service.transaction_classification_messages) == 1
+    assert "amount_from_backend" in (
+        service.transaction_classification_messages[0]
+    )
+    assert {
+        record["name"]: record["amount"]
+        for record in response.json()["imported_records"]
+    } == {
+        "Imported monthly income": 3000.0,
+        "Imported monthly expenses": 120.0,
+    }
+
+    financials = client.get(
+        "/api/financials",
+        headers=headers,
+    ).json()
+    assert {
+        item["flow_type"]: item["amount"]
+        for item in financials["cash_flows"]
+    } == {
+        "income": "3000.00",
+        "expense": "120.00",
+    }
+
+
+def test_pdf_chat_extracts_opening_balance_deposits_and_credits(client):
+    headers = create_authorization_headers(client)
+    conversation_id = client.post(
+        "/api/chat/conversations",
+        headers=headers,
+        json={},
+    ).json()["conversation_id"]
+    service = SuccessfulPdfAdvisorService()
+    app.dependency_overrides[
+        get_ai_advisor_service
+    ] = lambda: service
+    pdf_bytes = make_pdf_bytes(
+        [
+            "Statement Summary",
+            "Opening Balance $9,250.50",
+            "Deposits and Credits $3,800.00",
+            "Total Debits $1,710.00",
+        ]
+    )
+
+    try:
+        response = client.post(
+            "/api/ai/chat/pdf",
+            headers=headers,
+            data={
+                "message": "Update my HomePage basics.",
+                "conversation_id": str(conversation_id),
+            },
+            files={
+                "files": (
+                    "summary.pdf",
+                    pdf_bytes,
+                    "application/pdf",
+                ),
+            },
+        )
+    finally:
+        app.dependency_overrides.pop(
+            get_ai_advisor_service,
+            None,
+        )
+
+    assert response.status_code == 200
+    assert {
+        record["name"]: record["amount"]
+        for record in response.json()["imported_records"]
+    } == {
+        "Imported cash balance": 9250.5,
+        "Imported monthly income": 3800.0,
+        "Imported monthly expenses": 1710.0,
+    }
+
+
+def test_pdf_chat_uses_ocr_text_for_image_based_statement(
+    client,
+    monkeypatch,
+):
+    headers = create_authorization_headers(client)
+    conversation_id = client.post(
+        "/api/chat/conversations",
+        headers=headers,
+        json={},
+    ).json()["conversation_id"]
+    service = SuccessfulPdfAdvisorService()
+    app.dependency_overrides[
+        get_ai_advisor_service
+    ] = lambda: service
+
+    def fake_ocr_text(content: bytes) -> str:
+        assert content
+
+        return "\n".join(
+            [
+                "Education:--22984",
+                "Eating out & takeaway:-14",
+                "Vehicle & transport:-14",
+                "Income:+17000",
+                "School Scholarship: 1,000",
+                "Government Subsidy:+1,000",
+                "Part-time Job Wages:+5,000",
+            ]
+        )
+
+    monkeypatch.setattr(
+        pdf_financial_service,
+        "extract_ocr_text_from_pdf_bytes",
+        fake_ocr_text,
+    )
+
+    try:
+        response = client.post(
+            "/api/ai/chat/pdf",
+            headers=headers,
+            data={
+                "message": "Read this scanned statement.",
+                "conversation_id": str(conversation_id),
+            },
+            files={
+                "files": (
+                    "scanned.pdf",
+                    make_blank_pdf_bytes(),
+                    "application/pdf",
+                ),
+            },
+        )
+    finally:
+        app.dependency_overrides.pop(
+            get_ai_advisor_service,
+            None,
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["low_confidence"] is False
+    assert {
+        record["name"]: record["amount"]
+        for record in data["imported_records"]
+    } == {
+        "Imported monthly income": 24000.0,
+        "Imported monthly expenses": 23012.0,
+    }
+    assert len(service.transaction_classification_messages) == 1
+    assert "OCR used: True" in service.messages[0]
+
+
+def test_pdf_chat_low_confidence_does_not_update_financials(client):
+    headers = create_authorization_headers(client)
+    conversation_id = client.post(
+        "/api/chat/conversations",
+        headers=headers,
+        json={},
+    ).json()["conversation_id"]
+    service = SuccessfulPdfAdvisorService()
+    app.dependency_overrides[
+        get_ai_advisor_service
+    ] = lambda: service
+
+    try:
+        response = client.post(
+            "/api/ai/chat/pdf",
+            headers=headers,
+            data={
+                "message": "Read this PDF.",
+                "conversation_id": str(conversation_id),
+            },
+            files={
+                "files": (
+                    "blank.pdf",
+                    make_pdf_bytes(["Summary only"]),
+                    "application/pdf",
+                ),
+            },
+        )
+    finally:
+        app.dependency_overrides.pop(
+            get_ai_advisor_service,
+            None,
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["low_confidence"] is True
+    assert data["imported_records"] == []
+    assert data["fallback_reason"] is not None
+    assert "Fallback reason" in service.messages[0]
+    financials = client.get(
+        "/api/financials",
+        headers=headers,
+    ).json()
+    assert financials == {"assets": [], "cash_flows": []}
+
+
+def test_pdf_chat_rejects_non_pdf_upload(client):
+    headers = create_authorization_headers(client)
+    conversation_id = client.post(
+        "/api/chat/conversations",
+        headers=headers,
+        json={},
+    ).json()["conversation_id"]
+    app.dependency_overrides[
+        get_ai_advisor_service
+    ] = lambda: SuccessfulPdfAdvisorService()
+
+    try:
+        response = client.post(
+            "/api/ai/chat/pdf",
+            headers=headers,
+            data={
+                "message": "Read this file.",
+                "conversation_id": str(conversation_id),
+            },
+            files={
+                "files": (
+                    "statement.txt",
+                    b"Cash savings: $100",
+                    "application/pdf",
+                ),
+            },
+        )
+    finally:
+        app.dependency_overrides.pop(
+            get_ai_advisor_service,
+            None,
+        )
+
+    assert response.status_code == 415
+    assert response.json()["detail"] == "Only PDF files are supported."
+
+
+def test_pdf_chat_rejects_mismatched_pdf_upload(client):
+    headers = create_authorization_headers(client)
+    conversation_id = client.post(
+        "/api/chat/conversations",
+        headers=headers,
+        json={},
+    ).json()["conversation_id"]
+    app.dependency_overrides[
+        get_ai_advisor_service
+    ] = lambda: SuccessfulPdfAdvisorService()
+
+    try:
+        response = client.post(
+            "/api/ai/chat/pdf",
+            headers=headers,
+            data={
+                "message": "Read this file.",
+                "conversation_id": str(conversation_id),
+            },
+            files={
+                "files": (
+                    "statement.pdf",
+                    b"Cash savings: $100",
+                    "text/plain",
+                ),
+            },
+        )
+    finally:
+        app.dependency_overrides.pop(
+            get_ai_advisor_service,
+            None,
+        )
+
+    assert response.status_code == 415
+    assert response.json()["detail"] == "Only PDF files are supported."
+
+
+def test_chat_summarizes_supported_rule_years(
+    client,
+    db_session,
+):
+    create_2025_2026_tax_rules(db_session)
+    create_current_superannuation_rules(db_session)
+    create_super_contribution_cap_rules(db_session)
+    service = SuccessfulTestAdvisorService()
+    app.dependency_overrides[
+        get_ai_advisor_service
+    ] = lambda: service
+
+    try:
+        response = client.post(
+            "/api/ai/chat",
+            headers=create_authorization_headers(client),
+            json={
+                "message": (
+                    "Which years does your rules knowledge base support?"
+                ),
+            },
+        )
+    finally:
+        app.dependency_overrides.pop(
+            get_ai_advisor_service,
+            None,
+        )
+
+    assert response.status_code == 200
+    assert response.json()["model"] == "test-model"
+    assert len(service.messages) == 1
+    assert "Verified financial rule context" in service.messages[0]
     answer = response.json()["answer"]
     assert "2025-2026" in answer
     assert "2026-2027" in answer
