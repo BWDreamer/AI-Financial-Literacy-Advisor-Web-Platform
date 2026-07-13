@@ -11,6 +11,7 @@ import {
   type ArticleDetail,
 } from "../api/articles";
 import { ApiError } from "../api/client";
+import { resolveImageUrl } from "../utils/imageUrl";
 
 function formatDate(value: string | null) {
   if (!value) return "";
@@ -26,8 +27,10 @@ function ArticleContentBlockView({ block }: { block: ArticleContentBlock }) {
     return <p>{block.text}</p>;
   }
 
+  const src = resolveImageUrl(block.src);
+
   return <figure className="my-8">
-    <img src={block.src} alt={block.alt} className="mx-auto h-56 w-full max-w-xl rounded-2xl object-cover sm:h-64" />
+    {src && <img src={src} alt={block.alt} className="mx-auto h-56 w-full max-w-xl rounded-2xl object-cover sm:h-64" />}
     {block.caption && <figcaption className="mt-3 text-center text-sm leading-6 text-slate-500">{block.caption}</figcaption>}
   </figure>;
 }
@@ -79,6 +82,7 @@ export default function ArticleDetailPage() {
   if (loading) return <main className="min-h-screen bg-slate-50 px-4 py-6 sm:px-6 lg:px-8"><section className="mx-auto max-w-4xl rounded-2xl border border-slate-200 bg-white p-8 text-center text-slate-500">Loading article...</section></main>;
   if (error) return <main className="min-h-screen bg-slate-50 px-4 py-6 sm:px-6 lg:px-8"><section className="mx-auto max-w-4xl rounded-2xl border border-red-100 bg-red-50 p-8 text-center text-red-600">{error}</section></main>;
   if (!article) return null;
+  const coverImageUrl = resolveImageUrl(article.coverImageUrl);
 
   async function handleLike() {
     if (!article) return;
@@ -119,7 +123,7 @@ export default function ArticleDetailPage() {
           <span>{article.sourceName}</span>
           <span>{formatDate(article.publishedAt)}</span>
         </div>
-        {article.coverImageUrl && <img src={article.coverImageUrl} alt={article.title} className="mx-auto mt-6 h-64 w-full max-w-2xl rounded-2xl object-cover sm:h-80" />}
+        {coverImageUrl && <img src={coverImageUrl} alt={article.title} className="mx-auto mt-6 h-64 w-full max-w-2xl rounded-2xl object-cover sm:h-80" />}
       </header>
 
       <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-8">

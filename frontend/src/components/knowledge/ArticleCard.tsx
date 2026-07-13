@@ -1,6 +1,7 @@
 import { Bookmark, Eye, Heart } from "lucide-react";
 import { Link } from "react-router-dom";
 import type { Article } from "../../api/articles";
+import { resolveImageUrl } from "../../utils/imageUrl";
 
 type ArticleCardProps = {
   article: Article;
@@ -16,6 +17,8 @@ function compactNumber(value: number) {
 }
 
 export default function ArticleCard({ article }: ArticleCardProps) {
+  const coverImageUrl = resolveImageUrl(article.coverImageUrl);
+
   return <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-blue-200 hover:shadow-md">
     <Link to={`/knowledge-hub/${article.id}`} className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_11rem]">
       <div className="min-w-0">
@@ -33,7 +36,7 @@ export default function ArticleCard({ article }: ArticleCardProps) {
           <span className="inline-flex items-center gap-1"><Bookmark size={15} />{compactNumber(article.saves)}</span>
         </div>
       </div>
-        {article.coverImageUrl && <img src={article.coverImageUrl} alt={article.title} className="h-36 w-full rounded-xl object-cover sm:h-32" />}
+        {coverImageUrl && <img src={coverImageUrl} alt={article.title} className="h-36 w-full rounded-xl object-cover sm:h-32" />}
     </Link>
   </article>;
 }
