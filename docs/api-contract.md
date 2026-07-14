@@ -97,3 +97,19 @@ all stored facts through `/api/memory/export`.
 ## Account deletion
 
 - DELETE /api/auth/me with JSON body `{ "current_password": "..." }`
+
+## Extended financials
+
+- GET /api/financials/debts
+- POST /api/financials/debts
+- PUT /api/financials/debts/{debt_id}
+- DELETE /api/financials/debts/{debt_id}
+- GET /api/financials/recurring-cash-flows
+- POST /api/financials/recurring-cash-flows
+- PUT /api/financials/recurring-cash-flows/{id}
+- DELETE /api/financials/recurring-cash-flows/{id}
+
+`GET /api/financials` includes assets, debts, one-off cash flows, and recurring
+cash flows. The summary includes total assets, total debts, debt-adjusted net
+worth, debt breakdown, and active recurring cash flows normalized to monthly
+amounts.
