@@ -112,6 +112,19 @@ def update_avatar_url(
     return user
 
 
+def update_onboarding_completed(
+    db: Session,
+    user: User,
+    completed: bool,
+) -> User:
+    user.onboarding_completed = completed
+
+    db.commit()
+    db.refresh(user)
+
+    return user
+
+
 def list_users(db: Session) -> list[User]:
     return db.query(User).order_by(User.id).all()
 

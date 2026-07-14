@@ -72,3 +72,15 @@
     @apply mt-3 text-center text-sm leading-6 text-slate-500;
   }
 }
+
+@keyframes slideDownFade {
+  from {
+    opacity: 0;
+    transform: translateY(-2rem) scale(0.98);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}

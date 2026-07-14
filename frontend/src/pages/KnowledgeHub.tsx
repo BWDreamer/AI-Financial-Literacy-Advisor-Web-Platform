@@ -7,6 +7,7 @@ import {
   getArticles,
   getFeaturedArticles,
   getLikedArticleIds,
+  getRecommendedArticles,
   getSavedArticleIds,
   likeArticle,
   saveArticle,
@@ -214,9 +215,11 @@ export default function KnowledgeBasePage() {
     setLoading(true);
     setError(null);
 
+    const heroArticles = getRecommendedArticles(5).catch(() => getFeaturedArticles(5));
+
     Promise.all([
       getArticles({ keyword: query.trim(), category: selectedCategory, sortBy, page: 1, pageSize: 50 }),
-      getFeaturedArticles(5),
+      heroArticles,
       getArticleCategories(),
     ])
       .then(([articlePage, featured, categoryList]) => {

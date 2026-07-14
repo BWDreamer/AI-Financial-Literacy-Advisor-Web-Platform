@@ -14,6 +14,7 @@ from app.repositories.article_repository import (
     list_liked_article_ids,
     list_published_articles,
     list_published_categories,
+    list_recommended_articles,
     list_saved_article_ids,
     save_article,
     unlike_article,
@@ -82,6 +83,15 @@ def get_featured_articles(
     db: Session = Depends(get_db),
 ):
     return list_featured_articles(db, limit)
+
+
+@router.get("/recommended", response_model=list[ArticleListItemResponse])
+def get_recommended_articles(
+    limit: int = Query(default=5, ge=1, le=20),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    return list_recommended_articles(db, current_user.id, limit)
 
 
 @router.get("/me/liked", response_model=ArticleEngagementIdsResponse)
