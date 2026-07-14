@@ -18,12 +18,16 @@ from app.api import (
     routes_rules,
 )
 from app.core.config import settings
+from app.core.database import Base, engine
+from app import models
 
 
 app = FastAPI(
     title="AI Financial Literacy Advisor API",
     version="0.1.0",
 )
+
+Base.metadata.create_all(bind=engine)
 
 
 # Create the upload directory if it does not exist.
