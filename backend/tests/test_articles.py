@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 
 from app.core.security import hash_password
 from app.models.article import Article
+from app.models.memory import UserMemory
 from app.models.user import User
 
 
@@ -115,6 +116,25 @@ def test_categories_and_featured_only_include_published_articles(client, db_sess
     featured = client.get("/api/articles/featured?limit=1")
     assert featured.status_code == 200
     assert len(featured.json()) == 1
+
+
+def test_recommended_articles_use_user_memory(client, db_session):
+    headers = create_user_and_headers(client, db_session)
+    user = db_session.query(User).filter(User.email == "user@example.com").first()
+    db_session.add(UserMemory(
+        user_id=user.id,
+        category="preference",
+        fact="User is mainly interested in saving money and emergency fund planning.",
+        source="manual",
+    ))
+    create_article(db_session, article_id="tax", title="Tax Guide", category="Tax", views=100)
+    create_article(db_session, article_id="saving", title="Emergency Funds", category="Saving", views=1)
+    db_session.commit()
+
+    response = client.get("/api/articles/recommended?limit=2", headers=headers)
+
+    assert response.status_code == 200
+    assert response.json()[0]["id"] == "saving"
 
 
 def test_like_and_save_require_authentication(client, db_session):

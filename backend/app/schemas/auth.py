@@ -73,6 +73,12 @@ class UserUpdateRequest(BaseModel):
         return normalized
 
 
+class OnboardingUpdateRequest(BaseModel):
+    onboarding_completed: bool = Field(alias="onboardingCompleted")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class EmailUpdateRequest(BaseModel):
     new_email: EmailStr
 
@@ -118,4 +124,5 @@ class UserResponse(BaseModel):
     username: str | None
     avatar_url: str | None
     role: str
+    onboarding_completed: bool
     created_at: datetime

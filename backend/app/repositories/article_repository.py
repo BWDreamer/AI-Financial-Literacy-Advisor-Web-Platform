@@ -1,10 +1,45 @@
+import re
 from datetime import datetime, timezone
 
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app.models.article import Article, ArticleLike, ArticleSave
+from app.models.memory import UserMemory
 from app.schemas.article import ArticleCreateRequest, ArticleSortBy, ArticleUpdateRequest
+
+
+MEMORY_INTEREST_KEYWORDS = {
+    "budget": ["budget", "budgeting", "spending", "cash flow"],
+    "saving": ["saving", "savings", "save", "emergency fund", "cash"],
+    "debt": ["debt", "loan", "mortgage", "credit card"],
+    "tax": ["tax", "taxes", "deduction"],
+    "superannuation": ["super", "superannuation", "retirement"],
+    "investing": ["invest", "investing", "stocks", "etfs", "shares"],
+    "security": ["security", "scam", "fraud", "online safety"],
+}
+
+STOPWORDS = {
+    "about",
+    "advisor",
+    "answers",
+    "avoid",
+    "being",
+    "currently",
+    "financial",
+    "finance",
+    "guidance",
+    "interested",
+    "language",
+    "learning",
+    "mainly",
+    "plans",
+    "prefers",
+    "simple",
+    "their",
+    "user",
+    "wants",
+}
 
 
 def get_article(db: Session, article_id: str) -> Article | None:
@@ -67,6 +102,100 @@ def list_featured_articles(db: Session, limit: int = 5) -> list[Article]:
         .limit(limit)
         .all()
     )
+
+
+def _keywords_from_memories(memories: list[UserMemory]) -> list[str]:
+    text = " ".join(memory.fact.lower() for memory in memories)
+    keywords: list[str] = []
+
+    for grouped_keywords in MEMORY_INTEREST_KEYWORDS.values():
+        if any(keyword in text for keyword in grouped_keywords):
+            keywords.extend(grouped_keywords)
+
+    words = [
+        word
+        for word in re.findall(r"[a-zA-Z][a-zA-Z-]{2,}", text)
+        if word not in STOPWORDS
+    ]
+    keywords.extend(words)
+    return list(dict.fromkeys(keywords))[:30]
+
+
+def _article_text(article: Article) -> str:
+    blocks_text = " ".join(
+        str(block.get("text", ""))
+        for block in (article.content_blocks or [])
+        if isinstance(block, dict)
+    )
+    return " ".join([
+        article.title or "",
+        article.summary or "",
+        article.category or "",
+        blocks_text,
+    ]).lower()
+
+
+def _score_article_for_keywords(article: Article, keywords: list[str]) -> int:
+    title = (article.title or "").lower()
+    summary = (article.summary or "").lower()
+    category = (article.category or "").lower()
+    full_text = _article_text(article)
+    score = 0
+
+    for keyword in keywords:
+        if keyword in category:
+            score += 6
+        if keyword in title:
+            score += 4
+        if keyword in summary:
+            score += 2
+        if keyword in full_text:
+            score += 1
+
+    score += min(article.views or 0, 5000) // 1000
+    score += min(article.likes or 0, 500) // 100
+    return score
+
+
+def list_recommended_articles(db: Session, user_id: int, limit: int = 5) -> list[Article]:
+    memories = (
+        db.query(UserMemory)
+        .filter(UserMemory.user_id == user_id)
+        .order_by(UserMemory.updated_at.desc(), UserMemory.id.desc())
+        .limit(20)
+        .all()
+    )
+    keywords = _keywords_from_memories(memories)
+
+    if not keywords:
+        return list_featured_articles(db, limit)
+
+    articles = (
+        db.query(Article)
+        .filter(Article.status == "published")
+        .order_by(Article.published_at.desc(), Article.views.desc())
+        .limit(80)
+        .all()
+    )
+    scored_articles = [
+        (article, _score_article_for_keywords(article, keywords))
+        for article in articles
+    ]
+    recommended = [
+        article
+        for article, score in sorted(
+            scored_articles,
+            key=lambda item: (
+                item[1],
+                item[0].published_at or item[0].created_at,
+                item[0].views or 0,
+            ),
+            reverse=True,
+        )
+        if score > 0
+    ][:limit]
+
+    return recommended or list_featured_articles(db, limit)
 
 
 def list_published_categories(db: Session) -> list[str]:

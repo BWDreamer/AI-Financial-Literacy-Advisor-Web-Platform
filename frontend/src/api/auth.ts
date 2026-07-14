@@ -6,6 +6,7 @@ export type User = {
   username: string | null;
   avatar_url: string | null;
   role: string;
+  onboarding_completed: boolean;
   created_at: string;
 };
 
@@ -36,6 +37,14 @@ export function loginAccount(email: string, password: string) {
 
 export function getCurrentUser() {
   return apiRequest<User>("/auth/me", { authenticated: true });
+}
+
+export function updateOnboardingCompleted(onboardingCompleted: boolean) {
+  return apiRequest<User>("/auth/me/onboarding", {
+    method: "PATCH",
+    authenticated: true,
+    body: JSON.stringify({ onboardingCompleted }),
+  });
 }
 
 export function sendHeartbeat() {

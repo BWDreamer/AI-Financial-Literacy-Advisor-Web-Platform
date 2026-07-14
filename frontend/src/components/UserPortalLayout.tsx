@@ -5,6 +5,7 @@ import { userNavigation } from "../config/userNavigation";
 import { useUser } from "../store/UserProvider";
 import AppLayout from "./AppLayout";
 import BrandMark from "./BrandMark";
+import OnboardingOverlay from "./OnboardingOverlay";
 import ProfileSettingsModal from "./ProfileSettingsModal";
 
 export default function UserPortalLayout() {
@@ -15,10 +16,12 @@ export default function UserPortalLayout() {
   if (!user) return <Navigate to="/login" replace />;
   function signOut() { clearUser(); navigate("/login", { replace: true }); }
   function openAction(action: string) { if (action === "profile-settings") setSettingsOpen(true); }
+  const showOnboarding = user.role !== "admin" && !user.onboarding_completed;
   return <>
     <AppLayout brand={{ name: "FinanceAI", subtitle: "Your personal advisor", mark: <BrandMark compact /> }} sections={userNavigation}
       profile={{ avatarUrl: avatarUrl(user.avatar_url), name: user.username || user.email, email: user.email }}
       onAction={openAction} onProfileClick={() => setSettingsOpen(true)} onSignOut={signOut} />
+    {showOnboarding && <OnboardingOverlay user={user} onFinished={() => void refreshUser()} />}
     {settingsOpen && <ProfileSettingsModal onClose={() => setSettingsOpen(false)} />}
   </>;
 }

@@ -69,6 +69,10 @@ export function getFeaturedArticles(limit = 5) {
   return apiRequest<Article[]>(`/articles/featured?limit=${limit}`);
 }
 
+export function getRecommendedArticles(limit = 5) {
+  return apiRequest<Article[]>(`/articles/recommended?limit=${limit}`, { authenticated: true });
+}
+
 export function getArticleCategories() {
   return apiRequest<string[]>("/articles/categories");
 }
