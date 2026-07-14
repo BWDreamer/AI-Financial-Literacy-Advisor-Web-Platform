@@ -61,7 +61,9 @@ type AssetSlice = { type: AssetType; amount: number; percent: number };
 function assetSlices(summary: FinancialSummary | null, entries: FinancialEntry[]) {
   const values = summary?.asset_allocation.map((item) => ({ type: item.asset_type as AssetType, amount: Number(item.amount) })) || [];
   const fallback = (Object.keys(assetLabels) as AssetType[]).map((type) => ({ type, amount: assetTotal(entries, type) }));
-  const rows = values.length ? values : fallback; const total = rows.reduce((sum, item) => sum + item.amount, 0);
+  const cashSavings = cashSavingsValue(entries);
+  const rows = (values.length ? values : fallback).map((item) => item.type === "cash" ? { ...item, amount: cashSavings } : item);
+  const total = rows.reduce((sum, item) => sum + item.amount, 0);
   return rows.map((item) => ({ ...item, percent: total ? item.amount / total * 100 : 0 })).filter((item) => item.amount > 0);
 }
 
