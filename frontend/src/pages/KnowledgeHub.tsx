@@ -7,11 +7,17 @@ import {
   getArticles,
   getFeaturedArticles,
   getLikedArticleIds,
+  getRecommendedArticles,
   getSavedArticleIds,
+  likeArticle,
+  saveArticle,
+  unlikeArticle,
+  unsaveArticle,
   type Article,
   type ArticleSortBy,
 } from "../api/articles";
 import { ApiError } from "../api/client";
+import { resolveImageUrl } from "../utils/imageUrl";
 
 type KnowledgeTab = "all" | "saved" | "liked";
 
@@ -136,15 +142,18 @@ function FeaturedHero({ featuredArticles }: { featuredArticles: Article[] }) {
 
   return <header className="relative overflow-hidden rounded-[2rem] bg-slate-950 shadow-xl shadow-slate-300/60">
     <div className="absolute inset-0">
-      {featuredArticles.map((article, index) => article.coverImageUrl && <img
-        key={article.id}
-        src={article.coverImageUrl}
-        alt=""
-        className={[
-          "absolute inset-0 h-full w-full object-cover transition-opacity duration-700",
-          index === activeIndex ? "opacity-100" : "opacity-0",
-        ].join(" ")}
-      />)}
+      {featuredArticles.map((article, index) => {
+        const coverImageUrl = resolveImageUrl(article.coverImageUrl);
+        return coverImageUrl && <img
+          key={article.id}
+          src={coverImageUrl}
+          alt=""
+          className={[
+            "absolute inset-0 h-full w-full object-cover transition-opacity duration-700",
+            index === activeIndex ? "opacity-100" : "opacity-0",
+          ].join(" ")}
+        />;
+      })}
       <div className="absolute inset-0 bg-gradient-to-r from-slate-950 via-slate-950/80 to-slate-950/20" />
       <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-transparent to-slate-950/40" />
     </div>
@@ -184,6 +193,10 @@ function FeaturedHero({ featuredArticles }: { featuredArticles: Article[] }) {
   </header>;
 }
 
+function replaceArticleStats(articles: Article[], articleId: string, stats: Partial<Pick<Article, "likes" | "saves">>) {
+  return articles.map((article) => article.id === articleId ? { ...article, ...stats } : article);
+}
+
 export default function KnowledgeBasePage() {
   const [query, setQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("All");
@@ -202,9 +215,11 @@ export default function KnowledgeBasePage() {
     setLoading(true);
     setError(null);
 
+    const heroArticles = getRecommendedArticles(5).catch(() => getFeaturedArticles(5));
+
     Promise.all([
       getArticles({ keyword: query.trim(), category: selectedCategory, sortBy, page: 1, pageSize: 50 }),
-      getFeaturedArticles(5),
+      heroArticles,
       getArticleCategories(),
     ])
       .then(([articlePage, featured, categoryList]) => {
@@ -252,6 +267,44 @@ export default function KnowledgeBasePage() {
 
   const emptyState = emptyStateForTab(selectedTab);
 
+  async function toggleArticleLike(article: Article) {
+    setError(null);
+
+    try {
+      const currentlyLiked = likedArticleIds.has(article.id);
+      const result = currentlyLiked ? await unlikeArticle(article.id) : await likeArticle(article.id);
+      setLikedArticleIds((currentIds) => {
+        const nextIds = new Set(currentIds);
+        if (result.liked) nextIds.add(article.id);
+        else nextIds.delete(article.id);
+        return nextIds;
+      });
+      setArticles((currentArticles) => replaceArticleStats(currentArticles, article.id, { likes: result.likes }));
+      setFeaturedArticles((currentArticles) => replaceArticleStats(currentArticles, article.id, { likes: result.likes }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to update like.");
+    }
+  }
+
+  async function toggleArticleSave(article: Article) {
+    setError(null);
+
+    try {
+      const currentlySaved = savedArticleIds.has(article.id);
+      const result = currentlySaved ? await unsaveArticle(article.id) : await saveArticle(article.id);
+      setSavedArticleIds((currentIds) => {
+        const nextIds = new Set(currentIds);
+        if (result.saved) nextIds.add(article.id);
+        else nextIds.delete(article.id);
+        return nextIds;
+      });
+      setArticles((currentArticles) => replaceArticleStats(currentArticles, article.id, { saves: result.saves }));
+      setFeaturedArticles((currentArticles) => replaceArticleStats(currentArticles, article.id, { saves: result.saves }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to update save.");
+    }
+  }
+
   return <main className="min-h-screen bg-slate-50 px-4 py-6 sm:px-6 lg:px-8">
     <section className="mx-auto max-w-6xl">
       <FeaturedHero featuredArticles={featuredArticles} />
@@ -287,7 +340,15 @@ export default function KnowledgeBasePage() {
       <div className="mt-5">
         {loading && <section className="rounded-2xl border border-slate-200 bg-white p-8 text-center text-slate-500">Loading articles...</section>}
         {!loading && error && <section className="rounded-2xl border border-red-100 bg-red-50 p-8 text-center text-red-600">{error}</section>}
-        {!loading && !error && <ArticleList articles={visibleArticles} emptyTitle={emptyState.title} emptyDescription={emptyState.description} />}
+        {!loading && !error && <ArticleList
+          articles={visibleArticles}
+          likedArticleIds={likedArticleIds}
+          savedArticleIds={savedArticleIds}
+          onToggleLike={(article) => void toggleArticleLike(article)}
+          onToggleSave={(article) => void toggleArticleSave(article)}
+          emptyTitle={emptyState.title}
+          emptyDescription={emptyState.description}
+        />}
       </div>
     </section>
   </main>;

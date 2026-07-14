@@ -128,3 +128,65 @@ def test_financial_ownership_and_validation(client):
         headers=first,
         json={"asset_type": "crypto", "name": "Invalid", "amount": -1},
     ).status_code == 422
+
+
+def test_debt_and_recurring_cash_flow_crud(client):
+    headers = auth_headers(client, "extended-finance@example.com")
+    debt = client.post("/api/financials/debts", headers=headers, json={
+        "debt_type": "mortgage", "name": "Home loan", "balance": "300000.00",
+        "minimum_payment": "2000.00", "interest_rate": "6.25",
+    })
+    assert debt.status_code == 201
+    debt_id = debt.json()["id"]
+    updated_debt = client.put(f"/api/financials/debts/{debt_id}", headers=headers, json={
+        "debt_type": "mortgage", "name": "Home loan", "balance": "299000.00",
+        "minimum_payment": "2000.00", "interest_rate": "6.10",
+    })
+    assert updated_debt.status_code == 200
+    assert float(updated_debt.json()["balance"]) == 299000
+
+    recurring = client.post("/api/financials/recurring-cash-flows", headers=headers, json={
+        "flow_type": "income", "name": "Salary", "amount": "1200.00",
+        "frequency": "weekly", "start_date": date.today().isoformat(), "category": "salary",
+    })
+    assert recurring.status_code == 201
+    recurring_id = recurring.json()["id"]
+    updated_recurring = client.put(
+        f"/api/financials/recurring-cash-flows/{recurring_id}", headers=headers,
+        json={"flow_type": "income", "name": "Salary", "amount": "5000.00",
+              "frequency": "monthly", "start_date": date.today().isoformat()},
+    )
+    assert updated_recurring.status_code == 200
+    financials = client.get("/api/financials", headers=headers).json()
+    assert len(financials["debts"]) == 1
+    assert len(financials["recurring_cash_flows"]) == 1
+    assert client.delete(f"/api/financials/debts/{debt_id}", headers=headers).status_code == 204
+    assert client.delete(f"/api/financials/recurring-cash-flows/{recurring_id}", headers=headers).status_code == 204
+
+
+def test_extended_summary_and_ownership(client):
+    first = auth_headers(client, "extended-first@example.com")
+    second = auth_headers(client, "extended-second@example.com")
+    client.post("/api/financials/assets", headers=first, json={
+        "asset_type": "cash", "name": "Savings", "amount": "10000.00",
+    })
+    debt = client.post("/api/financials/debts", headers=first, json={
+        "debt_type": "car_loan", "name": "Car", "balance": "4000.00",
+    }).json()
+    client.post("/api/financials/recurring-cash-flows", headers=first, json={
+        "flow_type": "expense", "name": "Rent", "amount": "1200.00",
+        "frequency": "monthly", "start_date": date.today().isoformat(),
+    })
+    summary = client.get("/api/financials/summary", headers=first).json()
+    assert float(summary["total_assets"]) == 10000
+    assert float(summary["total_debts"]) == 4000
+    assert float(summary["net_worth"]) == 6000
+    assert float(summary["monthly_expenses"]) == 1200
+    assert summary["debt_breakdown"][0]["debt_type"] == "car_loan"
+    assert client.put(f"/api/financials/debts/{debt['id']}", headers=second, json={
+        "debt_type": "other", "name": "Not mine", "balance": 1,
+    }).status_code == 404
+    assert client.post("/api/financials/recurring-cash-flows", headers=first, json={
+        "flow_type": "expense", "name": "Invalid", "amount": 1, "frequency": "monthly",
+        "start_date": date.today().isoformat(), "end_date": "2000-01-01",
+    }).status_code == 422

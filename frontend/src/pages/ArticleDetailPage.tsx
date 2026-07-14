@@ -1,16 +1,19 @@
 import { ArrowLeft, Bookmark, Eye, Heart } from "lucide-react";
 import { Link, Navigate, useParams } from "react-router-dom";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   getArticle,
+  incrementArticleViews,
   likeArticle,
   saveArticle,
   unlikeArticle,
   unsaveArticle,
-  type ArticleContentBlock,
   type ArticleDetail,
 } from "../api/articles";
 import { ApiError } from "../api/client";
+import ArticleContentRenderer from "../components/knowledge/ArticleContentRenderer";
+import { useUser } from "../store/UserProvider";
+import { resolveImageUrl } from "../utils/imageUrl";
 
 function formatDate(value: string | null) {
   if (!value) return "";
@@ -19,17 +22,6 @@ function formatDate(value: string | null) {
 
 function compactNumber(value: number) {
   return new Intl.NumberFormat("en-AU", { notation: "compact", maximumFractionDigits: 1 }).format(value);
-}
-
-function ArticleContentBlockView({ block }: { block: ArticleContentBlock }) {
-  if (block.type === "paragraph") {
-    return <p>{block.text}</p>;
-  }
-
-  return <figure className="my-8">
-    <img src={block.src} alt={block.alt} className="mx-auto h-56 w-full max-w-xl rounded-2xl object-cover sm:h-64" />
-    {block.caption && <figcaption className="mt-3 text-center text-sm leading-6 text-slate-500">{block.caption}</figcaption>}
-  </figure>;
 }
 
 function actionClass(active: boolean) {
@@ -41,10 +33,16 @@ function actionClass(active: boolean) {
 
 export default function ArticleDetailPage() {
   const { articleId } = useParams();
+  const { user } = useUser();
   const [article, setArticle] = useState<ArticleDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const viewedArticleIdRef = useRef<string | null>(null);
+
+  function shouldIncrementArticleViews() {
+    return Boolean(articleId && user && user.role !== "admin");
+  }
 
   useEffect(() => {
     if (!articleId) {
@@ -75,10 +73,25 @@ export default function ArticleDetailPage() {
     };
   }, [articleId]);
 
+  useEffect(() => {
+    if (!article || !shouldIncrementArticleViews()) return;
+    if (viewedArticleIdRef.current === article.id) return;
+
+    viewedArticleIdRef.current = article.id;
+    incrementArticleViews(article.id)
+      .then((result) => {
+        setArticle((currentArticle) => currentArticle?.id === result.articleId
+          ? { ...currentArticle, views: result.views }
+          : currentArticle);
+      })
+      .catch(() => undefined);
+  }, [article, articleId, user]);
+
   if (notFound) return <Navigate to="/knowledge-hub" replace />;
   if (loading) return <main className="min-h-screen bg-slate-50 px-4 py-6 sm:px-6 lg:px-8"><section className="mx-auto max-w-4xl rounded-2xl border border-slate-200 bg-white p-8 text-center text-slate-500">Loading article...</section></main>;
   if (error) return <main className="min-h-screen bg-slate-50 px-4 py-6 sm:px-6 lg:px-8"><section className="mx-auto max-w-4xl rounded-2xl border border-red-100 bg-red-50 p-8 text-center text-red-600">{error}</section></main>;
   if (!article) return null;
+  const coverImageUrl = resolveImageUrl(article.coverImageUrl);
 
   async function handleLike() {
     if (!article) return;
@@ -119,13 +132,11 @@ export default function ArticleDetailPage() {
           <span>{article.sourceName}</span>
           <span>{formatDate(article.publishedAt)}</span>
         </div>
-        {article.coverImageUrl && <img src={article.coverImageUrl} alt={article.title} className="mx-auto mt-6 h-64 w-full max-w-2xl rounded-2xl object-cover sm:h-80" />}
+        {coverImageUrl && <img src={coverImageUrl} alt={article.title} className="mx-auto mt-6 h-64 w-full max-w-2xl rounded-2xl object-cover sm:h-80" />}
       </header>
 
       <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-8">
-        <div className="mx-auto max-w-3xl space-y-5 text-base leading-8 text-slate-700">
-          {article.contentBlocks.map((block, index) => <ArticleContentBlockView key={`${block.type}-${index}`} block={block} />)}
-        </div>
+        <ArticleContentRenderer contentBlocks={article.contentBlocks} />
         <div className="mx-auto mt-8 flex max-w-3xl flex-wrap items-center gap-3 border-t border-slate-100 pt-5">
           <div className="flex flex-wrap items-center gap-2 text-sm text-slate-500">
             <span className="inline-flex items-center gap-1.5"><Eye size={17} />Views {compactNumber(article.views)}</span>

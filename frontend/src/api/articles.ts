@@ -5,8 +5,21 @@ export type ArticleCategory = string;
 export type ArticleSortBy = "latest" | "most_viewed" | "most_liked" | "most_saved";
 
 export type ArticleContentBlock =
-  | { type: "paragraph"; text: string }
-  | { type: "image"; src: string; alt: string; caption?: string };
+  | {
+      type: string;
+      text?: string;
+      src?: string;
+      alt?: string;
+      caption?: string;
+      attrs?: Record<string, unknown>;
+      marks?: ArticleContentMark[];
+      content?: ArticleContentBlock[];
+    };
+
+export type ArticleContentMark = {
+  type: string;
+  attrs?: Record<string, unknown>;
+};
 
 export type Article = {
   id: string;
@@ -56,6 +69,10 @@ export function getFeaturedArticles(limit = 5) {
   return apiRequest<Article[]>(`/articles/featured?limit=${limit}`);
 }
 
+export function getRecommendedArticles(limit = 5) {
+  return apiRequest<Article[]>(`/articles/recommended?limit=${limit}`, { authenticated: true });
+}
+
 export function getArticleCategories() {
   return apiRequest<string[]>("/articles/categories");
 }
@@ -70,6 +87,13 @@ export function getSavedArticleIds() {
 
 export function getArticle(articleId: string) {
   return apiRequest<ArticleDetail>(`/articles/${articleId}`, { authenticated: Boolean(getToken()) });
+}
+
+export function incrementArticleViews(articleId: string) {
+  return apiRequest<{ articleId: string; views: number }>(`/articles/${articleId}/view`, {
+    method: "POST",
+    authenticated: true,
+  });
 }
 
 export function likeArticle(articleId: string) {

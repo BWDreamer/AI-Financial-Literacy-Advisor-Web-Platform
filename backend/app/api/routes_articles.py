@@ -14,6 +14,7 @@ from app.repositories.article_repository import (
     list_liked_article_ids,
     list_published_articles,
     list_published_categories,
+    list_recommended_articles,
     list_saved_article_ids,
     save_article,
     unlike_article,
@@ -27,6 +28,7 @@ from app.schemas.article import (
     ArticlePageResponse,
     ArticleSaveResponse,
     ArticleSortBy,
+    ArticleViewResponse,
 )
 
 
@@ -83,6 +85,15 @@ def get_featured_articles(
     return list_featured_articles(db, limit)
 
 
+@router.get("/recommended", response_model=list[ArticleListItemResponse])
+def get_recommended_articles(
+    limit: int = Query(default=5, ge=1, le=20),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    return list_recommended_articles(db, current_user.id, limit)
+
+
 @router.get("/me/liked", response_model=ArticleEngagementIdsResponse)
 def get_my_liked_articles(
     current_user: User = Depends(get_current_user),
@@ -110,7 +121,6 @@ def get_article_detail(
     db: Session = Depends(get_db),
 ):
     article = require_published_article(db, article_id)
-    article = increment_article_views(db, article)
     liked_by_me = False
     saved_by_me = False
 
@@ -122,6 +132,26 @@ def get_article_detail(
         **article.__dict__,
         "liked_by_me": liked_by_me,
         "saved_by_me": saved_by_me,
+    }
+
+
+@router.post("/{article_id}/view", response_model=ArticleViewResponse)
+def increment_article_view_endpoint(
+    article_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if current_user.role == "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin article reads do not count as user views.",
+        )
+
+    article = require_published_article(db, article_id)
+    article = increment_article_views(db, article)
+    return {
+        "article_id": article.id,
+        "views": article.views,
     }
 
 

@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import Column, DateTime, Integer, String, Text, func
+from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text, func
 
 from app.core.database import Base
 
@@ -39,6 +39,13 @@ class User(Base):
         String(50),
         nullable=False,
         default="user",
+    )
+
+    onboarding_completed = Column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
     )
 
     last_seen_at = Column(DateTime(timezone=True), nullable=True)

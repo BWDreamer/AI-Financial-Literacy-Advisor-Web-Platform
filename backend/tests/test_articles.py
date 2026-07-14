@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 
 from app.core.security import hash_password
 from app.models.article import Article
+from app.models.memory import UserMemory
 from app.models.user import User
 
 
@@ -64,7 +65,7 @@ def test_article_list_filters_sorts_and_paginates(client, db_session):
     assert [item["id"] for item in filtered.json()["items"]] == ["budget"]
 
 
-def test_article_detail_returns_content_and_increments_views(client, db_session):
+def test_article_detail_returns_content_without_incrementing_views(client, db_session):
     create_article(db_session, views=10)
 
     response = client.get("/api/articles/budget-start")
@@ -72,10 +73,35 @@ def test_article_detail_returns_content_and_increments_views(client, db_session)
     assert response.status_code == 200
     data = response.json()
     assert data["id"] == "budget-start"
-    assert data["views"] == 11
+    assert data["views"] == 10
     assert data["contentBlocks"][0]["type"] == "paragraph"
     assert data["likedByMe"] is False
     assert data["savedByMe"] is False
+
+
+def test_regular_user_can_increment_article_views(client, db_session):
+    headers = create_user_and_headers(client, db_session)
+    create_article(db_session, views=10)
+
+    response = client.post("/api/articles/budget-start/view", headers=headers)
+
+    assert response.status_code == 200
+    assert response.json() == {"articleId": "budget-start", "views": 11}
+
+
+def test_admin_article_view_does_not_increment_views(client, db_session):
+    headers = create_user_and_headers(
+        client,
+        db_session,
+        email="admin@example.com",
+        role="admin",
+    )
+    create_article(db_session, views=10)
+
+    response = client.post("/api/articles/budget-start/view", headers=headers)
+
+    assert response.status_code == 403
+    assert db_session.get(Article, "budget-start").views == 10
 
 
 def test_categories_and_featured_only_include_published_articles(client, db_session):
@@ -90,6 +116,25 @@ def test_categories_and_featured_only_include_published_articles(client, db_sess
     featured = client.get("/api/articles/featured?limit=1")
     assert featured.status_code == 200
     assert len(featured.json()) == 1
+
+
+def test_recommended_articles_use_user_memory(client, db_session):
+    headers = create_user_and_headers(client, db_session)
+    user = db_session.query(User).filter(User.email == "user@example.com").first()
+    db_session.add(UserMemory(
+        user_id=user.id,
+        category="preference",
+        fact="User is mainly interested in saving money and emergency fund planning.",
+        source="manual",
+    ))
+    create_article(db_session, article_id="tax", title="Tax Guide", category="Tax", views=100)
+    create_article(db_session, article_id="saving", title="Emergency Funds", category="Saving", views=1)
+    db_session.commit()
+
+    response = client.get("/api/articles/recommended?limit=2", headers=headers)
+
+    assert response.status_code == 200
+    assert response.json()[0]["id"] == "saving"
 
 
 def test_like_and_save_require_authentication(client, db_session):

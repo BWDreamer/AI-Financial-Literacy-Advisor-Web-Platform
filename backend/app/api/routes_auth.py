@@ -27,6 +27,7 @@ from app.repositories.user_repository import (
     get_user_by_email,
     update_avatar_url,
     update_email,
+    update_onboarding_completed,
     update_password_hash,
     update_username,
     touch_last_seen,
@@ -36,6 +37,7 @@ from app.schemas.auth import (
     AccountDeleteRequest,
     AvatarResponse,
     EmailUpdateRequest,
+    OnboardingUpdateRequest,
     PasswordUpdateRequest,
     TokenResponse,
     UserLoginRequest,
@@ -189,6 +191,24 @@ def update_my_account(
         db=db,
         user=current_user,
         username=request.username,
+    )
+
+
+@router.patch(
+    "/me/onboarding",
+    response_model=UserResponse,
+)
+def update_my_onboarding_status(
+    request: OnboardingUpdateRequest,
+    current_user: User = Depends(
+        get_current_user
+    ),
+    db: Session = Depends(get_db),
+):
+    return update_onboarding_completed(
+        db=db,
+        user=current_user,
+        completed=request.onboarding_completed,
     )
 
 

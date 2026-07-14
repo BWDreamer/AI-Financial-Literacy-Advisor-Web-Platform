@@ -116,7 +116,6 @@ FINANCIAL_RULE_INTENT_RESPONSE_SCHEMA: dict[str, Any] = {
         "taxable_income",
         "confidence",
     ],
-    "additionalProperties": False,
 }
 
 
