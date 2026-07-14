@@ -119,6 +119,13 @@ class ArticleSaveResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+class ArticleViewResponse(BaseModel):
+    article_id: str = Field(alias="articleId")
+    views: int
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class ArticleImageUploadResponse(BaseModel):
     image_url: str = Field(alias="imageUrl")
 

@@ -100,31 +100,63 @@ function slugify(value: string) {
 }
 
 function contentBlocksToText(blocks: AdminArticleContentBlock[]) {
-  return blocks
-    .filter((block): block is Extract<AdminArticleContentBlock, { type: "paragraph" }> => block.type === "paragraph")
-    .map((block) => block.text.trim())
-    .filter(Boolean)
-    .join("\n\n");
+  function extract(block: AdminArticleContentBlock): string {
+    if (typeof block.text === "string") return block.text;
+    return block.content?.map(extract).join("") ?? "";
+  }
+
+  return blocks.map(extract).join("\n\n").trim();
+}
+
+function normalizeStoredImageNode(node: JSONContent): JSONContent {
+  const attrs = node.attrs ? { ...node.attrs } : undefined;
+
+  if (node.type === "image" && typeof attrs?.src === "string") {
+    attrs.src = normalizeStoredImageUrl(attrs.src);
+  }
+
+  return {
+    ...node,
+    ...(attrs ? { attrs } : {}),
+    ...(node.content ? { content: node.content.map(normalizeStoredImageNode) } : {}),
+  };
+}
+
+function blockToTipTapNode(block: AdminArticleContentBlock): JSONContent {
+  if (block.type === "image") {
+    const src = typeof block.src === "string" ? block.src : block.attrs?.src;
+    const alt = typeof block.alt === "string" ? block.alt : block.attrs?.alt;
+    const caption = typeof block.caption === "string" ? block.caption : block.attrs?.title;
+
+    return {
+      type: "image",
+      attrs: {
+        src: typeof src === "string" ? imageSrc(src) ?? src : "",
+        alt: typeof alt === "string" ? alt : "",
+        title: typeof caption === "string" ? caption : null,
+      },
+    };
+  }
+
+  if (block.content || block.attrs || block.marks || block.type === "heading" || block.type.includes("List")) {
+    return {
+      ...block,
+      content: block.content?.map(blockToTipTapNode),
+    } as JSONContent;
+  }
+
+  if (block.type === "paragraph") {
+    return {
+      type: "paragraph",
+      content: block.text ? [{ type: "text", text: block.text }] : [],
+    };
+  }
+
+  return block as JSONContent;
 }
 
 function blocksToTipTapContent(blocks: AdminArticleContentBlock[]): JSONContent {
-  const content = blocks.flatMap((block): JSONContent[] => {
-    if (block.type === "image") {
-      return [{
-        type: "image",
-        attrs: {
-          src: imageSrc(block.src) ?? block.src,
-          alt: block.alt,
-          title: block.caption ?? null,
-        },
-      }];
-    }
-
-    return block.text.split("\n").map((line) => ({
-      type: "paragraph",
-      content: line ? [{ type: "text", text: line }] : [],
-    }));
-  });
+  const content = blocks.map(blockToTipTapNode);
 
   return {
     type: "doc",
@@ -143,30 +175,10 @@ function normalizeStoredImageUrl(src: string) {
 }
 
 function tipTapContentToBlocks(doc: JSONContent): AdminArticleContentBlock[] {
-  const blocks: AdminArticleContentBlock[] = [];
-
-  function visit(node: JSONContent) {
-    if (node.type === "image" && typeof node.attrs?.src === "string") {
-      blocks.push({
-        type: "image",
-        src: normalizeStoredImageUrl(node.attrs.src),
-        alt: typeof node.attrs.alt === "string" && node.attrs.alt ? node.attrs.alt : `Article image ${blocks.filter((block) => block.type === "image").length + 1}`,
-        ...(typeof node.attrs.title === "string" && node.attrs.title ? { caption: node.attrs.title } : {}),
-      });
-      return;
-    }
-
-    if (node.type === "paragraph" || node.type === "heading") {
-      const text = extractText(node).trim();
-      if (text) blocks.push({ type: "paragraph", text });
-      return;
-    }
-
-    node.content?.forEach(visit);
-  }
-
-  doc.content?.forEach(visit);
-  return blocks;
+  return (doc.content ?? [])
+    .map(normalizeStoredImageNode)
+    .filter((node) => node.type !== "paragraph" || extractText(node).trim() || node.content?.length)
+    .map((node) => node as AdminArticleContentBlock);
 }
 
 function articleDetailToForm(article: ArticleDetail): ArticleForm {
@@ -300,7 +312,7 @@ function ArticleEditor({
         class: "min-h-80 px-7 py-6 text-lg leading-8 text-slate-950 outline-none prose prose-slate max-w-none [&_img]:mx-auto [&_img]:my-6 [&_img]:max-h-80 [&_img]:rounded-2xl [&_img]:object-cover",
       },
     },
-    onUpdate: ({ editor: updatedEditor }) => {
+    onUpdate: ({ editor: updatedEditor }: { editor: Editor }) => {
       setForm((current) => ({
         ...current,
         contentBlocks: tipTapContentToBlocks(updatedEditor.getJSON()),
