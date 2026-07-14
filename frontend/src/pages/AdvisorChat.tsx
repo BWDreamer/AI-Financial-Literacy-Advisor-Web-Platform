@@ -1,16 +1,12 @@
 import { ChangeEvent, DragEvent, FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FileText, PanelLeft, Plus, Send, Trash2, X } from "lucide-react";
-import { ChatMessage, Conversation, ConversationDetail, createConversation, deleteConversation, getConversation, getConversations, sendAdvisorMessage } from "../api/chat";
+import { ChatMessage, Conversation, ConversationDetail, createConversation, deleteConversation, getConversation, getConversations, sendAdvisorMessage, sendAdvisorPdfMessage } from "../api/chat";
 
-type AttachmentPreview = { id: string; name: string; extension: string; isImage: boolean; dataUrl?: string };
+type AttachmentPreview = { id: string; name: string; extension: string; isImage: boolean; file: File; dataUrl?: string };
 type LocalAttachmentMap = Record<number, AttachmentPreview[]>;
 
 function sortedConversations(items: Conversation[]) {
   return [...items].sort((a, b) => new Date(b.updated_at || b.created_at).getTime() - new Date(a.updated_at || a.created_at).getTime());
-}
-
-function attachmentText(files: AttachmentPreview[]) {
-  return files.length ? `\n\nAttached files: ${files.map((file) => file.name).join(", ")}` : "";
 }
 
 function fileExtension(file: File) {
@@ -24,7 +20,7 @@ function readImage(file: File) {
 }
 
 function visibleMessage(content: string) {
-  return content.replace(/\n\nAttached files:.*$/s, "").trim();
+  return content.trim();
 }
 
 function HistoryItem({ item, activeId, onSelect, onDelete }: { item: Conversation; activeId?: number; onSelect: () => void; onDelete: () => void }) {
@@ -78,12 +74,12 @@ function ChatComposer({ sending, onSubmit }: { sending: boolean; onSubmit: (mess
   function drop(event: DragEvent<HTMLFormElement>) {
     event.preventDefault(); setDragging(false); void addFiles(event.dataTransfer.files);
   }
-  return <form onSubmit={submit} onDragOver={(event) => { event.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={drop} className={`rounded-3xl border bg-white p-3 shadow-sm transition ${dragging ? "border-blue-400 ring-4 ring-blue-100" : "border-slate-200"}`}><MessageAttachments files={files} onRemove={(index) => setFiles((current) => current.filter((_, itemIndex) => itemIndex !== index))} /><textarea ref={textRef} value={message} onKeyDown={removeLastOnEmpty} onChange={(event) => setMessage(event.target.value)} rows={1} placeholder="Ask anything about personal finance..." className={`max-h-56 w-full resize-none overflow-y-auto bg-transparent px-2 text-sm leading-6 outline-none placeholder:text-slate-400 ${files.length ? "min-h-16" : "min-h-12"}`} /><div className="mt-2 flex items-center justify-between"><input ref={inputRef} type="file" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt" className="hidden" onChange={(event: ChangeEvent<HTMLInputElement>) => void addFiles(event.target.files)} /><button type="button" onClick={() => inputRef.current?.click()} className="grid size-10 place-items-center rounded-full text-slate-600 hover:bg-slate-100" title="Upload images or files"><Plus size={24} /></button><button type="submit" disabled={!canSend} className={`grid size-10 place-items-center rounded-full transition ${canSend ? "bg-blue-600 text-white hover:bg-blue-700" : "bg-slate-200 text-slate-400"}`} title="Send message"><Send size={18} /></button></div></form>;
+  return <form onSubmit={submit} onDragOver={(event) => { event.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={drop} className={`rounded-3xl border bg-white p-3 shadow-sm transition ${dragging ? "border-blue-400 ring-4 ring-blue-100" : "border-slate-200"}`}><MessageAttachments files={files} onRemove={(index) => setFiles((current) => current.filter((_, itemIndex) => itemIndex !== index))} /><textarea ref={textRef} value={message} onKeyDown={removeLastOnEmpty} onChange={(event) => setMessage(event.target.value)} rows={1} placeholder="Ask anything about personal finance..." className={`max-h-56 w-full resize-none overflow-y-auto bg-transparent px-2 text-sm leading-6 outline-none placeholder:text-slate-400 ${files.length ? "min-h-16" : "min-h-12"}`} /><div className="mt-2 flex items-center justify-between"><input ref={inputRef} type="file" multiple accept=".pdf,application/pdf" className="hidden" onChange={(event: ChangeEvent<HTMLInputElement>) => void addFiles(event.target.files)} /><button type="button" onClick={() => inputRef.current?.click()} className="grid size-10 place-items-center rounded-full text-slate-600 hover:bg-slate-100" title="Upload PDF financial documents"><Plus size={24} /></button><button type="submit" disabled={!canSend} className={`grid size-10 place-items-center rounded-full transition ${canSend ? "bg-blue-600 text-white hover:bg-blue-700" : "bg-slate-200 text-slate-400"}`} title="Send message"><Send size={18} /></button></div></form>;
 }
 
 async function toPreview(file: File): Promise<AttachmentPreview> {
   const isImage = isImageFile(file);
-  return { id: crypto.randomUUID(), name: file.name, extension: fileExtension(file), isImage, dataUrl: isImage ? await readImage(file) : undefined };
+  return { id: crypto.randomUUID(), name: file.name, extension: fileExtension(file), isImage, file, dataUrl: isImage ? await readImage(file) : undefined };
 }
 
 export default function AdvisorChat() {
@@ -102,7 +98,7 @@ export default function AdvisorChat() {
   }
   async function sendMessage(message: string, files: AttachmentPreview[]) {
     setSending(true); setError("");
-    try { const conversation = active || { ...(await createConversation()), messages: [] }; await sendAdvisorMessage(`${message}${attachmentText(files)}`.trim(), conversation.conversation_id); const next = await getConversation(conversation.conversation_id); attachToLatestUserMessage(next, files); setDraftConversationId(conversation.conversation_id); setActive(next); await loadList(); }
+    try { const conversation = active || { ...(await createConversation()), messages: [] }; if (files.length) await sendAdvisorPdfMessage(message || "Extract financial information from the uploaded PDF.", conversation.conversation_id, files.map((item) => item.file)); else await sendAdvisorMessage(message, conversation.conversation_id); const next = await getConversation(conversation.conversation_id); attachToLatestUserMessage(next, files); setDraftConversationId(conversation.conversation_id); setActive(next); await loadList(); }
     catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to send your message."); }
     finally { setSending(false); }
   }

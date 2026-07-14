@@ -13,3 +13,9 @@ email-validator
 pytest
 httpx
 google-genai
+pypdf
+reportlab
+PyMuPDF
+pytesseract
+Pillow
+httpx2
