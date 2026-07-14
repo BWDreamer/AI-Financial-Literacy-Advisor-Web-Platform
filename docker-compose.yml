@@ -24,7 +24,25 @@ services:
     volumes:
       - ./backend:/app
     depends_on:
-      - db
+      migrate:
+        condition: service_completed_successfully
+
+  migrate:
+    image: postgres:16
+    container_name: ai_finance_migrate
+    environment:
+      PGHOST: db
+      PGPORT: 5432
+      PGUSER: finance_user
+      PGPASSWORD: finance_password
+      PGDATABASE: finance_db
+    volumes:
+      - ./database:/database:ro
+    command: ["/bin/sh", "/database/run_migrations.sh"]
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
 
   db:
     image: postgres:16
@@ -36,6 +54,11 @@ services:
       POSTGRES_DB: finance_db
     ports:
       - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U finance_user -d finance_db"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./database/init.sql:/docker-entrypoint-initdb.d/1-init.sql

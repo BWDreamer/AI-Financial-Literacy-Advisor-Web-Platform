@@ -36,10 +36,27 @@ from app.schemas.ai import (
     AIPdfChatResponse,
 )
 from app.services.ai_advisor_service import AIAdvisorService
-from app.services.chat_context_service import build_conversation_context
+from app.services.chat_context_service import (
+    build_conversation_context,
+    build_goal_conversation_context,
+)
 from app.services.financial_service import (
+    FinancialPlanningSnapshot,
     build_financial_planning_context,
     build_financial_planning_snapshot,
+)
+from app.services.goal_allocation_service import (
+    build_goal_allocation_context,
+)
+from app.services.goal_planning_service import (
+    GOAL_PLANNING_STATE_RESPONSE_SCHEMA,
+    GoalPlanningState,
+    build_goal_question_context,
+    build_goal_state_correction_prompt,
+    build_goal_state_extraction_prompt,
+    goal_state_payload_is_complete,
+    is_goal_planning_follow_up,
+    normalize_goal_planning_state,
 )
 from app.services.memory_service import (
     build_memory_context,
@@ -122,6 +139,7 @@ def _build_grounded_message(
     memory_context: str | None,
     conversation_context: str | None,
     financial_context: str | None,
+    goal_planning_context: str | None,
     rule_context: str | None,
 ) -> str:
     context_sections = [
@@ -130,6 +148,7 @@ def _build_grounded_message(
             memory_context,
             conversation_context,
             financial_context,
+            goal_planning_context,
             rule_context,
         )
         if context is not None
@@ -147,17 +166,22 @@ def _build_grounded_message(
     )
 
 
-def _financial_context_for_user(
+def _financial_snapshot_for_user(
     db: Session,
     user_id: int,
-    include_empty: bool,
-) -> str | None:
-    snapshot = build_financial_planning_snapshot(
+) -> FinancialPlanningSnapshot:
+    return build_financial_planning_snapshot(
         list_assets(db, user_id),
         list_debts(db, user_id),
         list_cash_flows(db, user_id),
         list_recurring_cash_flows(db, user_id),
     )
+
+
+def _financial_context_from_snapshot(
+    snapshot: FinancialPlanningSnapshot,
+    include_empty: bool,
+) -> str | None:
     if not snapshot.has_financial_records and not include_empty:
         return None
     return build_financial_planning_context(snapshot)
@@ -172,7 +196,43 @@ def _is_goal_planning_discussion(
         for context in (conversation_context, user_message)
         if context
     )
-    return GOAL_PLANNING_PATTERN.search(discussion) is not None
+    return (
+        GOAL_PLANNING_PATTERN.search(discussion) is not None
+        or is_goal_planning_follow_up(conversation_context)
+    )
+
+
+async def _extract_goal_planning_state(
+    advisor_service: AIAdvisorService,
+    conversation_context: str | None,
+    user_message: str,
+) -> GoalPlanningState:
+    extraction_prompt = build_goal_state_extraction_prompt(
+        conversation_context,
+        user_message,
+    )
+    payload = await advisor_service.reply_json(
+        extraction_prompt,
+        GOAL_PLANNING_STATE_RESPONSE_SCHEMA,
+    )
+    if not goal_state_payload_is_complete(payload):
+        payload = await advisor_service.reply_json(
+            build_goal_state_correction_prompt(extraction_prompt, payload),
+            GOAL_PLANNING_STATE_RESPONSE_SCHEMA,
+        )
+    return normalize_goal_planning_state(payload)
+
+
+def _build_goal_workflow_context(
+    state: GoalPlanningState | None,
+    snapshot: FinancialPlanningSnapshot,
+) -> str:
+    question_context = build_goal_question_context(state, snapshot)
+    if question_context is not None:
+        return question_context
+    if state is None:
+        raise ValueError("Completed goal planning requires extracted goal state.")
+    return build_goal_allocation_context(state, snapshot)
 
 
 def _raise_llm_http_error(error: Exception) -> None:
@@ -333,6 +393,8 @@ async def chat_with_advisor(
     try:
         memory_context = None
         conversation_context = None
+        goal_conversation_context = None
+        goal_planning_context = None
         rule_context = None
         conversation = None
         if request.conversation_id is not None:
@@ -347,13 +409,19 @@ async def chat_with_advisor(
             conversation_context = build_conversation_context(
                 conversation.messages
             )
-        financial_context = _financial_context_for_user(
-            db,
-            current_user.id,
-            include_empty=_is_goal_planning_discussion(
-                request.message,
-                conversation_context,
-            ),
+            goal_conversation_context = build_goal_conversation_context(
+                conversation.messages
+            )
+        goal_discussion = _is_goal_planning_discussion(
+            request.message,
+            conversation_context,
+        )
+        financial_snapshot = _financial_snapshot_for_user(
+            db, current_user.id
+        )
+        financial_context = _financial_context_from_snapshot(
+            financial_snapshot,
+            include_empty=goal_discussion,
         )
         if request.rule_id is not None:
             rule = get_financial_rule_by_id(db, request.rule_id)
@@ -367,22 +435,36 @@ async def chat_with_advisor(
         if conversation is not None:
             add_message(db, conversation, "user", request.message)
 
-        if request.rule_id is None:
-            reply_json = getattr(advisor_service, "reply_json", None)
-            if reply_json is not None:
-                intent_payload = await reply_json(
-                    build_financial_rule_intent_prompt(
-                        request.message,
-                    ),
-                    FINANCIAL_RULE_INTENT_RESPONSE_SCHEMA,
+        reply_json = getattr(advisor_service, "reply_json", None)
+        if goal_discussion:
+            goal_state = None
+            if (
+                financial_snapshot.has_financial_records
+                and reply_json is not None
+            ):
+                goal_state = await _extract_goal_planning_state(
+                    advisor_service,
+                    goal_conversation_context,
+                    request.message,
                 )
-                rule_intent = normalize_financial_rule_intent_payload(
-                    intent_payload,
-                )
-                rule_context = build_financial_rule_context_from_intent(
-                    db=db,
-                    intent=rule_intent,
-                )
+            goal_planning_context = _build_goal_workflow_context(
+                goal_state,
+                financial_snapshot,
+            )
+        elif request.rule_id is None and reply_json is not None:
+            intent_payload = await reply_json(
+                build_financial_rule_intent_prompt(
+                    request.message,
+                ),
+                FINANCIAL_RULE_INTENT_RESPONSE_SCHEMA,
+            )
+            rule_intent = normalize_financial_rule_intent_payload(
+                intent_payload,
+            )
+            rule_context = build_financial_rule_context_from_intent(
+                db=db,
+                intent=rule_intent,
+            )
 
         memory_context = build_memory_context(
             retrieve_relevant_memories(
@@ -397,6 +479,7 @@ async def chat_with_advisor(
             memory_context=memory_context,
             conversation_context=conversation_context,
             financial_context=financial_context,
+            goal_planning_context=goal_planning_context,
             rule_context=rule_context,
         )
         answer = _plain_text_answer(
@@ -444,6 +527,7 @@ async def chat_with_pdf_upload(
 
     conversation = None
     conversation_context = None
+    goal_conversation_context = None
     if conversation_id is not None:
         conversation = get_conversation(
             db,
@@ -456,6 +540,9 @@ async def chat_with_pdf_upload(
                 detail="Conversation was not found.",
             )
         conversation_context = build_conversation_context(
+            conversation.messages
+        )
+        goal_conversation_context = build_goal_conversation_context(
             conversation.messages
         )
 
@@ -527,22 +614,36 @@ async def chat_with_pdf_upload(
             user_message,
         )
     )
-    context = _build_grounded_message(
-        user_message=pdf_context,
-        memory_context=memory_context,
-        conversation_context=conversation_context,
-        financial_context=_financial_context_for_user(
-            db,
-            current_user.id,
-            include_empty=_is_goal_planning_discussion(
-                user_message,
-                conversation_context,
-            ),
-        ),
-        rule_context=None,
+    goal_discussion = _is_goal_planning_discussion(
+        user_message,
+        conversation_context,
     )
-
+    financial_snapshot = _financial_snapshot_for_user(
+        db, current_user.id
+    )
+    goal_planning_context = None
     try:
+        if goal_discussion:
+            goal_state = await _extract_goal_planning_state(
+                advisor_service,
+                goal_conversation_context,
+                user_message,
+            )
+            goal_planning_context = _build_goal_workflow_context(
+                goal_state,
+                financial_snapshot,
+            )
+        context = _build_grounded_message(
+            user_message=pdf_context,
+            memory_context=memory_context,
+            conversation_context=conversation_context,
+            financial_context=_financial_context_from_snapshot(
+                financial_snapshot,
+                include_empty=goal_discussion,
+            ),
+            goal_planning_context=goal_planning_context,
+            rule_context=None,
+        )
         answer = _plain_text_answer(
             await advisor_service.reply(context)
         )
