@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
-import { AlertTriangle, Camera, LockKeyhole, Mail, Trash2, UserRound, X } from "lucide-react";
+import { Camera, LockKeyhole, Mail, Trash2, UserRound, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { clearExtendedAccountSettings, ExtendedAccountSettings, getExtendedAccountSettings, saveExtendedAccountSettings } from "../api/accountSettings";
 import { avatarUrl, deleteAccount, updateEmail, updatePassword, updateUsername, uploadAvatar } from "../api/auth";
@@ -11,9 +11,10 @@ import Modal from "./Modal";
 import PasswordInput from "./PasswordInput";
 import PrimaryButton from "./PrimaryButton";
 import DatePicker from "./DatePicker";
+import MemorySettingsPanel from "./MemorySettingsPanel";
 
 type ActionState = { loading: boolean; error: string; success: string };
-type Tab = "account" | "security";
+type Tab = "account" | "security" | "memories";
 
 const phoneRegions = [
   { region: "Australia", code: "+61" }, { region: "China", code: "+86" },
@@ -56,8 +57,8 @@ function SettingsHero() {
 }
 
 function SettingsTabs({ tab, setTab, onClose }: { tab: Tab; setTab: (tab: Tab) => void; onClose: () => void }) {
-  const tabs: { id: Tab; label: string }[] = [{ id: "account", label: "Account" }, { id: "security", label: "Security" }];
-  return <div className="relative flex border-b border-slate-200 pr-14">{tabs.map((item) => <button key={item.id} type="button" onClick={() => setTab(item.id)} className={`px-6 py-3.5 text-sm font-bold transition ${tab === item.id ? "border-b-2 border-blue-600 text-blue-700" : "text-slate-500 hover:text-slate-900"}`}>{item.label}</button>)}<button type="button" onClick={onClose} aria-label="Close settings" className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-800"><X size={22} /></button></div>;
+  const tabs: { id: Tab; label: string }[] = [{ id: "account", label: "Account" }, { id: "security", label: "Security" }, { id: "memories", label: "Memories" }];
+  return <div className="relative flex border-b border-slate-200 pr-12">{tabs.map((item) => <button key={item.id} type="button" onClick={() => setTab(item.id)} className={`min-w-0 flex-1 px-2 py-3.5 text-sm font-bold transition sm:flex-none sm:px-6 ${tab === item.id ? "border-b-2 border-blue-600 text-blue-700" : "text-slate-500 hover:text-slate-900"}`}>{item.label}</button>)}<button type="button" onClick={onClose} aria-label="Close settings" className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-800"><X size={22} /></button></div>;
 }
 
 function SettingsCard({ title, children }: { title: string; children: ReactNode }) {
@@ -175,5 +176,5 @@ function SecurityTab() {
 
 export default function ProfileSettingsModal({ onClose }: { onClose: () => void }) {
   const [tab, setTab] = useState<Tab>("account");
-  return <Modal title="Settings" onClose={onClose} wide hideHeader><SettingsTabs tab={tab} setTab={setTab} onClose={onClose} /><SettingsHero />{tab === "account" ? <AccountTab /> : <SecurityTab />}</Modal>;
+  return <Modal title="Settings" onClose={onClose} wide hideHeader><SettingsTabs tab={tab} setTab={setTab} onClose={onClose} /><SettingsHero />{tab === "account" && <AccountTab />}{tab === "security" && <SecurityTab />}{tab === "memories" && <MemorySettingsPanel />}</Modal>;
 }
