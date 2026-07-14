@@ -96,6 +96,24 @@ def search_memories(
     )
 
 
+def list_memories_by_categories(
+    db: Session,
+    user_id: int,
+    categories: tuple[str, ...],
+    limit: int = 20,
+) -> list[UserMemory]:
+    return (
+        db.query(UserMemory)
+        .filter(
+            UserMemory.user_id == user_id,
+            UserMemory.category.in_(categories),
+        )
+        .order_by(UserMemory.updated_at.desc(), UserMemory.id.desc())
+        .limit(limit)
+        .all()
+    )
+
+
 def mark_memories_used(db: Session, memories: list[UserMemory]) -> None:
     if not memories:
         return

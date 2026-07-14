@@ -22,6 +22,12 @@ from app.core.database import get_db
 from app.core.config import settings
 from app.models.financial_rule import FinancialRule
 from app.models.user import User
+from app.repositories.financial_repository import (
+    list_assets,
+    list_cash_flows,
+    list_debts,
+    list_recurring_cash_flows,
+)
 from app.repositories.rule_repository import get_financial_rule_by_id
 from app.repositories.chat_repository import add_message, get_conversation
 from app.schemas.ai import (
@@ -30,6 +36,11 @@ from app.schemas.ai import (
     AIPdfChatResponse,
 )
 from app.services.ai_advisor_service import AIAdvisorService
+from app.services.chat_context_service import build_conversation_context
+from app.services.financial_service import (
+    build_financial_planning_context,
+    build_financial_planning_snapshot,
+)
 from app.services.memory_service import (
     build_memory_context,
     remember_from_message,
@@ -61,6 +72,15 @@ from app.services.rule_lookup_service import (
 
 router = APIRouter()
 PDF_MODEL_CONTEXT = "pdf-financial-parser"
+GOAL_PLANNING_PATTERN = re.compile(
+    r"\b(?:my|our|financial|money)\s+goals?\b|"
+    r"\b(?:i want|i need|i would like|i'd like|help me|plan|planning)\b"
+    r".{0,80}\b(?:save|saving|buy|purchase|emergency fund|pay off|repay|"
+    r"debt|home deposit|retire|retirement|budget|cash flow)\b|"
+    r"\b(?:save|saving) for\b|\bbuild an? emergency fund\b|"
+    r"\bpay off (?:my |our )?debt\b",
+    re.IGNORECASE | re.DOTALL,
+)
 
 
 @router.get("/ping")
@@ -100,11 +120,18 @@ def _build_grounded_message(
     *,
     user_message: str,
     memory_context: str | None,
+    conversation_context: str | None,
+    financial_context: str | None,
     rule_context: str | None,
 ) -> str:
     context_sections = [
         context
-        for context in (memory_context, rule_context)
+        for context in (
+            memory_context,
+            conversation_context,
+            financial_context,
+            rule_context,
+        )
         if context is not None
     ]
 
@@ -118,6 +145,34 @@ def _build_grounded_message(
             user_message,
         ]
     )
+
+
+def _financial_context_for_user(
+    db: Session,
+    user_id: int,
+    include_empty: bool,
+) -> str | None:
+    snapshot = build_financial_planning_snapshot(
+        list_assets(db, user_id),
+        list_debts(db, user_id),
+        list_cash_flows(db, user_id),
+        list_recurring_cash_flows(db, user_id),
+    )
+    if not snapshot.has_financial_records and not include_empty:
+        return None
+    return build_financial_planning_context(snapshot)
+
+
+def _is_goal_planning_discussion(
+    user_message: str,
+    conversation_context: str | None,
+) -> bool:
+    discussion = "\n".join(
+        context
+        for context in (conversation_context, user_message)
+        if context
+    )
+    return GOAL_PLANNING_PATTERN.search(discussion) is not None
 
 
 def _raise_llm_http_error(error: Exception) -> None:
@@ -277,6 +332,7 @@ async def chat_with_advisor(
     """Return an educational reply from the configured LLM."""
     try:
         memory_context = None
+        conversation_context = None
         rule_context = None
         conversation = None
         if request.conversation_id is not None:
@@ -288,6 +344,17 @@ async def chat_with_advisor(
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail="Conversation was not found.",
                 )
+            conversation_context = build_conversation_context(
+                conversation.messages
+            )
+        financial_context = _financial_context_for_user(
+            db,
+            current_user.id,
+            include_empty=_is_goal_planning_discussion(
+                request.message,
+                conversation_context,
+            ),
+        )
         if request.rule_id is not None:
             rule = get_financial_rule_by_id(db, request.rule_id)
             if rule is None:
@@ -328,6 +395,8 @@ async def chat_with_advisor(
         message = _build_grounded_message(
             user_message=request.message,
             memory_context=memory_context,
+            conversation_context=conversation_context,
+            financial_context=financial_context,
             rule_context=rule_context,
         )
         answer = _plain_text_answer(
@@ -374,6 +443,7 @@ async def chat_with_pdf_upload(
         )
 
     conversation = None
+    conversation_context = None
     if conversation_id is not None:
         conversation = get_conversation(
             db,
@@ -385,6 +455,9 @@ async def chat_with_pdf_upload(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Conversation was not found.",
             )
+        conversation_context = build_conversation_context(
+            conversation.messages
+        )
 
     results = []
     for file in files:
@@ -443,9 +516,30 @@ async def chat_with_pdf_upload(
             ),
         )
 
-    context = build_pdf_ai_context(
+    pdf_context = build_pdf_ai_context(
         user_message=user_message,
         results=results,
+    )
+    memory_context = build_memory_context(
+        retrieve_relevant_memories(
+            db,
+            current_user.id,
+            user_message,
+        )
+    )
+    context = _build_grounded_message(
+        user_message=pdf_context,
+        memory_context=memory_context,
+        conversation_context=conversation_context,
+        financial_context=_financial_context_for_user(
+            db,
+            current_user.id,
+            include_empty=_is_goal_planning_discussion(
+                user_message,
+                conversation_context,
+            ),
+        ),
+        rule_context=None,
     )
 
     try:
