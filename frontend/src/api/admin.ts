@@ -1,5 +1,5 @@
 import { apiGet, apiRequest } from "./client";
-import type { Article, ArticleDetail } from "./articles";
+import type { Article, ArticleContentBlock, ArticleDetail } from "./articles";
 
 export type AdminUser = {
   id: number;
@@ -48,9 +48,7 @@ export function deleteAdminUser(id: number) {
   });
 }
 
-export type AdminArticleContentBlock =
-  | { type: "paragraph"; text: string }
-  | { type: "image"; src: string; alt: string; caption?: string };
+export type AdminArticleContentBlock = ArticleContentBlock;
 
 export type AdminArticleRequest = {
   id?: string;

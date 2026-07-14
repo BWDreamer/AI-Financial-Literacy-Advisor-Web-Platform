@@ -27,6 +27,7 @@ from app.schemas.article import (
     ArticlePageResponse,
     ArticleSaveResponse,
     ArticleSortBy,
+    ArticleViewResponse,
 )
 
 
@@ -110,7 +111,6 @@ def get_article_detail(
     db: Session = Depends(get_db),
 ):
     article = require_published_article(db, article_id)
-    article = increment_article_views(db, article)
     liked_by_me = False
     saved_by_me = False
 
@@ -122,6 +122,26 @@ def get_article_detail(
         **article.__dict__,
         "liked_by_me": liked_by_me,
         "saved_by_me": saved_by_me,
+    }
+
+
+@router.post("/{article_id}/view", response_model=ArticleViewResponse)
+def increment_article_view_endpoint(
+    article_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if current_user.role == "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin article reads do not count as user views.",
+        )
+
+    article = require_published_article(db, article_id)
+    article = increment_article_views(db, article)
+    return {
+        "article_id": article.id,
+        "views": article.views,
     }
 
 
