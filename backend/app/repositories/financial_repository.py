@@ -2,8 +2,8 @@ from datetime import date as Date
 
 from sqlalchemy.orm import Session
 
-from app.models.financial import Asset, CashFlow
-from app.schemas.financial import AssetRequest, CashFlowRequest
+from app.models.financial import Asset, CashFlow, Debt, RecurringCashFlow
+from app.schemas.financial import AssetRequest, CashFlowRequest, DebtRequest, RecurringCashFlowRequest
 
 
 def list_assets(db: Session, user_id: int) -> list[Asset]:
@@ -101,4 +101,63 @@ def save_cash_flow(
 
 def delete_cash_flow(db: Session, cash_flow: CashFlow) -> None:
     db.delete(cash_flow)
+    db.commit()
+
+
+def list_debts(db: Session, user_id: int) -> list[Debt]:
+    return db.query(Debt).filter(Debt.user_id == user_id).order_by(Debt.id).all()
+
+
+def get_debt(db: Session, user_id: int, debt_id: int) -> Debt | None:
+    return db.query(Debt).filter(Debt.id == debt_id, Debt.user_id == user_id).first()
+
+
+def save_debt(db: Session, user_id: int, data: DebtRequest, debt: Debt | None = None) -> Debt:
+    debt = debt or Debt(user_id=user_id)
+    for field, value in data.model_dump().items():
+        setattr(debt, field, value)
+    db.add(debt)
+    db.commit()
+    db.refresh(debt)
+    return debt
+
+
+def delete_debt(db: Session, debt: Debt) -> None:
+    db.delete(debt)
+    db.commit()
+
+
+def list_recurring_cash_flows(db: Session, user_id: int) -> list[RecurringCashFlow]:
+    return (
+        db.query(RecurringCashFlow)
+        .filter(RecurringCashFlow.user_id == user_id)
+        .order_by(RecurringCashFlow.start_date.desc(), RecurringCashFlow.id.desc())
+        .all()
+    )
+
+
+def get_recurring_cash_flow(db: Session, user_id: int, recurring_id: int) -> RecurringCashFlow | None:
+    return db.query(RecurringCashFlow).filter(
+        RecurringCashFlow.id == recurring_id,
+        RecurringCashFlow.user_id == user_id,
+    ).first()
+
+
+def save_recurring_cash_flow(
+    db: Session,
+    user_id: int,
+    data: RecurringCashFlowRequest,
+    recurring: RecurringCashFlow | None = None,
+) -> RecurringCashFlow:
+    recurring = recurring or RecurringCashFlow(user_id=user_id)
+    for field, value in data.model_dump().items():
+        setattr(recurring, field, value)
+    db.add(recurring)
+    db.commit()
+    db.refresh(recurring)
+    return recurring
+
+
+def delete_recurring_cash_flow(db: Session, recurring: RecurringCashFlow) -> None:
+    db.delete(recurring)
     db.commit()

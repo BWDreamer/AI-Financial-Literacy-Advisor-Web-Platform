@@ -1628,7 +1628,12 @@ def test_pdf_chat_low_confidence_does_not_update_financials(client):
         "/api/financials",
         headers=headers,
     ).json()
-    assert financials == {"assets": [], "cash_flows": []}
+    assert financials == {
+        "assets": [],
+        "debts": [],
+        "cash_flows": [],
+        "recurring_cash_flows": [],
+    }
 
 
 def test_pdf_chat_rejects_non_pdf_upload(client):

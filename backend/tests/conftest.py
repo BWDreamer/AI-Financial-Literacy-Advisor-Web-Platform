@@ -9,7 +9,7 @@ from app.main import app
 
 # These imports register the database tables with SQLAlchemy.
 from app.models.financial_rule import FinancialRule
-from app.models.financial import Asset, CashFlow
+from app.models.financial import Asset, CashFlow, Debt, RecurringCashFlow
 from app.models.chat import ChatConversation, ChatMessage
 from app.models.article import Article, ArticleLike, ArticleSave
 from app.models.goal import Goal, GoalContribution
