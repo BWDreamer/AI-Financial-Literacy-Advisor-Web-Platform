@@ -15,7 +15,7 @@ from app.ai.prompts import FINANCIAL_ADVISOR_INSTRUCTIONS
 from app.ai.provider import GeminiProvider
 from app.main import app
 from app.models.financial_rule import FinancialRule
-from app.services import pdf_financial_service
+from app.services import pdf_asset_classifier, pdf_financial_service
 
 
 class SuccessfulTestAdvisorService:
@@ -25,6 +25,7 @@ class SuccessfulTestAdvisorService:
         self.messages: list[str] = []
         self.rule_classification_messages: list[str] = []
         self.transaction_classification_messages: list[str] = []
+        self.asset_classification_messages: list[str] = []
 
     def _rule_classification(self, message: str) -> dict:
         user_question = message.rsplit(
@@ -128,6 +129,43 @@ class SuccessfulTestAdvisorService:
             "transactions": rows,
         }
 
+    def _asset_classification(self, message: str) -> dict:
+        encoded_rows = message.split(
+            "Monetary items:\n",
+            maxsplit=1,
+        )[1]
+        rows = json.loads(encoded_rows)
+        classifications = []
+
+        for row in rows:
+            source_line = row["source_line"].lower()
+
+            if (
+                "cash savings" in source_line
+                or "opening balance" in source_line
+                or "money transfers from dad" in source_line
+                or "payroll" in source_line
+            ):
+                classification = "cash"
+            elif "mercedes-benz" in source_line:
+                classification = "vehicle"
+            elif "stock hit limit up" in source_line:
+                classification = "stocks"
+            else:
+                classification = "not_asset"
+
+            classifications.append(
+                {
+                    "candidate_id": row["candidate_id"],
+                    "classification": classification,
+                    "confidence": 0.96,
+                }
+            )
+
+        return {
+            "classifications": classifications,
+        }
+
     async def reply(
         self,
         message: str,
@@ -165,6 +203,13 @@ class SuccessfulTestAdvisorService:
         ):
             self.rule_classification_messages.append(message)
             return self._rule_classification(message)
+
+        if message.startswith(
+            "Classify monetary items from a financial PDF into "
+            "asset categories."
+        ):
+            self.asset_classification_messages.append(message)
+            return self._asset_classification(message)
 
         return {
             "intent": "out_of_scope",
@@ -1234,6 +1279,163 @@ def test_chat_does_not_route_partial_english_keyword_matches(
     assert service.messages[1] == "That was a superb explanation."
 
 
+def test_pdf_asset_candidates_preserve_money_separators():
+    candidates = pdf_financial_service.extract_asset_candidates(
+        "\n".join(
+            [
+                "Purchase of a vehicle 80,000.00",
+                "Stock holding 1000.50",
+                "Payroll 5,044.38",
+            ]
+        )
+    )
+
+    assert [
+        str(candidate.amount)
+        for candidate in candidates
+    ] == [
+        "80000.00",
+        "1000.50",
+        "5044.38",
+    ]
+    assert pdf_financial_service.extract_asset_candidates(
+        "Unsupported European amount 1.000,50"
+    ) == []
+
+
+def test_pdf_asset_classification_enforces_whitelist_and_confidence():
+    candidates = pdf_financial_service.extract_asset_candidates(
+        "\n".join(
+            [
+                "Home value 900,000.00",
+                "Unclear investment 5,000.00",
+                "Other value 1,000.00",
+            ]
+        )
+    )
+    classifications = (
+        pdf_asset_classifier.normalize_asset_classification_payload(
+            {
+                "classifications": [
+                    {
+                        "candidate_id": "asset_1",
+                        "classification": "property",
+                        "confidence": 0.98,
+                    },
+                    {
+                        "candidate_id": "asset_2",
+                        "classification": "crypto",
+                        "confidence": 0.99,
+                    },
+                    {
+                        "candidate_id": "asset_3",
+                        "classification": "others",
+                        "confidence": 0.2,
+                    },
+                ]
+            },
+            candidates,
+        )
+    )
+
+    assets = pdf_asset_classifier.select_classified_assets(
+        candidates,
+        classifications,
+    )
+
+    assert [
+        (asset.asset_type, str(asset.amount))
+        for asset in assets
+    ] == [("property", "900000.00")]
+
+
+def test_pdf_chat_classifies_multiple_assets_for_homepage(client):
+    headers = create_authorization_headers(client)
+    conversation_id = client.post(
+        "/api/chat/conversations",
+        headers=headers,
+        json={},
+    ).json()["conversation_id"]
+    service = SuccessfulPdfAdvisorService()
+    app.dependency_overrides[
+        get_ai_advisor_service
+    ] = lambda: service
+    pdf_bytes = make_pdf_bytes(
+        [
+            "Asset Summary",
+            "Purchase of a Mercedes-Benz 80,000.00",
+            "Money Transfers from Dad 10,000.00",
+            "stock hit limit up 1000.50",
+        ]
+    )
+
+    try:
+        response = client.post(
+            "/api/ai/chat/pdf",
+            headers=headers,
+            data={
+                "message": "Add these assets to my allocation.",
+                "conversation_id": str(conversation_id),
+            },
+            files={
+                "files": (
+                    "asset-mix.pdf",
+                    pdf_bytes,
+                    "application/pdf",
+                ),
+            },
+        )
+    finally:
+        app.dependency_overrides.pop(
+            get_ai_advisor_service,
+            None,
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["low_confidence"] is False
+    assert {
+        record["asset_type"]: record["amount"]
+        for record in data["imported_records"]
+        if record["record_type"] == "asset"
+    } == {
+        "cash": 10000.0,
+        "stocks": 1000.5,
+        "vehicle": 80000.0,
+    }
+    assert len(service.asset_classification_messages) == 1
+    classification_message = service.asset_classification_messages[0]
+    assert '"amount_from_backend": "80000.00"' in classification_message
+    assert '"amount_from_backend": "10000.00"' in classification_message
+    assert '"amount_from_backend": "1000.50"' in classification_message
+
+    financials = client.get(
+        "/api/financials",
+        headers=headers,
+    ).json()
+    assert {
+        asset["asset_type"]: asset["amount"]
+        for asset in financials["assets"]
+    } == {
+        "cash": "10000.00",
+        "stocks": "1000.50",
+        "vehicle": "80000.00",
+    }
+
+    summary = client.get(
+        "/api/financials/summary",
+        headers=headers,
+    ).json()
+    assert {
+        allocation["asset_type"]: allocation["amount"]
+        for allocation in summary["asset_allocation"]
+    } == {
+        "cash": "10000.00",
+        "stocks": "1000.50",
+        "vehicle": "80000.00",
+    }
+
+
 def test_pdf_chat_extracts_financials_and_updates_homepage_data(client):
     headers = create_authorization_headers(client)
     conversation_id = client.post(
@@ -1285,10 +1487,12 @@ def test_pdf_chat_extracts_financials_and_updates_homepage_data(client):
         record["name"]
         for record in data["imported_records"]
     } == {
-        "Imported cash balance",
+        "Imported cash from statement.pdf",
         "Imported monthly income",
         "Imported monthly expenses",
     }
+    assert len(service.asset_classification_messages) == 1
+    assert "amount_from_backend" in service.asset_classification_messages[0]
     assert len(service.messages) == 1
     assert "HomePage financial basics updated" in service.messages[0]
     assert "Cash savings: $12,500.00" in service.messages[0]
@@ -1370,7 +1574,7 @@ def test_pdf_chat_calculates_income_and_expenses_from_transactions(client):
         record["name"]: record["amount"]
         for record in data["imported_records"]
     } == {
-        "Imported cash balance": 12500.0,
+        "Imported cash from transactions.pdf": 12500.0,
         "Imported monthly income": 3800.0,
         "Imported monthly expenses": 1710.0,
     }
@@ -1506,7 +1710,7 @@ def test_pdf_chat_extracts_opening_balance_deposits_and_credits(client):
         record["name"]: record["amount"]
         for record in response.json()["imported_records"]
     } == {
-        "Imported cash balance": 9250.5,
+        "Imported cash from summary.pdf": 9250.5,
         "Imported monthly income": 3800.0,
         "Imported monthly expenses": 1710.0,
     }

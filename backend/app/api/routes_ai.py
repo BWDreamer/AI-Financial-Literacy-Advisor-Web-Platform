@@ -35,6 +35,12 @@ from app.services.memory_service import (
     remember_from_message,
     retrieve_relevant_memories,
 )
+from app.services.pdf_asset_classifier import (
+    ASSET_CLASSIFICATION_RESPONSE_SCHEMA,
+    AssetCandidate,
+    build_asset_classification_prompt,
+    normalize_asset_classification_payload,
+)
 from app.services.pdf_financial_service import (
     AmbiguousTransactionCandidate,
     PdfExtractionError,
@@ -233,6 +239,27 @@ async def _classify_pdf_transactions(
     )
 
 
+async def _classify_pdf_assets(
+    advisor_service: AIAdvisorService,
+    candidates: list[AssetCandidate],
+):
+    payload = await advisor_service.reply_json(
+        build_asset_classification_prompt(candidates),
+        ASSET_CLASSIFICATION_RESPONSE_SCHEMA,
+    )
+
+    classifications = normalize_asset_classification_payload(
+        payload,
+        candidates,
+    )
+    if len(classifications) != len(candidates):
+        raise LLMServiceError(
+            "The AI provider returned incomplete PDF asset classifications."
+        )
+
+    return classifications
+
+
 @router.post(
     "/chat",
     response_model=AIChatResponse,
@@ -338,7 +365,7 @@ async def chat_with_pdf_upload(
     ),
     db: Session = Depends(get_db),
 ):
-    """Extract financial information from uploaded PDFs and update HomePage basics."""
+    """Classify uploaded PDF assets and update HomePage financial data."""
 
     if not files:
         raise HTTPException(
@@ -372,6 +399,12 @@ async def chat_with_pdf_upload(
                     content=content,
                     classify_ambiguous_transactions=(
                         lambda candidates: _classify_pdf_transactions(
+                            advisor_service,
+                            candidates,
+                        )
+                    ),
+                    classify_asset_candidates=(
+                        lambda candidates: _classify_pdf_assets(
                             advisor_service,
                             candidates,
                         )

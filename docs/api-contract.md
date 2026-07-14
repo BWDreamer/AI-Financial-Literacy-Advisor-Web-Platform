@@ -77,11 +77,16 @@ Relevant long-term memories are retrieved before the AI drafts a response.
 `POST /api/ai/chat/pdf` accepts multipart form data with `message`,
 `conversation_id`, and one or more `files`. It supports text-based PDFs,
 extracts supported financial fields, calculates income and expenses from
-signed transaction lines, updates HomePage financial basics, and uses the LLM
-to explain the result in plain English without Markdown formatting. Image-only
-PDFs are rendered for OCR when the backend has PyMuPDF, pytesseract, Pillow,
-and the system `tesseract` engine available. Low-confidence PDFs return a
-fallback response without updating financial records.
+signed transaction lines, and updates HomePage financial data. Monetary items
+are sent to the LLM as numbered candidates for structured classification into
+`cash`, `stocks`, `bonds`, `property`, `vehicle`, `others`, or `not_asset`.
+The backend keeps the parsed `Decimal` amount as the source of truth, groups
+accepted items by asset type and source PDF, and exposes those records through
+the existing Asset Allocation summary. The LLM also explains the result in
+plain English without Markdown formatting. Image-only PDFs are rendered for
+OCR when the backend has PyMuPDF, pytesseract, Pillow, and the system
+`tesseract` engine available. Low-confidence PDFs return a fallback response
+without updating financial records.
 Ambiguous unsigned transaction lines are batched into one LLM structured
 classification request. The LLM classifies direction and transaction type only;
 amount extraction, validation, totals, and database writes remain backend
