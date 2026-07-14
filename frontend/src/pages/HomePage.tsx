@@ -74,7 +74,12 @@ function pieBackground(slices: AssetSlice[]) {
 
 function AssetAllocation({ summary, entries }: { summary: FinancialSummary | null; entries: FinancialEntry[] }) {
   const slices = assetSlices(summary, entries);
-  return <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6"><h2 className="text-lg font-bold text-slate-900">Asset Allocation</h2><div className="mt-6 grid items-center gap-6 sm:grid-cols-[11rem_minmax(0,1fr)]"><div className="mx-auto size-40 rounded-full sm:size-44" style={{ background: pieBackground(slices) }} /><AssetLegend slices={slices} /></div></section>;
+  const total = slices.reduce((sum, slice) => sum + slice.amount, 0);
+  return <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6"><h2 className="text-lg font-bold text-slate-900">Asset Allocation</h2><div className="mt-6 grid items-center gap-6 sm:grid-cols-[13rem_minmax(0,1fr)]"><AssetDonut slices={slices} total={total} /><AssetLegend slices={slices} /></div></section>;
+}
+
+function AssetDonut({ slices, total }: { slices: AssetSlice[]; total: number }) {
+  return <div className="mx-auto grid size-48 place-items-center rounded-full p-3 sm:size-52" style={{ background: pieBackground(slices) }}><div className="grid size-full place-items-center rounded-full bg-white text-center shadow-inner"><div><p className="text-xs font-semibold text-slate-500">Total Assets</p><p className="mt-1 text-2xl font-bold text-slate-900">{money(total)}</p></div></div></div>;
 }
 
 function AssetLegend({ slices }: { slices: AssetSlice[] }) {
