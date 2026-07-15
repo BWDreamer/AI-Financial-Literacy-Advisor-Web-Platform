@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.models.memory import UserMemory
 from app.repositories.memory_repository import (
     add_memory_if_new,
+    list_memories_by_categories,
     mark_memories_used,
     search_memories,
 )
@@ -145,14 +146,29 @@ def retrieve_relevant_memories(
     db: Session,
     user_id: int,
     message: str,
-    limit: int = 5,
+    limit: int = 12,
 ) -> list[UserMemory]:
-    memories = search_memories(
+    profile_memories = list_memories_by_categories(
+        db,
+        user_id,
+        ("profile", "preference"),
+        limit=limit,
+    )
+    relevant_memories = search_memories(
         db,
         user_id,
         _keywords_from_message(message),
         limit=limit,
     )
+    memories: list[UserMemory] = []
+    seen_ids: set[int] = set()
+    for memory in profile_memories + relevant_memories:
+        if memory.id in seen_ids:
+            continue
+        memories.append(memory)
+        seen_ids.add(memory.id)
+        if len(memories) == limit:
+            break
     mark_memories_used(db, memories)
     return memories
 

@@ -4,6 +4,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from io import BytesIO
 import logging
 import json
+from pathlib import Path
 import re
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -19,6 +20,13 @@ from app.repositories.financial_repository import (
     save_cash_flow,
 )
 from app.schemas.financial import AssetRequest, CashFlowRequest
+from app.services.pdf_asset_classifier import (
+    ASSET_TYPES,
+    AssetCandidate,
+    AssetClassifier,
+    ExtractedAsset,
+    select_classified_assets,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -29,10 +37,11 @@ OCR_RENDER_SCALE = 2
 IMPORTED_CASH_BALANCE_NAME = "Imported cash balance"
 IMPORTED_MONTHLY_INCOME_NAME = "Imported monthly income"
 IMPORTED_MONTHLY_EXPENSES_NAME = "Imported monthly expenses"
+MAX_ASSET_NAME_CHARS = 100
 
 MONEY_PATTERN = re.compile(
     r"""
-    (?<![\d.])
+    (?<![\d.,])
     (?P<open>\()?
     (?P<prefix>[+-])?
     \s*(?:aud\s*)?\$?\s*
@@ -41,7 +50,7 @@ MONEY_PATTERN = re.compile(
     \s*(?P<suffix>[+-])?
     \s*(?P<direction>cr|dr|credit|debit)?
     (?P<close>\))?
-    (?![\d.])
+    (?![\d.,])
     """,
     re.IGNORECASE | re.VERBOSE,
 )
@@ -186,6 +195,7 @@ class PdfFinancialImportResult:
     extracted_text: str
     facts: list[ExtractedFinancialFact]
     transactions: list[ExtractedTransaction]
+    assets: list[ExtractedAsset]
     imported_records: list[ImportedFinancialRecord]
     low_confidence: bool
     ocr_used: bool
@@ -348,6 +358,24 @@ def _transaction_description(line: str) -> str:
     description = description.strip(" :-+$")
 
     return description or "Imported transaction"
+
+
+def _asset_description(line: str) -> str:
+    matches = list(MONEY_PATTERN.finditer(line))
+    if not matches:
+        return line
+
+    amount_match = matches[-1]
+    description = " ".join(
+        [
+            line[: amount_match.start()].strip(),
+            line[amount_match.end() :].strip(),
+        ]
+    ).strip()
+    description = re.sub(r"\s{2,}", " ", description)
+    description = description.strip(" :-+$")
+
+    return description or "Imported asset"
 
 
 def _normalize_extracted_text(text: str) -> str:
@@ -573,6 +601,38 @@ def extract_ambiguous_transaction_candidates(
                 source_line=line,
             )
         )
+
+    return candidates
+
+
+def extract_asset_candidates(
+    text: str,
+) -> list[AssetCandidate]:
+    candidates: list[AssetCandidate] = []
+    seen_items: set[tuple[str, Decimal]] = set()
+
+    for raw_line in text.splitlines():
+        line = " ".join(raw_line.split())
+        if not line:
+            continue
+
+        amount = _parse_money_amount(line)
+        if amount is None or amount == 0:
+            continue
+
+        item_identity = (line, amount)
+        if item_identity in seen_items:
+            continue
+
+        candidates.append(
+            AssetCandidate(
+                candidate_id=f"asset_{len(candidates) + 1}",
+                description=_asset_description(line),
+                amount=amount,
+                source_line=line,
+            )
+        )
+        seen_items.add(item_identity)
 
     return candidates
 
@@ -817,6 +877,48 @@ def _upsert_asset(
     )
 
 
+def _imported_asset_name(
+    filename: str,
+    asset_type: str,
+) -> str:
+    source_name = Path(filename).name.strip() or "uploaded.pdf"
+    prefix = f"Imported {asset_type} from "
+    available_source_chars = MAX_ASSET_NAME_CHARS - len(prefix)
+
+    return f"{prefix}{source_name[:available_source_chars]}"
+
+
+def import_classified_assets(
+    db: Session,
+    user_id: int,
+    *,
+    filename: str,
+    assets: list[ExtractedAsset],
+) -> list[ImportedFinancialRecord]:
+    totals_by_type: dict[str, Decimal] = {}
+
+    for asset in assets:
+        current_total = totals_by_type.get(
+            asset.asset_type,
+            Decimal("0.00"),
+        )
+        totals_by_type[asset.asset_type] = _round_money(
+            current_total + asset.amount
+        )
+
+    return [
+        _upsert_asset(
+            db,
+            user_id,
+            name=_imported_asset_name(filename, asset_type),
+            asset_type=asset_type,
+            amount=totals_by_type[asset_type],
+        )
+        for asset_type in ASSET_TYPES
+        if asset_type in totals_by_type
+    ]
+
+
 def _upsert_cash_flow(
     db: Session,
     user_id: int,
@@ -860,21 +962,23 @@ def import_financial_facts(
     facts: list[ExtractedFinancialFact],
     *,
     import_date: Date | None = None,
+    include_cash_balance: bool = True,
 ) -> list[ImportedFinancialRecord]:
     flow_date = import_date or Date.today()
     imported_records: list[ImportedFinancialRecord] = []
 
     for fact in facts:
         if fact.field == "cash_balance":
-            imported_records.append(
-                _upsert_asset(
-                    db,
-                    user_id,
-                    name=IMPORTED_CASH_BALANCE_NAME,
-                    asset_type="cash",
-                    amount=fact.amount,
+            if include_cash_balance:
+                imported_records.append(
+                    _upsert_asset(
+                        db,
+                        user_id,
+                        name=IMPORTED_CASH_BALANCE_NAME,
+                        asset_type="cash",
+                        amount=fact.amount,
+                    )
                 )
-            )
             continue
 
         if fact.field == "monthly_income":
@@ -910,20 +1014,39 @@ async def _extract_facts_and_transactions(
     classify_ambiguous_transactions: (
         AmbiguousTransactionClassifier | None
     ) = None,
-) -> tuple[list[ExtractedFinancialFact], list[ExtractedTransaction]]:
+    classify_asset_candidates: AssetClassifier | None = None,
+) -> tuple[
+    list[ExtractedFinancialFact],
+    list[ExtractedTransaction],
+    list[ExtractedAsset],
+]:
     labelled_facts = extract_financial_facts(text)
     transactions = extract_signed_transactions(text)
-    candidates = extract_ambiguous_transaction_candidates(text)
+    transaction_candidates = extract_ambiguous_transaction_candidates(text)
+    asset_candidates = extract_asset_candidates(text)
 
-    if candidates and classify_ambiguous_transactions is not None:
+    if (
+        transaction_candidates
+        and classify_ambiguous_transactions is not None
+    ):
         classifications = await classify_ambiguous_transactions(
-            candidates,
+            transaction_candidates,
         )
         transactions.extend(
             _classified_ambiguous_transactions(
-                candidates,
+                transaction_candidates,
                 classifications,
             )
+        )
+
+    assets: list[ExtractedAsset] = []
+    if asset_candidates and classify_asset_candidates is not None:
+        asset_classifications = await classify_asset_candidates(
+            asset_candidates,
+        )
+        assets = select_classified_assets(
+            asset_candidates,
+            asset_classifications,
         )
 
     return (
@@ -932,6 +1055,7 @@ async def _extract_facts_and_transactions(
             transactions,
         ),
         transactions,
+        assets,
     )
 
 
@@ -960,15 +1084,17 @@ async def process_financial_pdf(
     classify_ambiguous_transactions: (
         AmbiguousTransactionClassifier | None
     ) = None,
+    classify_asset_candidates: AssetClassifier | None = None,
 ) -> PdfFinancialImportResult:
     extracted_text = extract_text_from_pdf_bytes(content)
-    facts, transactions = await _extract_facts_and_transactions(
+    facts, transactions, assets = await _extract_facts_and_transactions(
         extracted_text,
         classify_ambiguous_transactions,
+        classify_asset_candidates,
     )
     ocr_used = False
 
-    if not facts:
+    if not facts and not assets:
         ocr_text = extract_ocr_text_from_pdf_bytes(content)
         if ocr_text:
             ocr_used = True
@@ -976,14 +1102,19 @@ async def process_financial_pdf(
                 extracted_text,
                 ocr_text,
             )
-            facts, transactions = await _extract_facts_and_transactions(
+            (
+                facts,
+                transactions,
+                assets,
+            ) = await _extract_facts_and_transactions(
                 extracted_text,
                 classify_ambiguous_transactions,
+                classify_asset_candidates,
             )
 
     low_confidence = (
         len(extracted_text) < MIN_TEXT_CONFIDENCE_CHARS
-        or not facts
+        or (not facts and not assets)
     )
 
     if low_confidence:
@@ -994,10 +1125,25 @@ async def process_financial_pdf(
         imported_records: list[ImportedFinancialRecord] = []
     else:
         fallback_reason = None
-        imported_records = import_financial_facts(
-            db,
-            user_id,
-            facts,
+        imported_records = []
+        if classify_asset_candidates is not None:
+            imported_records.extend(
+                import_classified_assets(
+                    db,
+                    user_id,
+                    filename=filename,
+                    assets=assets,
+                )
+            )
+        imported_records.extend(
+            import_financial_facts(
+                db,
+                user_id,
+                facts,
+                include_cash_balance=(
+                    classify_asset_candidates is None
+                ),
+            )
         )
 
     return PdfFinancialImportResult(
@@ -1005,6 +1151,7 @@ async def process_financial_pdf(
         extracted_text=extracted_text,
         facts=facts,
         transactions=transactions,
+        assets=assets,
         imported_records=imported_records,
         low_confidence=low_confidence,
         ocr_used=ocr_used,
@@ -1061,6 +1208,14 @@ def build_pdf_ai_context(
                 lines.append(
                     f"Fact {fact.field}: ${fact.amount:,.2f} "
                     f"from line '{fact.source_line}'"
+                )
+
+        if result.assets:
+            lines.append("LLM-classified asset items:")
+            for asset in result.assets:
+                lines.append(
+                    f"Asset {asset.asset_type}: ${asset.amount:,.2f} "
+                    f"from line '{asset.source_line}'"
                 )
 
         if result.transactions:

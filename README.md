@@ -25,6 +25,10 @@ Start the project:
 docker compose up --build
 ```
 
+Startup waits for PostgreSQL to become healthy, applies the idempotent SQL
+migrations to both new and existing data volumes, and then starts the backend.
+Existing local data does not need to be deleted when a new migration is added.
+
 Run the project in the background:
 
 ```bash

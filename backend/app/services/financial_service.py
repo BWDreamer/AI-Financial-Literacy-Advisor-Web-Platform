@@ -1,4 +1,5 @@
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 
@@ -14,6 +15,28 @@ MONTHLY_MULTIPLIERS = {
     "monthly": Decimal("1"),
     "yearly": Decimal("1") / Decimal("12"),
 }
+
+
+@dataclass(frozen=True)
+class FinancialPlanningSnapshot:
+    has_financial_records: bool
+    has_cash_flow_records: bool
+    total_assets: Decimal
+    total_debts: Decimal
+    cash_savings: Decimal
+    ongoing_monthly_income: Decimal
+    ongoing_monthly_expenses: Decimal
+    one_off_period: str | None
+    one_off_income: Decimal
+    one_off_expenses: Decimal
+
+    @property
+    def ongoing_monthly_surplus(self) -> Decimal:
+        return self.ongoing_monthly_income - self.ongoing_monthly_expenses
+
+    @property
+    def one_off_surplus(self) -> Decimal:
+        return self.one_off_income - self.one_off_expenses
 
 
 def build_financial_summary(
@@ -78,3 +101,134 @@ def build_financial_summary(
         ],
         "recent_cash_flows": cash_flows[:5],
     }
+
+
+def build_financial_planning_snapshot(
+    assets: list[Asset],
+    debts: list[Debt],
+    cash_flows: list[CashFlow],
+    recurring_cash_flows: list[RecurringCashFlow],
+    as_of: date | None = None,
+) -> FinancialPlanningSnapshot:
+    """Calculate a goal-planning baseline without mixing cash-flow types."""
+    effective_date = as_of or date.today()
+    ongoing_monthly_income = ZERO
+    ongoing_monthly_expenses = ZERO
+
+    for flow in recurring_cash_flows:
+        if flow.start_date > effective_date:
+            continue
+        if flow.end_date is not None and flow.end_date < effective_date:
+            continue
+        monthly_amount = flow.amount * MONTHLY_MULTIPLIERS[flow.frequency]
+        if flow.flow_type == "income":
+            ongoing_monthly_income += monthly_amount
+        else:
+            ongoing_monthly_expenses += monthly_amount
+
+    one_off_period = max(
+        (flow.date.strftime("%Y-%m") for flow in cash_flows),
+        default=None,
+    )
+    one_off_income = ZERO
+    one_off_expenses = ZERO
+    if one_off_period is not None:
+        for flow in cash_flows:
+            if flow.date.strftime("%Y-%m") != one_off_period:
+                continue
+            if flow.flow_type == "income":
+                one_off_income += flow.amount
+            else:
+                one_off_expenses += flow.amount
+
+    return FinancialPlanningSnapshot(
+        has_financial_records=bool(
+            assets or debts or cash_flows or recurring_cash_flows
+        ),
+        has_cash_flow_records=bool(cash_flows or recurring_cash_flows),
+        total_assets=sum((asset.amount for asset in assets), ZERO),
+        total_debts=sum((debt.balance for debt in debts), ZERO),
+        cash_savings=sum(
+            (
+                asset.amount
+                for asset in assets
+                if asset.asset_type == "cash"
+            ),
+            ZERO,
+        ),
+        ongoing_monthly_income=ongoing_monthly_income,
+        ongoing_monthly_expenses=ongoing_monthly_expenses,
+        one_off_period=one_off_period,
+        one_off_income=one_off_income,
+        one_off_expenses=one_off_expenses,
+    )
+
+
+def _money(value: Decimal) -> str:
+    return f"${value:,.2f}"
+
+
+def build_financial_planning_context(
+    snapshot: FinancialPlanningSnapshot,
+) -> str:
+    if not snapshot.has_financial_records:
+        return (
+            "Homepage financial foundation:\n"
+            "Financial records: none. The user did not provide an onboarding "
+            "financial snapshot and has no later HomePage or PDF records. "
+            "If the user proposes one or more financial goals, the response "
+            "must first remind them to upload a bank statement or transaction "
+            "PDF with the + button in AI Chat so later questions have a "
+            "financial basis. Do not invent income, expenses, savings, debts, "
+            "or available surplus."
+        )
+
+    lines = [
+        "Homepage financial foundation. These are user-owned records and "
+        "code-calculated totals. Reuse them instead of asking the user to "
+        "repeat known figures:",
+        "Financial records: available.",
+        f"Total assets: {_money(snapshot.total_assets)}.",
+        f"Cash savings: {_money(snapshot.cash_savings)}.",
+        f"Total debts: {_money(snapshot.total_debts)}.",
+        (
+            "Ongoing monthly income: "
+            f"{_money(snapshot.ongoing_monthly_income)}."
+        ),
+        (
+            "Ongoing monthly expenses: "
+            f"{_money(snapshot.ongoing_monthly_expenses)}."
+        ),
+        (
+            "Ongoing monthly surplus (ongoing income minus ongoing expenses): "
+            f"{_money(snapshot.ongoing_monthly_surplus)}."
+        ),
+    ]
+
+    if snapshot.one_off_period is not None:
+        lines.extend(
+            [
+                f"Latest one-off transaction period: {snapshot.one_off_period}.",
+                f"One-off income in that period: {_money(snapshot.one_off_income)}.",
+                f"One-off expenses in that period: {_money(snapshot.one_off_expenses)}.",
+                (
+                    "One-off surplus in that period (one-off income minus "
+                    f"one-off expenses): {_money(snapshot.one_off_surplus)}."
+                ),
+            ]
+        )
+    else:
+        lines.append("One-off transactions: none recorded.")
+
+    if not snapshot.has_cash_flow_records:
+        lines.append(
+            "Income and expense records are missing. Use the available asset "
+            "and debt values, but ask for cash-flow information or a PDF before "
+            "judging goal affordability."
+        )
+
+    lines.append(
+        "Keep ongoing and one-off amounts separate. Never use one-off income "
+        "to justify an ongoing monthly goal contribution."
+    )
+    return "\n".join(lines)
