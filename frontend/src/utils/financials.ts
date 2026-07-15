@@ -1,17 +1,24 @@
 export type AssetType = "cash" | "stocks" | "bonds" | "property" | "vehicle" | "others";
 export type CashFlowType = "income" | "expense";
+export type DebtType = "mortgage" | "car_loan" | "personal_loan" | "credit_card" | "student_loan" | "bnpl" | "tax_debt" | "other";
+export type Frequency = "once" | "weekly" | "fortnightly" | "monthly" | "yearly";
 export type TimeUnit = "year" | "month" | "week";
 
 export type AssetEntry = { id: string; kind: "asset"; assetType: AssetType; name: string; amount: number; createdAt: string };
 export type CashFlowEntry = { id: string; kind: "cashflow"; flowType: CashFlowType; name: string; amount: number; date: string; createdAt: string };
-export type FinancialEntry = AssetEntry | CashFlowEntry;
+export type DebtEntry = { id: string; kind: "debt"; debtType: DebtType; name: string; balance: number; minimumPayment?: number; interestRate?: number; createdAt: string };
+export type RecurringCashFlowEntry = { id: string; kind: "recurring"; flowType: CashFlowType; name: string; amount: number; frequency: Exclude<Frequency, "once">; startDate: string; endDate?: string; category?: string; createdAt: string };
+export type FinancialEntry = AssetEntry | CashFlowEntry | DebtEntry | RecurringCashFlowEntry;
 
 const STORAGE_PREFIX = "financeai_financials";
 export const assetLabels: Record<AssetType, string> = { cash: "Cash", stocks: "Stocks", bonds: "Bonds", property: "Property", vehicle: "Vehicle", others: "Others" };
+export const debtLabels: Record<DebtType, string> = { mortgage: "Mortgage", car_loan: "Car Loan", personal_loan: "Personal Loan", credit_card: "Credit Card", student_loan: "Student Loan", bnpl: "BNPL", tax_debt: "Tax Debt", other: "Other" };
 
 const keyFor = (userId?: number) => `${STORAGE_PREFIX}:${userId || "anonymous"}`;
 const isAsset = (entry: FinancialEntry): entry is AssetEntry => entry.kind === "asset";
 const isCashFlow = (entry: FinancialEntry): entry is CashFlowEntry => entry.kind === "cashflow";
+const isDebt = (entry: FinancialEntry): entry is DebtEntry => entry.kind === "debt";
+const isRecurring = (entry: FinancialEntry): entry is RecurringCashFlowEntry => entry.kind === "recurring";
 
 export function loadFinancialEntries(userId?: number) {
   // TODO: Replace localStorage with backend financial-card APIs when available.
@@ -34,6 +41,21 @@ export function assetTotal(entries: FinancialEntry[], type?: AssetType) {
 
 export function cashFlowTotal(entries: FinancialEntry[], type: CashFlowType, predicate: (entry: CashFlowEntry) => boolean = () => true) {
   return entries.filter(isCashFlow).filter((entry) => entry.flowType === type && predicate(entry)).reduce((sum, entry) => sum + entry.amount, 0);
+}
+
+export function debtTotal(entries: FinancialEntry[], type?: DebtType) {
+  return entries.filter(isDebt).filter((entry) => !type || entry.debtType === type).reduce((sum, entry) => sum + entry.balance, 0);
+}
+
+export function recurringMonthlyTotal(entries: FinancialEntry[], type: CashFlowType) {
+  return entries.filter(isRecurring).filter((entry) => entry.flowType === type).reduce((sum, entry) => sum + monthlyRecurringAmount(entry), 0);
+}
+
+export function monthlyRecurringAmount(entry: RecurringCashFlowEntry) {
+  if (entry.frequency === "weekly") return entry.amount * 52 / 12;
+  if (entry.frequency === "fortnightly") return entry.amount * 26 / 12;
+  if (entry.frequency === "yearly") return entry.amount / 12;
+  return entry.amount;
 }
 
 export function cashFlows(entries: FinancialEntry[]) {
