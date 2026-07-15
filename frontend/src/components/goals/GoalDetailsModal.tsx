@@ -1,4 +1,6 @@
 import { Bot, CreditCard, Home, MoreVertical, Pencil, PiggyBank, Shield, Target, TrendingUp, Umbrella } from "lucide-react";
+import { useEffect, useState } from "react";
+import { getGoalContributions, type GoalContribution } from "../../api/goals";
 import Modal from "../Modal";
 import PrimaryButton from "../PrimaryButton";
 import type { Goal, GoalCategory } from "../../types/goalTypes";
@@ -110,17 +112,27 @@ function Legend() {
 }
 
 function RecentActivity({ goal }: { goal: Goal }) {
-  const rows = [0, 1, 2].map((index) => {
-    const date = new Date(); date.setMonth(date.getMonth() - index);
-    return { id: index, date, amount: goal.monthlyContribution };
-  });
+  const [rows, setRows] = useState<GoalContribution[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!goal.apiId) return;
+    setLoading(true);
+    getGoalContributions(goal.apiId).then(setRows).catch(() => setRows([])).finally(() => setLoading(false));
+  }, [goal.apiId]);
+
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       <h3 className="font-bold text-slate-900">Recent activity</h3>
       <div className="mt-4 divide-y divide-slate-100">
-        {rows.map((row) => <div key={row.id} className="flex justify-between py-3 text-sm"><span className="font-bold text-emerald-600">+ {formatGoalCurrency(row.amount)}</span><span className="text-slate-500">{row.date.toLocaleDateString("en-AU", { month: "short", day: "numeric", year: "numeric" })}</span></div>)}
+        {loading && <p className="py-3 text-sm text-slate-500">Loading activity...</p>}
+        {!loading && !rows.length && <p className="py-3 text-sm text-slate-500">No contributions have been recorded yet.</p>}
+        {rows.map((row) => {
+          const date = new Date(row.created_at);
+          return <div key={row.id} className="flex justify-between py-3 text-sm"><span className="font-bold text-emerald-600">+ {formatGoalCurrency(Number(row.amount))}</span><span className="text-slate-500">{date.toLocaleDateString("en-AU", { month: "short", day: "numeric", year: "numeric" })}</span></div>;
+        })}
       </div>
-      <button type="button" className="mt-4 text-sm font-bold text-blue-600 hover:text-blue-700">View all</button>
+      {!!rows.length && <button type="button" className="mt-4 text-sm font-bold text-blue-600 hover:text-blue-700">View all</button>}
     </section>
   );
 }

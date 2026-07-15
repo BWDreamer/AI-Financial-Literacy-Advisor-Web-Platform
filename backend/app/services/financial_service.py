@@ -58,8 +58,10 @@ def build_financial_summary(
 
     monthly_income = ZERO
     monthly_expenses = ZERO
+    cash_flow_delta = ZERO
     for flow in cash_flows:
         signed_amount = flow.amount if flow.flow_type == "income" else -flow.amount
+        cash_flow_delta += signed_amount
         monthly_totals[flow.date.strftime("%Y-%m")] += signed_amount
         if flow.date.year == today.year and flow.date.month == today.month:
             if flow.flow_type == "income":
@@ -67,23 +69,32 @@ def build_financial_summary(
             else:
                 monthly_expenses += flow.amount
 
+    recurring_delta = ZERO
     for flow in recurring_cash_flows:
         if flow.start_date > today or (flow.end_date is not None and flow.end_date < today):
             continue
         monthly_amount = flow.amount * MONTHLY_MULTIPLIERS[flow.frequency]
         if flow.flow_type == "income":
             monthly_income += monthly_amount
+            recurring_delta += monthly_amount
         else:
             monthly_expenses += monthly_amount
+            recurring_delta -= monthly_amount
 
-    total_assets = sum((asset.amount for asset in assets), ZERO)
+    cash_savings = allocation["cash"] + cash_flow_delta + recurring_delta
+    allocation["cash"] = cash_savings
+    non_cash_assets = sum(
+        (asset.amount for asset in assets if asset.asset_type != "cash"),
+        ZERO,
+    )
+    total_assets = non_cash_assets + cash_savings
     total_debts = sum((debt.balance for debt in debts), ZERO)
 
     return {
         "total_assets": total_assets,
         "total_debts": total_debts,
         "net_worth": total_assets - total_debts,
-        "cash_savings": allocation["cash"],
+        "cash_savings": cash_savings,
         "monthly_income": monthly_income,
         "monthly_expenses": monthly_expenses,
         "monthly_cash_flow": monthly_income - monthly_expenses,

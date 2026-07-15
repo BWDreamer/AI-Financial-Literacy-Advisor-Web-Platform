@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import MyFinancialsPanel from "../components/MyFinancialsPanel";
-import { AssetType as ApiAssetType, CashFlow, Financials, FinancialSummary, createAsset, createCashFlow, getFinancials, getFinancialSummary } from "../api/financials";
-import { AssetType, CashFlowEntry, FinancialEntry, assetLabels, assetTotal, cashFlowTotal, cashFlows, money, monthLabel, sameMonth, thisWeek } from "../utils/financials";
+import { AssetType as ApiAssetType, DebtType as ApiDebtType, Frequency as ApiFrequency, CashFlow, Financials, FinancialSummary, createAsset, createCashFlow, createDebt, createRecurringCashFlow, getFinancials, getFinancialSummary } from "../api/financials";
+import { AssetType, CashFlowEntry, FinancialEntry, assetLabels, assetTotal, cashFlowTotal, cashFlows, debtTotal, money, monthLabel, recurringMonthlyTotal, sameMonth, thisWeek } from "../utils/financials";
 
 const assetColors: Record<AssetType, string> = { cash: "#3b82f6", stocks: "#10b981", bonds: "#f59e0b", property: "#f43f5e", vehicle: "#8b5cf6", others: "#64748b" };
 const monthNames = Array.from({ length: 12 }, (_, index) => new Date(2026, index, 1).toLocaleDateString("en-AU", { month: "short" }));
@@ -23,17 +23,16 @@ function toEntries(financials: Financials | null): FinancialEntry[] {
   if (!financials) return [];
   const assets = financials.assets.map((asset) => ({ id: String(asset.id), kind: "asset" as const, assetType: asset.asset_type, name: asset.name, amount: Number(asset.amount), createdAt: asset.created_at }));
   const flows = financials.cash_flows.map((flow) => ({ id: String(flow.id), kind: "cashflow" as const, flowType: flow.flow_type, name: flow.name, amount: Number(flow.amount), date: flow.date, createdAt: flow.created_at }));
-  return [...assets, ...flows];
-}
-
-function cashSavingsValue(entries: FinancialEntry[]) {
-  const income = cashFlowTotal(entries, "income"); const expenses = cashFlowTotal(entries, "expense");
-  return assetTotal(entries, "cash") + income - expenses;
+  const debts = financials.debts.map((debt) => ({ id: String(debt.id), kind: "debt" as const, debtType: debt.debt_type, name: debt.name, balance: Number(debt.balance), minimumPayment: Number(debt.minimum_payment || 0) || undefined, interestRate: Number(debt.interest_rate || 0) || undefined, createdAt: debt.created_at }));
+  const recurring = financials.recurring_cash_flows.map((flow) => ({ id: String(flow.id), kind: "recurring" as const, flowType: flow.flow_type, name: flow.name, amount: Number(flow.amount), frequency: flow.frequency, startDate: flow.start_date, endDate: flow.end_date, category: flow.category, createdAt: flow.created_at }));
+  return [...assets, ...flows, ...debts, ...recurring];
 }
 
 function dashboardNumbers(summary: FinancialSummary | null, entries: FinancialEntry[]) {
-  const cashSavings = cashSavingsValue(entries); const nonCashAssets = assetTotal(entries) - assetTotal(entries, "cash");
-  return { netWorth: nonCashAssets + cashSavings, cashSavings, income: Number(summary?.monthly_income || 0), expenses: Number(summary?.monthly_expenses || 0) };
+  const cashSavings = Number(summary?.cash_savings ?? assetTotal(entries, "cash"));
+  const assets = Number(summary?.total_assets ?? assetTotal(entries));
+  const debts = Number(summary?.total_debts ?? debtTotal(entries));
+  return { netWorth: assets - debts, cashSavings, debts, income: Number(summary?.monthly_income || 0), expenses: Number(summary?.monthly_expenses || 0) };
 }
 
 function StatCard({ title, value, stamp }: { title: string; value: string; stamp?: string }) {
@@ -51,7 +50,8 @@ function MonthPicker({ value, onChange }: { value: string; onChange: (value: str
 function CashFlowChart({ entries }: { entries: FinancialEntry[] }) {
   const [month, setMonth] = useState(monthInputValue()); const ready = useChartAnimation();
   const predicate = (entry: CashFlowEntry) => sameInputMonth(entry.date, month);
-  const income = cashFlowTotal(entries, "income", predicate); const expenses = cashFlowTotal(entries, "expense", predicate);
+  const income = cashFlowTotal(entries, "income", predicate) + recurringMonthlyTotal(entries, "income");
+  const expenses = cashFlowTotal(entries, "expense", predicate) + recurringMonthlyTotal(entries, "expense");
   const total = Math.max(income + expenses, 1); const incomePct = income / total * 100; const expensePct = expenses / total * 100;
   return <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6"><div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-lg font-bold text-slate-900">Monthly Cash Flow</h2><MonthPicker value={month} onChange={setMonth} /></div><div className="mt-6"><div className="mb-3 flex justify-between text-sm font-bold"><span className="text-emerald-600">{Math.round(incomePct)}% Income</span><span className="text-red-500">{Math.round(expensePct)}% Expenses</span></div><div className="flex h-4 overflow-hidden rounded-full bg-slate-100"><span className="bg-emerald-500 transition-all duration-1000 ease-out" style={{ width: ready ? `${incomePct}%` : 0 }} /><span className="bg-red-500 transition-all duration-1000 ease-out" style={{ width: ready ? `${expensePct}%` : 0 }} /></div><div className="mt-3 flex justify-between text-sm text-slate-600"><span>{money(income)}</span><span>{monthDisplay(month)}</span><span>{money(expenses)}</span></div></div></section>;
 }
@@ -61,7 +61,7 @@ type AssetSlice = { type: AssetType; amount: number; percent: number };
 function assetSlices(summary: FinancialSummary | null, entries: FinancialEntry[]) {
   const values = summary?.asset_allocation.map((item) => ({ type: item.asset_type as AssetType, amount: Number(item.amount) })) || [];
   const fallback = (Object.keys(assetLabels) as AssetType[]).map((type) => ({ type, amount: assetTotal(entries, type) }));
-  const cashSavings = cashSavingsValue(entries);
+  const cashSavings = Number(summary?.cash_savings ?? assetTotal(entries, "cash"));
   const rows = (values.length ? values : fallback).map((item) => item.type === "cash" ? { ...item, amount: cashSavings } : item);
   const total = rows.reduce((sum, item) => sum + item.amount, 0);
   return rows.map((item) => ({ ...item, percent: total ? item.amount / total * 100 : 0 })).filter((item) => item.amount > 0);
@@ -148,6 +148,8 @@ export default function HomePage() {
     setError("");
     try {
       if (entry.kind === "asset") await createAsset({ asset_type: entry.assetType as ApiAssetType, name: entry.name, amount: entry.amount });
+      else if (entry.kind === "debt") await createDebt({ debt_type: entry.debtType as ApiDebtType, name: entry.name, balance: entry.balance, minimum_payment: entry.minimumPayment, interest_rate: entry.interestRate });
+      else if (entry.kind === "recurring") await createRecurringCashFlow({ flow_type: entry.flowType, name: entry.name, amount: entry.amount, frequency: entry.frequency as ApiFrequency, start_date: entry.startDate, end_date: entry.endDate, category: entry.category });
       else await createCashFlow({ flow_type: entry.flowType, name: entry.name, amount: entry.amount, date: entry.date });
       await refreshFinancials();
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to save financial data."); }
@@ -155,6 +157,6 @@ export default function HomePage() {
 
   if (loading) return <main className="p-10 text-slate-500">Loading your financial dashboard...</main>;
   const flows = summary?.recent_cash_flows || financials?.cash_flows || [];
-  return <main className="min-h-screen space-y-6 bg-slate-50 p-4 sm:p-6 lg:p-8"><header><h1 className="text-3xl font-bold tracking-tight text-slate-900">Insights Overview</h1>{error && <p className="mt-3 rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>}</header><section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><StatCard title="Net Worth" value={money(numbers.netWorth)} /><StatCard title="Cash Savings" value={money(numbers.cashSavings)} /><StatCard title="Income" value={money(numbers.income)} stamp={monthLabel()} /><StatCard title="Expenses" value={money(numbers.expenses)} stamp={monthLabel()} /></section>
-    <section className="grid items-start gap-6 xl:grid-cols-[minmax(24rem,0.95fr)_minmax(0,1.35fr)]"><div className="grid self-start gap-6"><AssetAllocation summary={summary} entries={entries} /><RecentCashFlow flows={flows} /></div><div className="grid self-start gap-6"><CashFlowChart entries={entries} /><CashSavingsLine entries={entries} /><GoalsPlaceholder /></div></section><MyFinancialsPanel entries={entries} onAdd={(entry) => void addEntry(entry)} /></main>;
+  return <main className="min-h-screen space-y-6 bg-slate-50 p-4 sm:p-6 lg:p-8"><header><h1 className="text-3xl font-bold tracking-tight text-slate-900">Insights Overview</h1>{error && <p className="mt-3 rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>}</header><section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5"><StatCard title="Net Worth" value={money(numbers.netWorth)} /><StatCard title="Cash Savings" value={money(numbers.cashSavings)} /><StatCard title="Debt" value={money(numbers.debts)} /><StatCard title="Income" value={money(numbers.income)} stamp={monthLabel()} /><StatCard title="Expenses" value={money(numbers.expenses)} stamp={monthLabel()} /></section>
+    <section className="grid items-start gap-6 xl:grid-cols-[minmax(24rem,0.95fr)_minmax(0,1.35fr)]"><div className="grid self-start gap-6"><AssetAllocation summary={summary} entries={entries} /><RecentCashFlow flows={flows} /></div><div className="grid self-start gap-6"><CashFlowChart entries={entries} /><CashSavingsLine entries={entries} /><GoalsPlaceholder /></div></section><MyFinancialsPanel entries={entries} summary={summary} onAdd={(entry) => void addEntry(entry)} /></main>;
 }

@@ -5,7 +5,7 @@ import FormInput from "../FormInput";
 import Modal from "../Modal";
 import PrimaryButton from "../PrimaryButton";
 import type { Goal, GoalCategory, GoalFormValues } from "../../types/goalTypes";
-import { formatGoalCurrency, formatGoalDate, goalCategories, goalPriorities, tomorrowValue } from "../../utils/goalUtils";
+import { formatGoalCurrency, formatGoalDate, goalCategories, tomorrowValue } from "../../utils/goalUtils";
 
 type AnswerValue = string | number;
 type Answers = Record<string, AnswerValue>;
@@ -181,7 +181,6 @@ function QuestionsStep({ title, category, scope, answers, errors, update }: { ti
   return (
     <StepShell title={title} subtitle={scope === "details" ? "These questions define the goal draft." : "These answers help calculate feasibility and progress."}>
       {questions[category][scope].map((question) => <QuestionField key={question.id} question={question} value={answers[question.id]} error={errors[question.id]} onChange={update} />)}
-      {scope === "finances" && <PriorityField value={String(answers.priority || "Medium")} onChange={(value) => update("priority", value)} />}
     </StepShell>
   );
 }
@@ -197,12 +196,6 @@ function SelectField({ question, value, error, onChange }: { question: Question;
     <Field error={error}>
       <label className="block"><span className="mb-2 block text-sm font-medium text-slate-700">{question.label}</span><select value={value} onChange={(event) => onChange(question.id, event.target.value)} className={inputClass}>{question.options?.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
     </Field>
-  );
-}
-
-function PriorityField({ value, onChange }: { value: string; onChange: (value: string) => void }) {
-  return (
-    <label className="block"><span className="mb-2 block text-sm font-medium text-slate-700">Priority</span><select value={value} onChange={(event) => onChange(event.target.value)} className={inputClass}>{goalPriorities.map((priority) => <option key={priority} value={priority}>{priority}</option>)}</select></label>
   );
 }
 
@@ -226,26 +219,36 @@ function ReviewStep({ values, answers }: { values: GoalFormValues; answers: Answ
   const Icon = categoryMeta[values.category].icon;
   return (
     <StepShell title="Review and save your goal">
-      <div className="rounded-2xl border border-slate-200 p-5 text-center"><Icon className="mx-auto text-blue-600" size={34} /><h4 className="mt-3 text-lg font-bold">{values.name}</h4><p className="font-bold">{formatGoalCurrency(values.targetAmount)}</p><ReviewRow label="Category" value={categoryMeta[values.category].title} /><ReviewRow label="Target date" value={formatGoalDate(values.targetDate)} /><ReviewRow label="Current progress" value={formatGoalCurrency(values.currentAmount)} /><ReviewRow label="Monthly amount" value={formatGoalCurrency(values.monthlyContribution)} /><ReviewRow label="Plan" value={values.priority} /></div>
+      <div className="rounded-2xl border border-slate-200 p-5 text-center"><Icon className="mx-auto text-blue-600" size={34} /><h4 className="mt-3 text-lg font-bold">{values.name}</h4><p className="font-bold">{formatGoalCurrency(values.targetAmount)}</p><ReviewRow label="Category" value={categoryMeta[values.category].title} /><ReviewRow label="Target date" value={formatGoalDate(values.targetDate)} /><ReviewRow label="Current progress" value={formatGoalCurrency(values.currentAmount)} /><ReviewRow label="Monthly amount" value={formatGoalCurrency(values.monthlyContribution)} /></div>
       <div className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-600">This draft includes {Object.keys(answers).length} collected fields for future AI review.</div>
     </StepShell>
   );
 }
 
-export default function CreateGoalModal({ onClose, onCreate }: { onClose: () => void; onCreate: (goal: Goal) => void }) {
+export default function CreateGoalModal({ onClose, onCreate }: { onClose: () => void; onCreate: (goal: Goal) => void | Promise<void> }) {
   const [category, setCategory] = useState<GoalCategory>("General Saving");
   const [answers, setAnswers] = useState<Answers>(() => initialAnswers("General Saving"));
   const [errors, setErrors] = useState<Errors>({});
   const [step, setStep] = useState<Step>(0);
+  const [submitError, setSubmitError] = useState("");
+  const [saving, setSaving] = useState(false);
   const values = derivedValues(category, answers);
 
   function changeCategory(next: GoalCategory) { setCategory(next); setAnswers(initialAnswers(next)); setErrors({}); }
   function update(id: string, value: AnswerValue) { setAnswers((current) => ({ ...current, [id]: value })); }
   function next() { const nextErrors = validateStep(step, category, answers); setErrors(nextErrors); if (!Object.keys(nextErrors).length) setStep((current) => Math.min(current + 1, 4) as Step); }
-  function submit(event: FormEvent) {
+  async function submit(event: FormEvent) {
     event.preventDefault(); const nextErrors = validateStep(4, category, answers); setErrors(nextErrors);
     if (Object.keys(nextErrors).length) return;
-    onCreate({ ...values, id: crypto.randomUUID(), name: values.name.trim(), categoryDetails: answers, createdAt: new Date().toISOString().slice(0, 10) }); onClose();
+    setSaving(true); setSubmitError("");
+    try {
+      await onCreate({ ...values, id: crypto.randomUUID(), name: values.name.trim(), categoryDetails: answers, createdAt: new Date().toISOString().slice(0, 10) });
+      onClose();
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : "Unable to save goal.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -256,7 +259,8 @@ export default function CreateGoalModal({ onClose, onCreate }: { onClose: () => 
         {step === 2 && <QuestionsStep title="Financial inputs" category={category} scope="finances" answers={answers} errors={errors} update={update} />}
         {step === 3 && <AnalysisStep values={values} />}
         {step === 4 && <ReviewStep values={values} answers={answers} />}
-        <div className="flex justify-end gap-3"><button type="button" onClick={step === 0 ? onClose : () => setStep((current) => Math.max(current - 1, 0) as Step)} className="w-36 rounded-xl border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">{step === 0 ? "Cancel" : "Back"}</button>{step < 4 ? <PrimaryButton type="button" onClick={next} className="w-36 px-6">Next</PrimaryButton> : <PrimaryButton className="w-36 px-6">Save Goal</PrimaryButton>}</div>
+        {submitError && <p className="rounded-2xl bg-red-50 p-4 text-sm font-semibold text-red-600">{submitError}</p>}
+        <div className="flex justify-end gap-3"><button type="button" onClick={step === 0 ? onClose : () => setStep((current) => Math.max(current - 1, 0) as Step)} className="w-36 rounded-xl border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">{step === 0 ? "Cancel" : "Back"}</button>{step < 4 ? <PrimaryButton type="button" onClick={next} className="w-36 px-6">Next</PrimaryButton> : <PrimaryButton disabled={saving} className="w-36 px-6">{saving ? "Saving..." : "Save Goal"}</PrimaryButton>}</div>
       </form>
     </Modal>
   );

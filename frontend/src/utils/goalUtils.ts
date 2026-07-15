@@ -1,4 +1,5 @@
 import type { Goal, GoalCategory, GoalFilter, GoalPriority, GoalSort, GoalStatus } from "../types/goalTypes";
+import type { GoalPayload, GoalRecord } from "../api/goals";
 
 export const goalCategories: GoalCategory[] = ["General Saving", "Emergency Fund", "Debt Repayment", "Home Deposit", "Retirement", "Budget"];
 export const goalPriorities: GoalPriority[] = ["High", "Medium", "Low"];
@@ -6,6 +7,8 @@ export const goalFilters: GoalFilter[] = ["All", "On Track", "Behind", "Complete
 export const goalSortOptions: GoalSort[] = ["Recent", "Priority", "Target Date", "Progress"];
 
 const priorityRank: Record<GoalPriority, number> = { High: 0, Medium: 1, Low: 2 };
+const priorityLabels: Record<number, GoalPriority> = { 1: "High", 2: "High", 3: "Medium", 4: "Low", 5: "Low" };
+const priorityValues: Record<GoalPriority, number> = { High: 1, Medium: 3, Low: 5 };
 
 export const mockGoals: Goal[] = [
   { id: "goal-car", name: "Buy a Car", category: "General Saving", targetAmount: 15000, currentAmount: 5200, monthlyContribution: 600, createdAt: "2026-01-15", targetDate: "2027-12-01", priority: "Medium" },
@@ -29,8 +32,22 @@ export function expectedGoalProgress(goal: Goal, today = new Date()) {
   return Math.min(Math.max((now - created) / (target - created) * 100, 0), 100);
 }
 
+export function monthsRemaining(goal: Goal, today = new Date()) {
+  const target = new Date(`${goal.targetDate}T00:00:00`);
+  const months = (target.getFullYear() - today.getFullYear()) * 12 + target.getMonth() - today.getMonth();
+  return Math.max(months + (target.getDate() >= today.getDate() ? 0 : -1), 1);
+}
+
+export function requiredMonthlyContribution(goal: Goal, today = new Date()) {
+  const remaining = Math.max(goal.targetAmount - goal.currentAmount, 0);
+  return remaining / monthsRemaining(goal, today);
+}
+
 export function goalStatus(goal: Goal): GoalStatus {
   const actual = goalProgress(goal); if (actual >= 100) return "Completed";
+  const target = new Date(`${goal.targetDate}T23:59:59`);
+  if (target < new Date()) return "Behind";
+  if (goal.monthlyContribution < requiredMonthlyContribution(goal)) return "Behind";
   return actual >= expectedGoalProgress(goal) * 0.9 ? "On Track" : "Behind";
 }
 
@@ -46,6 +63,10 @@ export function sortGoals(goals: Goal[], sort: GoalSort) {
   return rows.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
+export function orderGoals(goals: Goal[]) {
+  return [...goals].sort((a, b) => priorityRank[a.priority] - priorityRank[b.priority] || a.targetDate.localeCompare(b.targetDate));
+}
+
 export function formatGoalDate(value: string) {
   return new Date(`${value}T00:00:00`).toLocaleDateString("en-AU", { month: "short", year: "numeric" });
 }
@@ -53,4 +74,35 @@ export function formatGoalDate(value: string) {
 export function tomorrowValue() {
   const date = new Date(); date.setDate(date.getDate() + 1);
   return date.toISOString().slice(0, 10);
+}
+
+export function goalFromApi(record: GoalRecord): Goal {
+  return {
+    id: String(record.id),
+    apiId: record.id,
+    name: record.name,
+    category: normalizeCategory(record.category),
+    targetAmount: Number(record.target_amount),
+    currentAmount: Number(record.current_amount),
+    monthlyContribution: Number(record.monthly_contribution),
+    targetDate: record.target_date,
+    createdAt: record.created_at.slice(0, 10),
+    priority: priorityLabels[record.priority] || "Medium",
+  };
+}
+
+export function goalToPayload(goal: Goal, priority?: number): GoalPayload {
+  return {
+    name: goal.name,
+    category: goal.category,
+    target_amount: goal.targetAmount,
+    current_amount: goal.currentAmount,
+    monthly_contribution: goal.monthlyContribution,
+    target_date: goal.targetDate,
+    priority: priority ?? priorityValues[goal.priority],
+  };
+}
+
+export function normalizeCategory(value: string): GoalCategory {
+  return goalCategories.find((item) => item.toLowerCase() === value.toLowerCase()) || "General Saving";
 }
