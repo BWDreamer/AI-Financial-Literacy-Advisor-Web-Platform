@@ -1,5 +1,5 @@
 import { apiGet, apiRequest } from "./client";
-import type { Article, ArticleContentBlock, ArticleDetail } from "./articles";
+import type { Article, ArticleContentBlocks, ArticleDetail } from "./articles";
 
 export type AdminUser = {
   id: number;
@@ -7,9 +7,15 @@ export type AdminUser = {
   first_name: string | null;
   last_name: string | null;
   email: string;
+  avatar_url: string | null;
+  role: string;
+  region: string | null;
   created_at: string;
   is_online: boolean;
   last_seen_at: string | null;
+  goals_count: number;
+  liked_articles_count: number;
+  saved_articles_count: number;
 };
 
 export type AdminUserCreate = {
@@ -48,7 +54,7 @@ export function deleteAdminUser(id: number) {
   });
 }
 
-export type AdminArticleContentBlock = ArticleContentBlock;
+export type AdminArticleContentBlocks = ArticleContentBlocks;
 
 export type AdminArticleRequest = {
   id?: string;
@@ -60,7 +66,7 @@ export type AdminArticleRequest = {
   category: string;
   status?: "published";
   publishedAt?: string | null;
-  contentBlocks: AdminArticleContentBlock[];
+  contentBlocks: AdminArticleContentBlocks;
 };
 
 export function getPublishedAdminArticles() {

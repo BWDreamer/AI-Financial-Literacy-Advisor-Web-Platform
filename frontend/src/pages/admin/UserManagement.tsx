@@ -1,5 +1,5 @@
-import { FormEvent, useCallback, useEffect, useState } from "react";
-import { Pencil, Plus, RefreshCw, Search, Trash2, X } from "lucide-react";
+import { FormEvent, ReactNode, useCallback, useEffect, useState } from "react";
+import { Bookmark, Heart, Pencil, Plus, RefreshCw, Search, Target, Trash2, UserCircle, X } from "lucide-react";
 import {
   AdminUser,
   deleteAdminUser,
@@ -7,6 +7,7 @@ import {
   inviteAdminUser,
   updateAdminUser,
 } from "../../api/admin";
+import { avatarUrl } from "../../api/auth";
 import FormInput from "../../components/FormInput";
 import Modal from "../../components/Modal";
 import { useUser } from "../../store/UserProvider";
@@ -40,6 +41,41 @@ function displayDate(value: string) {
     .format(new Date(value)).replace(/\//g, "-");
 }
 
+function displayDateTime(value: string | null) {
+  if (!value) return "Never";
+  return new Intl.DateTimeFormat("en-AU", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
+function displayRole(role: string | null | undefined) {
+  return role ? role.charAt(0).toUpperCase() + role.slice(1) : "User";
+}
+
+function UserAvatar({ user, size = "size-14" }: { user: AdminUser; size?: string }) {
+  const src = avatarUrl(user.avatar_url ?? null);
+  if (src) return <img src={src} alt={`${fullName(user)} avatar`} className={`${size} rounded-full object-cover ring-4 ring-violet-50`} />;
+  return <span className={`grid ${size} place-items-center rounded-full bg-violet-600 font-bold text-white ring-4 ring-violet-50`}>{initials(user)}</span>;
+}
+
+function ReadOnlyInfo({ label, value }: { label: string; value: string }) {
+  return <div className="rounded-xl bg-slate-100 px-4 py-3">
+    <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</span>
+    <span className="mt-1 block font-semibold text-slate-900">{value}</span>
+  </div>;
+}
+
+function DetailStat({ icon, label, value }: { icon: ReactNode; label: string; value: number }) {
+  return <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
+    <div className="flex items-center gap-3 text-sm font-semibold text-slate-500">{icon}<span>{label}</span></div>
+    <p className="mt-3 text-2xl font-bold text-slate-950">{value.toLocaleString()}</p>
+  </div>;
+}
+
 function UserFields({ form, setForm, includePassword }: { form: UserForm; setForm: (form: UserForm) => void; includePassword: boolean }) {
   return <div className="space-y-5">
     <div className="grid gap-5 sm:grid-cols-2">
@@ -70,6 +106,7 @@ export default function UserManagement() {
   const [inviteForm, setInviteForm] = useState<UserForm>(emptyInviteForm);
   const [editingUser, setEditingUser] = useState<AdminUser | null>(null);
   const [editForm, setEditForm] = useState<UserForm>(emptyInviteForm);
+  const [detailUser, setDetailUser] = useState<AdminUser | null>(null);
   const [deletingUser, setDeletingUser] = useState<AdminUser | null>(null);
   const normalizedSearch = emailSearch.trim().toLowerCase();
   const visibleUsers = users.filter((user) =>
@@ -187,7 +224,45 @@ export default function UserManagement() {
     </table></div></div>
 
     {inviteOpen && <Modal title="Invite User" wide onClose={() => !submitting && setInviteOpen(false)}><form onSubmit={submitInvite}>{formError && <p role="alert" className="mb-5 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">{formError}</p>}<UserFields form={inviteForm} setForm={setInviteForm} includePassword /><p className="mt-2 text-xs text-slate-500">The default password is 11111111.</p><FormActions submitLabel="Add User" onCancel={() => setInviteOpen(false)} disabled={submitting} /></form></Modal>}
-    {editingUser && <Modal title="Edit User" wide onClose={() => !submitting && setEditingUser(null)}><form onSubmit={submitEdit}>{formError && <p role="alert" className="mb-5 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">{formError}</p>}<div className="mb-5 rounded-xl bg-slate-100 px-4 py-3"><span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">User ID</span><span className="mt-1 block font-semibold text-slate-900">{editingUser.user_id}</span></div><UserFields form={editForm} setForm={setEditForm} includePassword={false} /><div className="mt-5 rounded-xl bg-slate-100 px-4 py-3"><span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Joined</span><span className="mt-1 block font-semibold text-slate-900">{displayDate(editingUser.created_at)}</span></div><FormActions submitLabel="Save Changes" onCancel={() => setEditingUser(null)} disabled={submitting} /></form></Modal>}
+    {editingUser && (
+      <Modal title="Edit User" wide onClose={() => !submitting && setEditingUser(null)}>
+        <form onSubmit={submitEdit}>
+          {formError && <p role="alert" className="mb-5 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">{formError}</p>}
+          <div className="mb-5 grid gap-4 sm:grid-cols-2">
+            <ReadOnlyInfo label="User ID" value={editingUser.user_id} />
+            <ReadOnlyInfo label="Role" value={displayRole(editingUser.role)} />
+          </div>
+          <UserFields form={editForm} setForm={setEditForm} includePassword={false} />
+          <div className="mt-5 grid gap-4 sm:grid-cols-2">
+            <ReadOnlyInfo label="Joined" value={displayDate(editingUser.created_at)} />
+            <ReadOnlyInfo label="Last Active" value={displayDateTime(editingUser.last_seen_at)} />
+          </div>
+          <button type="button" onClick={() => setDetailUser(editingUser)} className="mt-5 inline-flex items-center gap-2 rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50">
+            <UserCircle size={18} /> View Details
+          </button>
+          <FormActions submitLabel="Save Changes" onCancel={() => setEditingUser(null)} disabled={submitting} />
+        </form>
+      </Modal>
+    )}
+    {detailUser && (
+      <Modal title="User Details" onClose={() => setDetailUser(null)}>
+        <div className="flex items-center gap-4">
+          <UserAvatar user={detailUser} size="size-16" />
+          <div className="min-w-0">
+            <h3 className="truncate text-xl font-bold text-slate-950">{fullName(detailUser)}</h3>
+            <p className="truncate text-sm text-slate-500">{detailUser.email}</p>
+          </div>
+        </div>
+        <div className="mt-6">
+          <ReadOnlyInfo label="Region" value={detailUser.region || "Not provided"} />
+        </div>
+        <div className="mt-4 grid gap-4 sm:grid-cols-3">
+          <DetailStat icon={<Target size={19} className="text-indigo-500" />} label="Goals" value={detailUser.goals_count} />
+          <DetailStat icon={<Heart size={19} className="text-red-500" />} label="Liked Articles" value={detailUser.liked_articles_count} />
+          <DetailStat icon={<Bookmark size={19} className="text-violet-500" />} label="Saved Articles" value={detailUser.saved_articles_count} />
+        </div>
+      </Modal>
+    )}
     {deletingUser && <Modal title="Delete User" onClose={() => !submitting && setDeletingUser(null)}>{formError && <p role="alert" className="mb-5 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">{formError}</p>}<p className="text-sm leading-6 text-slate-600">Are you sure you want to delete <strong className="text-slate-900">{fullName(deletingUser)}</strong>? This action cannot be undone.</p><div className="mt-7 grid gap-3 sm:grid-cols-2"><button type="button" disabled={submitting} onClick={() => void confirmDelete()} className="rounded-xl bg-red-600 px-5 py-3 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60">{submitting ? "Deleting..." : "Delete User"}</button><button type="button" disabled={submitting} onClick={() => setDeletingUser(null)} className="rounded-xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold hover:bg-slate-50 disabled:opacity-60">Cancel</button></div></Modal>}
   </section>;
 }
