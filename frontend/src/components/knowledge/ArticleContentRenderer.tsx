@@ -6,6 +6,7 @@ import { EditorContent, JSONContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import type { ArticleContentBlock, ArticleContentBlocks } from "../../api/articles";
 import { resolveImageUrl } from "../../utils/imageUrl";
+import { RichTextBlockStyle } from "./richTextExtensions";
 
 type RendererProps = {
   contentBlocks: ArticleContentBlocks;
@@ -81,6 +82,7 @@ export default function ArticleContentRenderer({ contentBlocks }: RendererProps)
     extensions: [
       StarterKit,
       Underline,
+      RichTextBlockStyle,
       Image.configure({ inline: false, allowBase64: false }),
       TextAlign.configure({ types: ["heading", "paragraph"] }),
     ],

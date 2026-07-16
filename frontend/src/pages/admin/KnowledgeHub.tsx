@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import { API_ORIGIN } from "../../api/client";
 import Modal from "../../components/Modal";
+import { RichTextBlockStyle, fontSizeOptions, spacingOptions } from "../../components/knowledge/richTextExtensions";
 import {
   AdminArticleContentBlocks,
   createAdminArticle,
@@ -256,20 +257,42 @@ function toolbarButtonClass(active = false) {
   ].join(" ");
 }
 
+function activeTextBlock(editor: Editor | null) {
+  if (!editor) return "paragraph";
+  return editor.isActive("heading") ? "heading" : "paragraph";
+}
+
+function activeBlockValue(editor: Editor | null, key: "fontSize" | "lineHeight") {
+  if (!editor) return "";
+  const block = activeTextBlock(editor);
+  const value = editor.getAttributes(block)[key];
+  return typeof value === "string" ? value : "";
+}
+
+function updateBlockStyle(editor: Editor | null, key: "fontSize" | "lineHeight", value: string) {
+  if (!editor) return;
+  const attrs = { [key]: value || null };
+  const block = activeTextBlock(editor);
+  editor.chain().focus().updateAttributes(block, attrs).run();
+}
+
 function EditorToolbar({ editor, onImageUpload, disabled }: { editor: Editor | null; onImageUpload: (event: ChangeEvent<HTMLInputElement>) => void; disabled: boolean }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   return (
     <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-slate-50 p-3 text-slate-600">
-      <button type="button" disabled={disabled || !editor} onClick={() => editor?.chain().focus().setParagraph().run()} className={toolbarButtonClass(editor?.isActive("paragraph"))} aria-label="Paragraph"><List size={18} /></button>
+      <button type="button" disabled={disabled || !editor} onClick={() => editor?.chain().focus().toggleBulletList().run()} className={toolbarButtonClass(editor?.isActive("bulletList"))} aria-label="Bullet list"><List size={18} /></button>
       <button type="button" disabled={disabled || !editor} onClick={() => editor?.chain().focus().toggleHeading({ level: 1 }).run()} className={`rounded-lg px-3 py-2 text-sm font-semibold transition ${editor?.isActive("heading", { level: 1 }) ? "bg-violet-100 text-violet-700" : "hover:bg-white"}`}>H1</button>
       <button type="button" disabled={disabled || !editor} onClick={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()} className={`rounded-lg px-3 py-2 text-sm font-semibold transition ${editor?.isActive("heading", { level: 2 }) ? "bg-violet-100 text-violet-700" : "hover:bg-white"}`}>H2</button>
       <span className="h-7 w-px bg-slate-200" />
-      <select disabled className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none disabled:opacity-60">
-        <option>Size</option>
-        <option>Small</option>
-        <option>Normal</option>
-        <option>Large</option>
+      <select
+        disabled={disabled || !editor}
+        value={activeBlockValue(editor, "fontSize")}
+        onChange={(event) => updateBlockStyle(editor, "fontSize", event.target.value)}
+        className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-violet-400 focus:ring-4 focus:ring-violet-100 disabled:opacity-60"
+        aria-label="Font size"
+      >
+        {fontSizeOptions.map((option) => <option key={option.label} value={option.value}>{option.label}</option>)}
       </select>
       <span className="h-7 w-px bg-slate-200" />
       <button type="button" disabled={disabled || !editor} onClick={() => editor?.chain().focus().toggleBold().run()} className={toolbarButtonClass(editor?.isActive("bold"))} aria-label="Bold"><Bold size={18} /></button>
@@ -280,10 +303,14 @@ function EditorToolbar({ editor, onImageUpload, disabled }: { editor: Editor | n
       <button type="button" disabled={disabled || !editor} onClick={() => editor?.chain().focus().setTextAlign("center").run()} className={toolbarButtonClass(editor?.isActive({ textAlign: "center" }))} aria-label="Align center"><AlignCenter size={18} /></button>
       <button type="button" disabled={disabled || !editor} onClick={() => editor?.chain().focus().setTextAlign("right").run()} className={toolbarButtonClass(editor?.isActive({ textAlign: "right" }))} aria-label="Align right"><AlignRight size={18} /></button>
       <span className="h-7 w-px bg-slate-200" />
-      <select disabled className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none disabled:opacity-60">
-        <option>Spacing</option>
-        <option>Compact</option>
-        <option>Relaxed</option>
+      <select
+        disabled={disabled || !editor}
+        value={activeBlockValue(editor, "lineHeight")}
+        onChange={(event) => updateBlockStyle(editor, "lineHeight", event.target.value)}
+        className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-violet-400 focus:ring-4 focus:ring-violet-100 disabled:opacity-60"
+        aria-label="Line spacing"
+      >
+        {spacingOptions.map((option) => <option key={option.label} value={option.value}>{option.label}</option>)}
       </select>
       <button type="button" disabled={disabled} onClick={() => inputRef.current?.click()} className="grid size-9 place-items-center rounded-lg hover:bg-white disabled:opacity-50" aria-label="Insert image">
         <ImageIcon size={18} />
@@ -317,6 +344,7 @@ function ArticleEditor({
     extensions: [
       StarterKit,
       UnderlineExtension,
+      RichTextBlockStyle,
       Image.configure({ inline: false, allowBase64: false }),
       TextAlign.configure({ types: ["heading", "paragraph"] }),
     ],

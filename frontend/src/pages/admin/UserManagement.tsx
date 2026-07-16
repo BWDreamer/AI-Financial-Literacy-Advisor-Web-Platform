@@ -1,5 +1,5 @@
 import { FormEvent, ReactNode, useCallback, useEffect, useState } from "react";
-import { Bookmark, Heart, Pencil, Plus, RefreshCw, Search, Target, Trash2, UserCircle, X } from "lucide-react";
+import { Bookmark, Eye, EyeOff, Heart, Pencil, Plus, RefreshCw, Search, Target, Trash2, UserCircle, X } from "lucide-react";
 import {
   AdminUser,
   deleteAdminUser,
@@ -76,14 +76,50 @@ function DetailStat({ icon, label, value }: { icon: ReactNode; label: string; va
   </div>;
 }
 
-function UserFields({ form, setForm, includePassword }: { form: UserForm; setForm: (form: UserForm) => void; includePassword: boolean }) {
+function UserFields({
+  form,
+  setForm,
+  includePassword,
+  passwordVisible = false,
+  onTogglePassword,
+}: {
+  form: UserForm;
+  setForm: (form: UserForm) => void;
+  includePassword: boolean;
+  passwordVisible?: boolean;
+  onTogglePassword?: () => void;
+}) {
   return <div className="space-y-5">
     <div className="grid gap-5 sm:grid-cols-2">
       <FormInput id="first-name" label="First Name" value={form.firstName} maxLength={50} required onChange={(event) => setForm({ ...form, firstName: event.target.value })} />
       <FormInput id="last-name" label="Last Name" value={form.lastName} maxLength={50} required onChange={(event) => setForm({ ...form, lastName: event.target.value })} />
     </div>
     <FormInput id="email" label="Email Address" type="email" value={form.email} required onChange={(event) => setForm({ ...form, email: event.target.value })} />
-    {includePassword && <FormInput id="password" label="Password" type="text" value={form.password} minLength={6} maxLength={72} required onChange={(event) => setForm({ ...form, password: event.target.value })} />}
+    {includePassword && (
+      <label className="block" htmlFor="password">
+        <span className="mb-2 block text-sm font-medium text-slate-700">Password</span>
+        <span className="relative block">
+          <input
+            id="password"
+            type={passwordVisible ? "text" : "password"}
+            value={form.password}
+            minLength={6}
+            maxLength={72}
+            required
+            onChange={(event) => setForm({ ...form, password: event.target.value })}
+            className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 pr-12 text-sm outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+          />
+          <button
+            type="button"
+            onClick={onTogglePassword}
+            aria-label={passwordVisible ? "Hide password" : "Show password"}
+            className="absolute right-3 top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+          >
+            {passwordVisible ? <EyeOff size={18} /> : <Eye size={18} />}
+          </button>
+        </span>
+      </label>
+    )}
   </div>;
 }
 
@@ -101,8 +137,10 @@ export default function UserManagement() {
   const [loading, setLoading] = useState(true);
   const [pageError, setPageError] = useState("");
   const [formError, setFormError] = useState("");
+  const [successMessage, setSuccessMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
+  const [invitePasswordVisible, setInvitePasswordVisible] = useState(false);
   const [inviteForm, setInviteForm] = useState<UserForm>(emptyInviteForm);
   const [editingUser, setEditingUser] = useState<AdminUser | null>(null);
   const [editForm, setEditForm] = useState<UserForm>(emptyInviteForm);
@@ -134,6 +172,8 @@ export default function UserManagement() {
   function openInvite() {
     setInviteForm(emptyInviteForm());
     setFormError("");
+    setSuccessMessage("");
+    setInvitePasswordVisible(false);
     setInviteOpen(true);
   }
 
@@ -143,6 +183,7 @@ export default function UserManagement() {
     try {
       const created = await inviteAdminUser({ first_name: inviteForm.firstName.trim(), last_name: inviteForm.lastName.trim(), email: inviteForm.email.trim().toLowerCase(), password: inviteForm.password });
       setUsers((current) => [...current, created].sort((a, b) => a.id - b.id));
+      setSuccessMessage(`User ${created.email} was invited successfully.`);
       setInviteOpen(false);
     } catch (caught) {
       setFormError(errorMessage(caught));
@@ -155,6 +196,7 @@ export default function UserManagement() {
     setEditingUser(user);
     setEditForm({ firstName: user.first_name ?? "", lastName: user.last_name ?? "", email: user.email, password: DEFAULT_PASSWORD });
     setFormError("");
+    setSuccessMessage("");
   }
 
   async function submitEdit(event: FormEvent) {
@@ -198,6 +240,7 @@ export default function UserManagement() {
     </header>
 
     {pageError && <div role="alert" className="mt-6 flex flex-col gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 sm:flex-row sm:items-center sm:justify-between"><span>{pageError}</span><button type="button" onClick={() => void loadUsers(true)} className="inline-flex items-center gap-2 font-semibold"><RefreshCw size={16} /> Try Again</button></div>}
+    {successMessage && <div role="status" className="mt-6 flex items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700"><span>{successMessage}</span><button type="button" onClick={() => setSuccessMessage("")} aria-label="Dismiss success message" className="rounded-lg p-1 hover:bg-emerald-100"><X size={16} /></button></div>}
 
     <div className="mt-6 max-w-xl">
       <label htmlFor="user-email-search" className="mb-2 block text-sm font-semibold text-slate-700">Search users by email</label>
@@ -223,7 +266,7 @@ export default function UserManagement() {
       </tbody>
     </table></div></div>
 
-    {inviteOpen && <Modal title="Invite User" wide onClose={() => !submitting && setInviteOpen(false)}><form onSubmit={submitInvite}>{formError && <p role="alert" className="mb-5 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">{formError}</p>}<UserFields form={inviteForm} setForm={setInviteForm} includePassword /><p className="mt-2 text-xs text-slate-500">The default password is 11111111.</p><FormActions submitLabel="Add User" onCancel={() => setInviteOpen(false)} disabled={submitting} /></form></Modal>}
+    {inviteOpen && <Modal title="Invite User" wide onClose={() => !submitting && setInviteOpen(false)}><form onSubmit={submitInvite}>{formError && <p role="alert" className="mb-5 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">{formError}</p>}<UserFields form={inviteForm} setForm={setInviteForm} includePassword passwordVisible={invitePasswordVisible} onTogglePassword={() => setInvitePasswordVisible((visible) => !visible)} /><p className="mt-2 text-xs text-slate-500">The default password is 11111111.</p><FormActions submitLabel="Add User" onCancel={() => setInviteOpen(false)} disabled={submitting} /></form></Modal>}
     {editingUser && (
       <Modal title="Edit User" wide onClose={() => !submitting && setEditingUser(null)}>
         <form onSubmit={submitEdit}>
