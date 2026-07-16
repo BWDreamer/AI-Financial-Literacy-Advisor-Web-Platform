@@ -6,13 +6,21 @@ const fillStyles: Record<GoalStatus, string> = {
   Completed: "bg-blue-600",
 };
 
-export default function GoalProgressBar({ value, status }: { value: number; status: GoalStatus }) {
+export default function GoalProgressBar({ value, status, added = 0 }: { value: number; status: GoalStatus; added?: number }) {
+  const safeValue = Math.min(Math.max(value, 0), 100);
+  const safeAdded = Math.min(Math.max(added, 0), safeValue);
   return (
-    <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+    <div className="relative h-2 overflow-hidden rounded-full bg-slate-100">
       <div
         className={`h-full rounded-full transition-all duration-700 ease-out ${fillStyles[status]}`}
-        style={{ width: `${value}%` }}
+        style={{ width: `${safeValue}%` }}
       />
+      {safeAdded > 0 && (
+        <div
+          className="absolute top-0 h-full rounded-full bg-amber-400 transition-all duration-700 ease-out"
+          style={{ left: `${Math.max(safeValue - safeAdded, 0)}%`, width: `${safeAdded}%` }}
+        />
+      )}
     </div>
   );
 }

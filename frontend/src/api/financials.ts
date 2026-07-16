@@ -9,11 +9,11 @@ export type AssetInput = { asset_type: AssetType; name: string; amount: number }
 export type Asset = AssetInput & { id: number; created_at: string; updated_at: string };
 export type CashFlowInput = { flow_type: FlowType; name: string; amount: number; date: string };
 export type CashFlow = CashFlowInput & { id: number; created_at: string; updated_at: string };
-export type DebtInput = { debt_type: DebtType; name: string; balance: number; minimum_payment?: number | null; interest_rate?: number | null };
+export type DebtInput = { debt_type: DebtType; name: string; balance: number; minimum_payment?: number; interest_rate?: number };
 export type Debt = DebtInput & { id: number; created_at: string; updated_at: string };
-export type RecurringCashFlowInput = { flow_type: FlowType; name: string; amount: number; frequency: Frequency; start_date: string; end_date?: string | null; category?: string | null };
+export type RecurringCashFlowInput = { flow_type: FlowType; name: string; amount: number; frequency: Frequency; start_date: string; end_date?: string; category?: string };
 export type RecurringCashFlow = RecurringCashFlowInput & { id: number; created_at: string; updated_at: string };
-export type Financials = { assets: Asset[]; debts: Debt[]; cash_flows: CashFlow[]; recurring_cash_flows: RecurringCashFlow[] };
+export type Financials = { assets: Asset[]; cash_flows: CashFlow[]; debts: Debt[]; recurring_cash_flows: RecurringCashFlow[] };
 
 export type FinancialSummary = {
   total_assets: number;
@@ -38,8 +38,10 @@ export const createCashFlow = (input: CashFlowInput) => apiRequest<CashFlow>("/f
 export const updateCashFlow = (id: number, input: CashFlowInput) => apiRequest<CashFlow>(`/financials/cash-flows/${id}`, { method: "PUT", authenticated: true, body: JSON.stringify(input) });
 export const deleteCashFlow = (id: number) => apiRequest<void>(`/financials/cash-flows/${id}`, { method: "DELETE", authenticated: true });
 export const createDebt = (input: DebtInput) => apiRequest<Debt>("/financials/debts", { method: "POST", authenticated: true, body: JSON.stringify(input) });
+export const getDebts = () => apiRequest<Debt[]>("/financials/debts", { authenticated: true });
 export const updateDebt = (id: number, input: DebtInput) => apiRequest<Debt>(`/financials/debts/${id}`, { method: "PUT", authenticated: true, body: JSON.stringify(input) });
 export const deleteDebt = (id: number) => apiRequest<void>(`/financials/debts/${id}`, { method: "DELETE", authenticated: true });
 export const createRecurringCashFlow = (input: RecurringCashFlowInput) => apiRequest<RecurringCashFlow>("/financials/recurring-cash-flows", { method: "POST", authenticated: true, body: JSON.stringify(input) });
+export const getRecurringCashFlows = () => apiRequest<RecurringCashFlow[]>("/financials/recurring-cash-flows", { authenticated: true });
 export const updateRecurringCashFlow = (id: number, input: RecurringCashFlowInput) => apiRequest<RecurringCashFlow>(`/financials/recurring-cash-flows/${id}`, { method: "PUT", authenticated: true, body: JSON.stringify(input) });
 export const deleteRecurringCashFlow = (id: number) => apiRequest<void>(`/financials/recurring-cash-flows/${id}`, { method: "DELETE", authenticated: true });

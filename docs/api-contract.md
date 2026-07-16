@@ -117,4 +117,6 @@ all stored facts through `/api/memory/export`.
 `GET /api/financials` includes assets, debts, one-off cash flows, and recurring
 cash flows. The summary includes total assets, total debts, debt-adjusted net
 worth, debt breakdown, and active recurring cash flows normalized to monthly
-amounts.
+amounts. `cash_savings` is the cash-asset balance plus recorded one-off cash
+flow net movement and one month of currently active recurring cash flow; the
+same adjusted cash value is included in `total_assets` and `asset_allocation`.

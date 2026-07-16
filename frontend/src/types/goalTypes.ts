@@ -13,6 +13,7 @@ export type GoalSort = "Recent" | "Priority" | "Target Date" | "Progress";
 
 export type Goal = {
   id: string;
+  apiId?: number;
   name: string;
   category: GoalCategory;
   targetAmount: number;
@@ -25,3 +26,10 @@ export type Goal = {
 };
 
 export type GoalFormValues = Omit<Goal, "id" | "createdAt">;
+
+export type GoalAllocation = {
+  goalId: string;
+  ratio: number;
+  monthlyAmount: number;
+  currentAllocation: number;
+};
