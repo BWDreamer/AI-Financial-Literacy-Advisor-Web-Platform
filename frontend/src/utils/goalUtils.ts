@@ -11,10 +11,10 @@ const priorityLabels: Record<number, GoalPriority> = { 1: "High", 2: "High", 3: 
 const priorityValues: Record<GoalPriority, number> = { High: 1, Medium: 3, Low: 5 };
 
 export const mockGoals: Goal[] = [
-  { id: "goal-car", name: "Buy a Car", category: "General Saving", targetAmount: 15000, currentAmount: 5200, monthlyContribution: 600, createdAt: "2026-01-15", targetDate: "2027-12-01", priority: "Medium" },
-  { id: "goal-emergency", name: "Emergency Fund", category: "Emergency Fund", targetAmount: 6000, currentAmount: 3600, monthlyContribution: 400, createdAt: "2026-04-01", targetDate: "2027-03-01", priority: "High" },
-  { id: "goal-home", name: "Home Deposit", category: "Home Deposit", targetAmount: 50000, currentAmount: 12430, monthlyContribution: 800, createdAt: "2025-10-01", targetDate: "2030-06-01", priority: "High" },
-  { id: "goal-debt", name: "Credit Card Debt", category: "Debt Repayment", targetAmount: 5200, currentAmount: 2800, monthlyContribution: 500, createdAt: "2026-05-01", targetDate: "2027-10-01", priority: "High" },
+  { id: "goal-car", name: "Buy a Car", category: "General Saving", targetAmount: 15000, currentAmount: 5200, monthlyContribution: 600, createdAt: "2026-01-15", targetDate: "2027-12-01", priority: "Medium", status: "On Track" },
+  { id: "goal-emergency", name: "Emergency Fund", category: "Emergency Fund", targetAmount: 6000, currentAmount: 3600, monthlyContribution: 400, createdAt: "2026-04-01", targetDate: "2027-03-01", priority: "High", status: "On Track" },
+  { id: "goal-home", name: "Home Deposit", category: "Home Deposit", targetAmount: 50000, currentAmount: 12430, monthlyContribution: 800, createdAt: "2025-10-01", targetDate: "2030-06-01", priority: "High", status: "On Track" },
+  { id: "goal-debt", name: "Credit Card Debt", category: "Debt Repayment", targetAmount: 5200, currentAmount: 2800, monthlyContribution: 500, createdAt: "2026-05-01", targetDate: "2027-10-01", priority: "High", status: "Behind" },
 ];
 
 export function formatGoalCurrency(value: number) {
@@ -44,11 +44,10 @@ export function requiredMonthlyContribution(goal: Goal, today = new Date()) {
 }
 
 export function goalStatus(goal: Goal): GoalStatus {
-  const actual = goalProgress(goal); if (actual >= 100) return "Completed";
-  const target = new Date(`${goal.targetDate}T23:59:59`);
-  if (target < new Date()) return "Behind";
-  if (goal.monthlyContribution < requiredMonthlyContribution(goal)) return "Behind";
-  return actual >= expectedGoalProgress(goal) * 0.9 ? "On Track" : "Behind";
+  if (goal.status) return goal.status;
+  const actual = goalProgress(goal);
+  if (actual >= 100) return "Completed";
+  return "On Track";
 }
 
 export function filterGoals(goals: Goal[], filter: GoalFilter) {
@@ -88,6 +87,8 @@ export function goalFromApi(record: GoalRecord): Goal {
     targetDate: record.target_date,
     createdAt: record.created_at.slice(0, 10),
     priority: priorityLabels[record.priority] || "Medium",
+    status: record.status === "completed" ? "Completed" : record.status === "behind" ? "Behind" : "On Track",
+    categoryDetails: record.category_details as Record<string, string | number> | undefined,
   };
 }
 
@@ -100,6 +101,8 @@ export function goalToPayload(goal: Goal, priority?: number): GoalPayload {
     monthly_contribution: goal.monthlyContribution,
     target_date: goal.targetDate,
     priority: priority ?? priorityValues[goal.priority],
+    status: goal.status === "Completed" ? "completed" : goal.status === "Behind" ? "behind" : "on_track",
+    category_details: goal.categoryDetails,
   };
 }
 

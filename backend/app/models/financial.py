@@ -76,3 +76,15 @@ class RecurringCashFlow(Base):
     category = Column(String(50), nullable=True)
     created_at = Column(DateTime, nullable=False, server_default=func.now())
     updated_at = Column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
+
+
+class CashBucket(Base):
+    __tablename__ = "cash_buckets"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    bucket_type = Column(String(30), nullable=False)
+    name = Column(String(100), nullable=True)
+    amount = Column(Numeric(14, 2), nullable=False, default=0)
+    created_at = Column(DateTime, nullable=False, server_default=func.now())
+    updated_at = Column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())

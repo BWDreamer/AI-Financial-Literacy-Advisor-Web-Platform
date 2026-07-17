@@ -22,6 +22,7 @@ export type Goal = {
   createdAt: string;
   targetDate: string;
   priority: GoalPriority;
+  status?: GoalStatus;
   categoryDetails?: Record<string, string | number>;
 };
 

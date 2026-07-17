@@ -2,8 +2,8 @@ from datetime import date as Date
 
 from sqlalchemy.orm import Session
 
-from app.models.financial import Asset, CashFlow, Debt, RecurringCashFlow
-from app.schemas.financial import AssetRequest, CashFlowRequest, DebtRequest, RecurringCashFlowRequest
+from app.models.financial import Asset, CashBucket, CashFlow, Debt, RecurringCashFlow
+from app.schemas.financial import AssetRequest, CashBucketRequest, CashFlowRequest, DebtRequest, RecurringCashFlowRequest
 
 
 def list_assets(db: Session, user_id: int) -> list[Asset]:
@@ -160,4 +160,27 @@ def save_recurring_cash_flow(
 
 def delete_recurring_cash_flow(db: Session, recurring: RecurringCashFlow) -> None:
     db.delete(recurring)
+    db.commit()
+
+
+def list_cash_buckets(db: Session, user_id: int) -> list[CashBucket]:
+    return db.query(CashBucket).filter(CashBucket.user_id == user_id).order_by(CashBucket.id).all()
+
+
+def get_cash_bucket(db: Session, user_id: int, bucket_id: int) -> CashBucket | None:
+    return db.query(CashBucket).filter(CashBucket.id == bucket_id, CashBucket.user_id == user_id).first()
+
+
+def save_cash_bucket(db: Session, user_id: int, data: CashBucketRequest, bucket: CashBucket | None = None) -> CashBucket:
+    bucket = bucket or CashBucket(user_id=user_id)
+    for field, value in data.model_dump().items():
+        setattr(bucket, field, value)
+    db.add(bucket)
+    db.commit()
+    db.refresh(bucket)
+    return bucket
+
+
+def delete_cash_bucket(db: Session, bucket: CashBucket) -> None:
+    db.delete(bucket)
     db.commit()

@@ -42,3 +42,137 @@ def test_goals_are_private_and_validate_amounts(client):
     assert client.get(f"/api/goals/{goal_id}/contributions", headers=second).status_code == 404
     assert client.post(f"/api/goals/{goal_id}/contributions", headers=first, json={"amount": "10000"}).status_code == 422
     assert client.post("/api/goals", headers=first, json=payload(current_amount="11000")).status_code == 422
+
+
+def test_goal_analysis_progress_chart_and_allocation(client):
+    headers = auth_headers(client, "goal-analysis@example.com")
+    created = client.post("/api/goals", headers=headers, json=payload(category_details={"risk": "low"}))
+    assert created.status_code == 201
+    goal_id = created.json()["id"]
+    assert created.json()["category_details"] == {"risk": "low"}
+
+    progress_payload = {
+        "amount": "200.00", "progress_date": date.today().isoformat(),
+        "note": "Automatic transfer", "source": "bank_transfer",
+    }
+    progress = client.post(f"/api/goals/{goal_id}/progress", headers=headers, json=progress_payload)
+    assert progress.status_code == 201
+    progress_id = progress.json()["id"]
+    assert float(progress.json()["new_current_amount"]) == 1200
+    assert client.get(f"/api/goals/{goal_id}/analysis", headers=headers).json()["progress_percentage"] == "12.00"
+    chart = client.get(f"/api/goals/{goal_id}/chart", headers=headers)
+    assert chart.status_code == 200
+    assert float(chart.json()["target_amount"]) == 10000
+    assert len(chart.json()["actual_progress_points"]) == 2
+
+    changed = client.put(
+        f"/api/goals/{goal_id}/progress/{progress_id}", headers=headers,
+        json={**progress_payload, "amount": "300.00"},
+    )
+    assert float(changed.json()["new_current_amount"]) == 1300
+    assert client.delete(f"/api/goals/{goal_id}/progress/{progress_id}", headers=headers).status_code == 204
+    assert float(client.get(f"/api/goals/{goal_id}", headers=headers).json()["current_amount"]) == 1000
+
+    client.post("/api/financials/assets", headers=headers, json={"asset_type": "cash", "name": "Savings", "amount": "5000"})
+    client.post("/api/financials/recurring-cash-flows", headers=headers, json={
+        "flow_type": "income", "name": "Salary", "amount": "4000", "frequency": "monthly",
+        "start_date": date.today().isoformat(),
+    })
+    settings = {
+        "cash_allocatable_ratio": "60", "monthly_allocatable_ratio": "50",
+        "goal_monthly_ratios": [{"goal_id": goal_id, "ratio": "40"}],
+    }
+    assert client.put("/api/goals/allocation-settings", headers=headers, json=settings).status_code == 200
+    allocation = client.put("/api/goals/monthly-allocation", headers=headers, json={
+        "monthly_allocatable_ratio": "50", "goal_monthly_ratios": settings["goal_monthly_ratios"],
+    })
+    assert allocation.status_code == 200
+    assert float(allocation.json()["monthly_allocatable"]) == 2000
+    assert float(allocation.json()["goals"][0]["monthly_amount"]) == 800
+    summary = client.get("/api/goals/summary", headers=headers).json()
+    assert float(summary["cash_allocatable"]) == 5400
+    assert float(summary["monthly_already_assigned"]) == 800
+
+
+def test_goal_allocation_validation_and_cash_buckets(client):
+    headers = auth_headers(client, "goal-buckets@example.com")
+    first = client.post("/api/goals", headers=headers, json=payload(name="First")).json()["id"]
+    second = client.post("/api/goals", headers=headers, json=payload(name="Second")).json()["id"]
+    invalid = client.put("/api/goals/allocation-settings", headers=headers, json={
+        "cash_allocatable_ratio": 50, "monthly_allocatable_ratio": 50,
+        "goal_monthly_ratios": [{"goal_id": first, "ratio": 60}, {"goal_id": second, "ratio": 50}],
+    })
+    assert invalid.status_code == 422
+    foreign = client.put("/api/goals/allocation-settings", headers=headers, json={
+        "cash_allocatable_ratio": 50, "monthly_allocatable_ratio": 50,
+        "goal_monthly_ratios": [{"goal_id": 99999, "ratio": 10}],
+    })
+    assert foreign.status_code == 422
+
+    bucket = client.post("/api/financials/cash-buckets", headers=headers, json={
+        "bucket_type": "emergency_fund", "name": "Emergency", "amount": "2500",
+    })
+    assert bucket.status_code == 201
+    bucket_id = bucket.json()["id"]
+    assert len(client.get("/api/financials/cash-buckets", headers=headers).json()) == 1
+    assert client.put(f"/api/financials/cash-buckets/{bucket_id}", headers=headers, json={
+        "bucket_type": "goal_reserved", "amount": "3000",
+    }).status_code == 200
+    assert client.delete(f"/api/financials/cash-buckets/{bucket_id}", headers=headers).status_code == 204
+
+
+def test_goal_chart_caps_expected_points_and_preserves_endpoints(client):
+    headers = auth_headers(client, "goal-long-chart@example.com")
+    created = client.post("/api/goals", headers=headers, json=payload(target_date="9999-12-31"))
+    assert created.status_code == 201
+
+    chart = client.get(f"/api/goals/{created.json()['id']}/chart", headers=headers)
+    assert chart.status_code == 200
+    expected = chart.json()["expected_progress_points"]
+    assert len(expected) <= 600
+    assert expected[0] == {"date": created.json()["created_at"][:10], "amount": "0.00"}
+    assert expected[-1] == {"date": "9999-12-31", "amount": "10000.00"}
+    assert [point["date"] for point in expected] == sorted(point["date"] for point in expected)
+
+
+def test_goal_progress_is_private(client):
+    owner = auth_headers(client, "progress-owner@example.com")
+    other = auth_headers(client, "progress-other@example.com")
+    goal_id = client.post("/api/goals", headers=owner, json=payload()).json()["id"]
+    progress_payload = {
+        "amount": "200.00", "progress_date": date.today().isoformat(),
+        "note": "Owner only", "source": "manual",
+    }
+    progress_id = client.post(
+        f"/api/goals/{goal_id}/progress", headers=owner, json=progress_payload,
+    ).json()["id"]
+
+    assert client.get(f"/api/goals/{goal_id}/progress", headers=other).status_code == 404
+    assert client.post(
+        f"/api/goals/{goal_id}/progress", headers=other, json=progress_payload,
+    ).status_code == 404
+    assert client.put(
+        f"/api/goals/{goal_id}/progress/{progress_id}", headers=other,
+        json={**progress_payload, "amount": "300.00"},
+    ).status_code == 404
+    assert client.delete(
+        f"/api/goals/{goal_id}/progress/{progress_id}", headers=other,
+    ).status_code == 404
+
+
+def test_cash_buckets_are_private(client):
+    owner = auth_headers(client, "bucket-owner@example.com")
+    other = auth_headers(client, "bucket-other@example.com")
+    bucket = client.post("/api/financials/cash-buckets", headers=owner, json={
+        "bucket_type": "emergency_fund", "name": "Private emergency fund", "amount": "2500",
+    })
+    assert bucket.status_code == 201
+    bucket_id = bucket.json()["id"]
+
+    assert client.get("/api/financials/cash-buckets", headers=other).json() == []
+    assert client.put(f"/api/financials/cash-buckets/{bucket_id}", headers=other, json={
+        "bucket_type": "goal_reserved", "amount": "3000",
+    }).status_code == 404
+    assert client.delete(
+        f"/api/financials/cash-buckets/{bucket_id}", headers=other,
+    ).status_code == 404

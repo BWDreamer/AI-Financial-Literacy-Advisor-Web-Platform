@@ -12,6 +12,7 @@ DebtType = Literal[
     "student_loan", "bnpl", "tax_debt", "other",
 ]
 Frequency = Literal["weekly", "fortnightly", "monthly", "yearly"]
+CashBucketType = Literal["available", "emergency_fund", "home_deposit", "goal_reserved", "debt_reserve", "general_savings", "other"]
 
 
 class NamedMoneyRequest(BaseModel):
@@ -96,6 +97,24 @@ class RecurringCashFlowRequest(NamedMoneyRequest):
 
 
 class RecurringCashFlowResponse(RecurringCashFlowRequest):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class CashBucketRequest(BaseModel):
+    bucket_type: CashBucketType
+    name: str | None = Field(default=None, max_length=100)
+    amount: Decimal = Field(default=Decimal("0"), ge=0, max_digits=14, decimal_places=2)
+
+    @field_validator("name")
+    @classmethod
+    def normalize_optional_name(cls, value: str | None) -> str | None:
+        return value.strip() or None if value is not None else None
+
+
+class CashBucketResponse(CashBucketRequest):
     model_config = ConfigDict(from_attributes=True)
     id: int
     created_at: datetime

@@ -1,15 +1,19 @@
 import { useEffect, useState } from "react";
 import { Flag, PiggyBank, TrendingUp } from "lucide-react";
-import type { Goal } from "../../types/goalTypes";
-import { formatGoalCurrency, goalStatus } from "../../utils/goalUtils";
+import { formatGoalCurrency } from "../../utils/goalUtils";
 
 type SummaryProps = {
-  goals: Goal[];
+  totalGoals: number;
+  onTrackGoals: number;
+  behindGoals: number;
+  completedGoals: number;
   cashSavings: number;
+  cashAllocatable: number;
+  cashAlreadyAssigned: number;
   allocatableRatio: number;
   monthlyAllocatableRatio: number;
-  monthlyIncome: number;
-  monthlyExpenses: number;
+  monthlyNetIncome: number;
+  monthlyAllocatable: number;
   monthlyAssigned: number;
   expanded: boolean;
   onToggle: () => void;
@@ -36,16 +40,9 @@ function Row({ label, value, tone = "text-slate-900" }: { label: string; value: 
   return <p className="flex justify-between gap-3 py-1 text-sm"><span className="text-slate-500">{label}</span><b className={tone}>{value}</b></p>;
 }
 
-export default function GoalSummary({ goals, cashSavings, allocatableRatio, monthlyAllocatableRatio, monthlyIncome, monthlyExpenses, monthlyAssigned, expanded, onToggle, onAllocatableRatioChange, onMonthlyAllocatableRatioChange }: SummaryProps) {
+export default function GoalSummary({ totalGoals, onTrackGoals, behindGoals, completedGoals, cashSavings, cashAllocatable, cashAlreadyAssigned, allocatableRatio, monthlyAllocatableRatio, monthlyNetIncome, monthlyAllocatable, monthlyAssigned, expanded, onToggle, onAllocatableRatioChange, onMonthlyAllocatableRatioChange }: SummaryProps) {
   const [showWarning, setShowWarning] = useState(false);
-  const onTrack = goals.filter((goal) => goalStatus(goal) === "On Track").length;
-  const behind = goals.filter((goal) => goalStatus(goal) === "Behind").length;
-  const completed = goals.filter((goal) => goalStatus(goal) === "Completed").length;
-  const assigned = goals.reduce((sum, goal) => sum + goal.currentAmount, 0);
-  const monthlyNetIncome = monthlyIncome - monthlyExpenses;
-  const allocatable = cashSavings * allocatableRatio / 100;
-  const monthlyAllocatable = Math.max(monthlyNetIncome, 0) * monthlyAllocatableRatio / 100;
-  const invalidAllocation = assigned > allocatable || monthlyAssigned > monthlyAllocatable;
+  const invalidAllocation = cashAlreadyAssigned > cashAllocatable || monthlyAssigned > monthlyAllocatable;
 
   useEffect(() => {
     if (invalidAllocation) setShowWarning(true);
@@ -54,24 +51,24 @@ export default function GoalSummary({ goals, cashSavings, allocatableRatio, mont
   return (
     <section className="space-y-4">
       <div className="grid gap-4 lg:grid-cols-3">
-        <SummaryCard expanded={expanded} onClick={onToggle} icon={<Flag size={20} />} label="Total Goals" value={String(goals.length)} text="Active and completed goals" tone="bg-blue-50 text-blue-600" />
+        <SummaryCard expanded={expanded} onClick={onToggle} icon={<Flag size={20} />} label="Total Goals" value={String(totalGoals)} text="Active and completed goals" tone="bg-blue-50 text-blue-600" />
         <SummaryCard expanded={expanded} onClick={onToggle} icon={<PiggyBank size={20} />} label="Cash Savings" value={formatGoalCurrency(cashSavings)} text="Current cash source for goals" tone="bg-amber-50 text-amber-600" />
         <SummaryCard expanded={expanded} onClick={onToggle} icon={<TrendingUp size={20} />} label="Monthly Net Income" value={formatGoalCurrency(monthlyNetIncome)} text="Future monthly goal source" tone="bg-emerald-50 text-emerald-600" />
       </div>
       {expanded && (
         <div className="grid gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm lg:grid-cols-3">
           <div className="rounded-2xl bg-slate-50 p-4">
-            <Row label="On track" value={String(onTrack)} tone="text-emerald-600" />
-            <Row label="Behind" value={String(behind)} tone="text-amber-600" />
-            <Row label="Completed" value={String(completed)} tone="text-blue-600" />
+            <Row label="On track" value={String(onTrackGoals)} tone="text-emerald-600" />
+            <Row label="Behind" value={String(behindGoals)} tone="text-amber-600" />
+            <Row label="Completed" value={String(completedGoals)} tone="text-blue-600" />
           </div>
           <div className="rounded-2xl bg-slate-50 p-4">
             <label className="block text-sm font-semibold text-slate-600">
               Allocatable ratio
               <input className="mt-2 w-full accent-blue-600" type="range" min="0" max="100" value={allocatableRatio} onChange={(event) => onAllocatableRatioChange(Number(event.target.value))} />
             </label>
-            <Row label="Allocatable" value={`${formatGoalCurrency(allocatable)} (${allocatableRatio}%)`} tone="text-blue-600" />
-            <Row label="Already assigned" value={formatGoalCurrency(assigned)} tone="text-emerald-600" />
+            <Row label="Allocatable" value={`${formatGoalCurrency(cashAllocatable)} (${allocatableRatio}%)`} tone="text-blue-600" />
+            <Row label="Already assigned" value={formatGoalCurrency(cashAlreadyAssigned)} tone="text-emerald-600" />
           </div>
           <div className="rounded-2xl bg-slate-50 p-4">
             <label className="block text-sm font-semibold text-slate-600">
