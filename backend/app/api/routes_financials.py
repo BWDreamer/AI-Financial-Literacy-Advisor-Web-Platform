@@ -7,18 +7,22 @@ from app.models.user import User
 from app.repositories.financial_repository import (
     delete_asset,
     delete_cash_flow,
+    delete_cash_bucket,
     delete_debt,
     delete_recurring_cash_flow,
     get_asset,
     get_cash_flow,
+    get_cash_bucket,
     get_debt,
     get_recurring_cash_flow,
     list_assets,
     list_cash_flows,
+    list_cash_buckets,
     list_debts,
     list_recurring_cash_flows,
     save_asset,
     save_cash_flow,
+    save_cash_bucket,
     save_debt,
     save_recurring_cash_flow,
 )
@@ -27,6 +31,8 @@ from app.schemas.financial import (
     AssetResponse,
     CashFlowRequest,
     CashFlowResponse,
+    CashBucketRequest,
+    CashBucketResponse,
     DebtRequest,
     DebtResponse,
     FinancialsResponse,
@@ -64,6 +70,33 @@ def get_financial_summary(
         list_cash_flows(db, current_user.id),
         list_recurring_cash_flows(db, current_user.id),
     )
+
+
+@router.get("/cash-buckets", response_model=list[CashBucketResponse])
+def get_cash_buckets(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return list_cash_buckets(db, current_user.id)
+
+
+@router.post("/cash-buckets", response_model=CashBucketResponse, status_code=status.HTTP_201_CREATED)
+def create_cash_bucket(request: CashBucketRequest, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return save_cash_bucket(db, current_user.id, request)
+
+
+@router.put("/cash-buckets/{bucket_id}", response_model=CashBucketResponse)
+def update_cash_bucket(bucket_id: int, request: CashBucketRequest, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    bucket = get_cash_bucket(db, current_user.id, bucket_id)
+    if bucket is None:
+        raise HTTPException(status_code=404, detail="Cash bucket was not found.")
+    return save_cash_bucket(db, current_user.id, request, bucket)
+
+
+@router.delete("/cash-buckets/{bucket_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_cash_bucket(bucket_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    bucket = get_cash_bucket(db, current_user.id, bucket_id)
+    if bucket is None:
+        raise HTTPException(status_code=404, detail="Cash bucket was not found.")
+    delete_cash_bucket(db, bucket)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/assets", response_model=AssetResponse, status_code=status.HTTP_201_CREATED)

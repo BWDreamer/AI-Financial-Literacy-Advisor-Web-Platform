@@ -1,10 +1,10 @@
 import { Bot, CreditCard, Home, MoreVertical, Pencil, PiggyBank, Shield, Target, TrendingUp, Umbrella } from "lucide-react";
 import { useEffect, useState } from "react";
-import { getGoalContributions, type GoalContribution } from "../../api/goals";
+import { getGoalAnalysis, getGoalChart, getGoalProgress, type GoalAnalysis, type GoalChart, type GoalProgress } from "../../api/goals";
 import Modal from "../Modal";
 import PrimaryButton from "../PrimaryButton";
 import type { Goal, GoalCategory } from "../../types/goalTypes";
-import { expectedGoalProgress, formatGoalCurrency, formatGoalDate, goalProgress, goalStatus } from "../../utils/goalUtils";
+import { formatGoalCurrency, formatGoalDate, goalProgress, goalStatus } from "../../utils/goalUtils";
 import GoalProgressBar from "./GoalProgressBar";
 import GoalStatusBadge from "./GoalStatusBadge";
 
@@ -20,24 +20,14 @@ const icons: Record<GoalCategory, React.ElementType> = {
   Budget: TrendingUp,
 };
 
-function monthsRemaining(goal: Goal) {
-  const now = new Date(); const target = new Date(`${goal.targetDate}T00:00:00`);
-  return Math.max((target.getFullYear() - now.getFullYear()) * 12 + target.getMonth() - now.getMonth(), 1);
-}
-
-function requiredMonthly(goal: Goal) {
-  return Math.ceil(Math.max(goal.targetAmount - goal.currentAmount, 0) / monthsRemaining(goal));
-}
-
 function path(points: Point[]) {
   return points.map((point, index) => `${index ? "L" : "M"} ${point.x} ${point.y}`).join(" ");
 }
 
-function chartPoints(goal: Goal, expected = false) {
-  const progress = expected ? expectedGoalProgress(goal) : goalProgress(goal);
-  return [0, 18, 36, 54, 72, progress].map((value, index) => ({
-    x: 38 + index * 78,
-    y: 160 - Math.min(value, 100) * 1.25,
+function chartPoints(rows: Array<{ amount: number }>, target: number) {
+  return rows.map((row, index) => ({
+    x: 38 + (rows.length <= 1 ? 0 : index * 392 / (rows.length - 1)),
+    y: 160 - Math.min(Number(row.amount) / Math.max(target, 1) * 100, 100) * 1.25,
   }));
 }
 
@@ -63,9 +53,11 @@ function GoalHero({ goal }: { goal: Goal }) {
   );
 }
 
-function ProgressOverview({ goal }: { goal: Goal }) {
-  const progress = Math.round(goalProgress(goal)); const required = requiredMonthly(goal);
-  const difference = goal.monthlyContribution - required; const status = goalStatus(goal);
+function ProgressOverview({ goal, analysis }: { goal: Goal; analysis: GoalAnalysis | null }) {
+  const progress = Math.round(analysis?.progress_percentage ?? goalProgress(goal));
+  const required = analysis?.required_monthly ?? 0;
+  const difference = analysis?.monthly_difference ?? goal.monthlyContribution - required;
+  const status = analysis?.status === "completed" ? "Completed" : analysis?.status === "behind" ? "Behind" : goalStatus(goal);
   return (
     <section className="grid gap-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm lg:grid-cols-[1.5fr_0.9fr]">
       <div>
@@ -90,8 +82,9 @@ function Metric({ label, value, positive }: { label: string; value: string; posi
   return <div className="flex items-center justify-between py-3 text-sm"><span className="font-semibold text-slate-500">{label}</span><span className={`font-bold ${positive === undefined ? "text-slate-900" : positive ? "text-emerald-600" : "text-amber-600"}`}>{value}</span></div>;
 }
 
-function ProgressChart({ goal }: { goal: Goal }) {
-  const actual = chartPoints(goal); const expected = chartPoints(goal, true);
+function ProgressChart({ goal, chart }: { goal: Goal; chart: GoalChart | null }) {
+  const actual = chartPoints(chart?.actual_progress_points ?? [], chart?.target_amount ?? goal.targetAmount);
+  const expected = chartPoints(chart?.expected_progress_points ?? [], chart?.target_amount ?? goal.targetAmount);
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       <div className="flex items-center justify-between"><h3 className="font-bold text-slate-900">Progress chart</h3><Legend /></div>
@@ -111,16 +104,7 @@ function Legend() {
   return <div className="flex gap-4 text-xs font-semibold text-slate-500"><span><b className="mr-1 inline-block h-0.5 w-5 bg-emerald-500" />Actual</span><span><b className="mr-1 inline-block h-0.5 w-5 border-t-2 border-dashed border-blue-500" />Expected</span></div>;
 }
 
-function RecentActivity({ goal }: { goal: Goal }) {
-  const [rows, setRows] = useState<GoalContribution[]>([]);
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    if (!goal.apiId) return;
-    setLoading(true);
-    getGoalContributions(goal.apiId).then(setRows).catch(() => setRows([])).finally(() => setLoading(false));
-  }, [goal.apiId]);
-
+function RecentActivity({ rows, loading }: { rows: GoalProgress[]; loading: boolean }) {
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       <h3 className="font-bold text-slate-900">Recent activity</h3>
@@ -128,7 +112,7 @@ function RecentActivity({ goal }: { goal: Goal }) {
         {loading && <p className="py-3 text-sm text-slate-500">Loading activity...</p>}
         {!loading && !rows.length && <p className="py-3 text-sm text-slate-500">No contributions have been recorded yet.</p>}
         {rows.map((row) => {
-          const date = new Date(row.created_at);
+          const date = new Date(`${row.progress_date}T00:00:00`);
           return <div key={row.id} className="flex justify-between py-3 text-sm"><span className="font-bold text-emerald-600">+ {formatGoalCurrency(Number(row.amount))}</span><span className="text-slate-500">{date.toLocaleDateString("en-AU", { month: "short", day: "numeric", year: "numeric" })}</span></div>;
         })}
       </div>
@@ -138,15 +122,29 @@ function RecentActivity({ goal }: { goal: Goal }) {
 }
 
 export default function GoalDetailsModal({ goal, onClose, onAskAdvisor }: Props) {
+  const [analysis, setAnalysis] = useState<GoalAnalysis | null>(null);
+  const [chart, setChart] = useState<GoalChart | null>(null);
+  const [progressRows, setProgressRows] = useState<GoalProgress[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!goal.apiId) return;
+    setLoading(true);
+    Promise.all([getGoalAnalysis(goal.apiId), getGoalChart(goal.apiId), getGoalProgress(goal.apiId)])
+      .then(([nextAnalysis, nextChart, rows]) => { setAnalysis(nextAnalysis); setChart(nextChart); setProgressRows(rows); })
+      .catch(() => { setAnalysis(null); setChart(null); setProgressRows([]); })
+      .finally(() => setLoading(false));
+  }, [goal.apiId]);
+
   return (
     <Modal title="Goal Detail & Progress Tracking" onClose={onClose} wide>
       <div className="space-y-5">
         <h1 className="text-2xl font-bold text-blue-700">Goal Detail & Progress Tracking</h1>
         <GoalHero goal={goal} />
-        <ProgressOverview goal={goal} />
+        <ProgressOverview goal={goal} analysis={analysis} />
         <section className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_17rem]">
-          <ProgressChart goal={goal} />
-          <RecentActivity goal={goal} />
+          <ProgressChart goal={goal} chart={chart} />
+          <RecentActivity rows={progressRows} loading={loading} />
         </section>
         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl bg-blue-50 p-4">

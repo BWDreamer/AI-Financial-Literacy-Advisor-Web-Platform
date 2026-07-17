@@ -4,6 +4,7 @@ export type AssetType = "cash" | "stocks" | "bonds" | "property" | "vehicle" | "
 export type FlowType = "income" | "expense";
 export type DebtType = "mortgage" | "car_loan" | "personal_loan" | "credit_card" | "student_loan" | "bnpl" | "tax_debt" | "other";
 export type Frequency = "weekly" | "fortnightly" | "monthly" | "yearly";
+export type CashBucketType = "available" | "emergency_fund" | "home_deposit" | "goal_reserved" | "debt_reserve" | "general_savings" | "other";
 
 export type AssetInput = { asset_type: AssetType; name: string; amount: number };
 export type Asset = AssetInput & { id: number; created_at: string; updated_at: string };
@@ -13,6 +14,8 @@ export type DebtInput = { debt_type: DebtType; name: string; balance: number; mi
 export type Debt = DebtInput & { id: number; created_at: string; updated_at: string };
 export type RecurringCashFlowInput = { flow_type: FlowType; name: string; amount: number; frequency: Frequency; start_date: string; end_date?: string; category?: string };
 export type RecurringCashFlow = RecurringCashFlowInput & { id: number; created_at: string; updated_at: string };
+export type CashBucketInput = { bucket_type: CashBucketType; name?: string; amount: number };
+export type CashBucket = CashBucketInput & { id: number; created_at: string; updated_at: string };
 export type Financials = { assets: Asset[]; cash_flows: CashFlow[]; debts: Debt[]; recurring_cash_flows: RecurringCashFlow[] };
 
 export type FinancialSummary = {
@@ -45,3 +48,7 @@ export const createRecurringCashFlow = (input: RecurringCashFlowInput) => apiReq
 export const getRecurringCashFlows = () => apiRequest<RecurringCashFlow[]>("/financials/recurring-cash-flows", { authenticated: true });
 export const updateRecurringCashFlow = (id: number, input: RecurringCashFlowInput) => apiRequest<RecurringCashFlow>(`/financials/recurring-cash-flows/${id}`, { method: "PUT", authenticated: true, body: JSON.stringify(input) });
 export const deleteRecurringCashFlow = (id: number) => apiRequest<void>(`/financials/recurring-cash-flows/${id}`, { method: "DELETE", authenticated: true });
+export const getCashBuckets = () => apiRequest<CashBucket[]>("/financials/cash-buckets", { authenticated: true });
+export const createCashBucket = (input: CashBucketInput) => apiRequest<CashBucket>("/financials/cash-buckets", { method: "POST", authenticated: true, body: JSON.stringify(input) });
+export const updateCashBucket = (id: number, input: CashBucketInput) => apiRequest<CashBucket>(`/financials/cash-buckets/${id}`, { method: "PUT", authenticated: true, body: JSON.stringify(input) });
+export const deleteCashBucket = (id: number) => apiRequest<void>(`/financials/cash-buckets/${id}`, { method: "DELETE", authenticated: true });
