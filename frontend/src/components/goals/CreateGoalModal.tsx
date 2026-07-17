@@ -4,6 +4,7 @@ import DatePicker from "../DatePicker";
 import FormInput from "../FormInput";
 import Modal from "../Modal";
 import PrimaryButton from "../PrimaryButton";
+import { previewGoal, type GoalPreview } from "../../api/goals";
 import type { Goal, GoalCategory, GoalFormValues } from "../../types/goalTypes";
 import { formatGoalCurrency, formatGoalDate, goalCategories, tomorrowValue } from "../../utils/goalUtils";
 
@@ -101,30 +102,13 @@ function initialAnswers(category: GoalCategory): Answers {
   return { deadline: tomorrowValue(), priority: "Medium", ...(category === "Emergency Fund" ? { coverage_months: 3 } : {}) };
 }
 
-function money(value: AnswerValue | undefined) {
-  return Number(value || 0);
-}
-
-function derivedValues(category: GoalCategory, answers: Answers): GoalFormValues {
-  const common = { category, priority: answers.priority as GoalFormValues["priority"] || "Medium", targetDate: String(answers.deadline || tomorrowValue()) };
-  if (category === "Emergency Fund") return { ...common, name: "Emergency Fund", targetAmount: money(answers.essential_monthly_expenses) * money(answers.coverage_months), currentAmount: money(answers.current_amount), monthlyContribution: money(answers.monthly_contribution) };
-  if (category === "Debt Repayment") return { ...common, name: String(answers.debt_name || "Debt Repayment"), targetAmount: money(answers.debt_balance), currentAmount: 0, monthlyContribution: money(answers.minimum_repayment) + money(answers.extra_repayment) };
-  if (category === "Home Deposit") return { ...common, name: "Home Deposit", targetAmount: homeDepositTarget(answers), currentAmount: money(answers.current_amount), monthlyContribution: money(answers.monthly_contribution) };
-  if (category === "Retirement") return { ...common, name: "Retirement Plan", targetAmount: money(answers.target_amount), currentAmount: money(answers.current_super), monthlyContribution: money(answers.regular_contribution) };
-  if (category === "Budget") return { ...common, name: "Improve Monthly Cash Flow", targetAmount: money(answers.target_monthly_surplus) * 12, currentAmount: 0, monthlyContribution: money(answers.target_monthly_surplus) };
-  return { ...common, name: String(answers.goal_title || "General Saving"), targetAmount: money(answers.target_amount), currentAmount: money(answers.current_amount), monthlyContribution: money(answers.monthly_contribution) };
-}
-
-function homeDepositTarget(answers: Answers) {
-  const direct = money(answers.deposit_target);
-  const calculated = money(answers.property_price) * money(answers.deposit_percent) / 100;
-  return Math.max(direct, calculated) + money(answers.cost_buffer);
-}
-
-function requiredMonthly(values: GoalFormValues) {
-  const target = new Date(`${values.targetDate}T00:00:00`); const now = new Date();
-  const months = Math.max((target.getFullYear() - now.getFullYear()) * 12 + target.getMonth() - now.getMonth(), 1);
-  return Math.ceil(Math.max(values.targetAmount - values.currentAmount, 0) / months);
+function valuesFromPreview(preview: GoalPreview, priority: GoalFormValues["priority"]): GoalFormValues {
+  return {
+    name: preview.goal.name, category: preview.goal.category as GoalCategory,
+    targetAmount: Number(preview.goal.target_amount), currentAmount: Number(preview.goal.current_amount),
+    monthlyContribution: Number(preview.goal.monthly_contribution), targetDate: preview.goal.target_date,
+    priority, categoryDetails: preview.goal.category_details as Record<string, string | number>,
+  };
 }
 
 function validateStep(step: Step, category: GoalCategory, answers: Answers) {
@@ -132,7 +116,9 @@ function validateStep(step: Step, category: GoalCategory, answers: Answers) {
   if (step === 0) return next;
   const scope = step === 1 ? questions[category].details : questions[category].finances;
   scope.forEach((question) => validateQuestion(question, answers, next));
-  if (step >= 2) validateGoalMath(derivedValues(category, answers), next);
+  if (step >= 2 && String(answers.deadline || "") <= new Date().toISOString().slice(0, 10)) {
+    next.deadline = "Target date must be in the future.";
+  }
   return next;
 }
 
@@ -140,11 +126,6 @@ function validateQuestion(question: Question, answers: Answers, errors: Errors) 
   const value = answers[question.id];
   if (question.required && (value === undefined || value === "")) errors[question.id] = "This field is required.";
   if (question.type === "number" && value !== undefined && value !== "" && Number(value) < 0) errors[question.id] = "Value cannot be negative.";
-}
-
-function validateGoalMath(values: GoalFormValues, errors: Errors) {
-  if (values.targetAmount <= 0) errors.targetAmount = "Goal target must be greater than zero.";
-  if (values.targetDate <= new Date().toISOString().slice(0, 10)) errors.deadline = "Target date must be in the future.";
 }
 
 function StepShell({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
@@ -199,18 +180,18 @@ function SelectField({ question, value, error, onChange }: { question: Question;
   );
 }
 
-function AnalysisStep({ values }: { values: GoalFormValues }) {
-  const required = requiredMonthly(values); const diff = values.monthlyContribution - required;
+function AnalysisStep({ values, preview }: { values: GoalFormValues; preview: GoalPreview }) {
+  const required = Number(preview.analysis.required_monthly); const diff = Number(preview.analysis.monthly_difference);
   return (
     <StepShell title="Here's your personalized plan" subtitle="This is a draft analysis. Later, AI chat can explain or adjust this plan.">
-      <div className="rounded-2xl bg-blue-50 p-4 text-sm text-slate-600"><Bot className="mb-2 text-blue-600" size={22} />Backend calculation should own final feasibility checks; this preview prepares the goal draft.</div>
+      <div className="rounded-2xl bg-blue-50 p-4 text-sm text-slate-600"><Bot className="mb-2 text-blue-600" size={22} />Target, progress and feasibility values below were calculated by the backend.</div>
       <div className="rounded-2xl bg-emerald-50 p-4">
         <h4 className="font-bold text-emerald-700">{diff >= 0 ? "You are on track! 🎉" : "You may need a small adjustment"}</h4>
         <p className="mt-2 text-sm text-slate-600">Required monthly saving <b>{formatGoalCurrency(required)}</b></p>
         <p className="text-sm text-slate-600">Your monthly saving <b>{formatGoalCurrency(values.monthlyContribution)}</b></p>
         <p className={diff >= 0 ? "text-sm font-bold text-emerald-600" : "text-sm font-bold text-amber-600"}>Difference {diff >= 0 ? "+" : "-"} {formatGoalCurrency(Math.abs(diff))}</p>
       </div>
-      <div className="overflow-hidden rounded-2xl border border-slate-200 text-sm"><PlanRow name="Comfortable" amount={Math.max(required - 200, 0)} /><PlanRow name="Balanced (Recommended)" amount={required} active /><PlanRow name="Faster" amount={required + 200} /></div>
+      <div className="overflow-hidden rounded-2xl border border-slate-200 text-sm"><PlanRow name="Required" amount={required} active /><PlanRow name="Your plan" amount={values.monthlyContribution} /></div>
     </StepShell>
   );
 }
@@ -232,17 +213,39 @@ export default function CreateGoalModal({ onClose, onCreate }: { onClose: () => 
   const [step, setStep] = useState<Step>(0);
   const [submitError, setSubmitError] = useState("");
   const [saving, setSaving] = useState(false);
-  const values = derivedValues(category, answers);
+  const [calculating, setCalculating] = useState(false);
+  const [preview, setPreview] = useState<GoalPreview | null>(null);
+  const priority = (answers.priority || "Medium") as GoalFormValues["priority"];
+  const values = preview ? valuesFromPreview(preview, priority) : null;
 
-  function changeCategory(next: GoalCategory) { setCategory(next); setAnswers(initialAnswers(next)); setErrors({}); }
-  function update(id: string, value: AnswerValue) { setAnswers((current) => ({ ...current, [id]: value })); }
-  function next() { const nextErrors = validateStep(step, category, answers); setErrors(nextErrors); if (!Object.keys(nextErrors).length) setStep((current) => Math.min(current + 1, 4) as Step); }
+  function changeCategory(next: GoalCategory) { setCategory(next); setAnswers(initialAnswers(next)); setPreview(null); setErrors({}); }
+  function update(id: string, value: AnswerValue) { setAnswers((current) => ({ ...current, [id]: value })); setPreview(null); }
+  async function next() {
+    const nextErrors = validateStep(step, category, answers); setErrors(nextErrors); setSubmitError("");
+    if (Object.keys(nextErrors).length) return;
+    if (step === 2) {
+      setCalculating(true);
+      try {
+        const result = await previewGoal({
+          category, target_date: String(answers.deadline), priority,
+          category_details: answers,
+        });
+        setPreview(result); setStep(3);
+      } catch (err) {
+        setSubmitError(err instanceof Error ? err.message : "Unable to calculate goal preview.");
+      } finally {
+        setCalculating(false);
+      }
+      return;
+    }
+    setStep((current) => Math.min(current + 1, 4) as Step);
+  }
   async function submit(event: FormEvent) {
     event.preventDefault(); const nextErrors = validateStep(4, category, answers); setErrors(nextErrors);
-    if (Object.keys(nextErrors).length) return;
+    if (Object.keys(nextErrors).length || !values) return;
     setSaving(true); setSubmitError("");
     try {
-      await onCreate({ ...values, id: crypto.randomUUID(), name: values.name.trim(), categoryDetails: answers, createdAt: new Date().toISOString().slice(0, 10) });
+      await onCreate({ ...values, id: crypto.randomUUID(), name: values.name.trim(), categoryDetails: answers, progressPercentage: 0, createdAt: new Date().toISOString().slice(0, 10) });
       onClose();
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : "Unable to save goal.");
@@ -257,10 +260,10 @@ export default function CreateGoalModal({ onClose, onCreate }: { onClose: () => 
         {step === 0 && <CategoryStep value={category} onChange={changeCategory} />}
         {step === 1 && <QuestionsStep title={`${categoryMeta[category].title} details`} category={category} scope="details" answers={answers} errors={errors} update={update} />}
         {step === 2 && <QuestionsStep title="Financial inputs" category={category} scope="finances" answers={answers} errors={errors} update={update} />}
-        {step === 3 && <AnalysisStep values={values} />}
-        {step === 4 && <ReviewStep values={values} answers={answers} />}
+        {step === 3 && values && preview && <AnalysisStep values={values} preview={preview} />}
+        {step === 4 && values && <ReviewStep values={values} answers={answers} />}
         {submitError && <p className="rounded-2xl bg-red-50 p-4 text-sm font-semibold text-red-600">{submitError}</p>}
-        <div className="flex justify-end gap-3"><button type="button" onClick={step === 0 ? onClose : () => setStep((current) => Math.max(current - 1, 0) as Step)} className="w-36 rounded-xl border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">{step === 0 ? "Cancel" : "Back"}</button>{step < 4 ? <PrimaryButton type="button" onClick={next} className="w-36 px-6">Next</PrimaryButton> : <PrimaryButton disabled={saving} className="w-36 px-6">{saving ? "Saving..." : "Save Goal"}</PrimaryButton>}</div>
+        <div className="flex justify-end gap-3"><button type="button" onClick={step === 0 ? onClose : () => setStep((current) => Math.max(current - 1, 0) as Step)} className="w-36 rounded-xl border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">{step === 0 ? "Cancel" : "Back"}</button>{step < 4 ? <PrimaryButton type="button" disabled={calculating} onClick={() => void next()} className="w-36 px-6">{calculating ? "Calculating..." : "Next"}</PrimaryButton> : <PrimaryButton disabled={saving} className="w-36 px-6">{saving ? "Saving..." : "Save Goal"}</PrimaryButton>}</div>
       </form>
     </Modal>
   );

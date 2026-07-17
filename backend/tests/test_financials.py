@@ -109,15 +109,17 @@ def test_financial_summary_calculation(client):
     summary = client.get("/api/financials/summary", headers=headers)
     assert summary.status_code == 200
     data = summary.json()
-    assert float(data["total_assets"]) == 6690
+    assert float(data["total_assets"]) == 6700
     assert float(data["total_debts"]) == 8000
-    assert float(data["net_worth"]) == -1310
-    assert float(data["cash_savings"]) == 4190
+    assert float(data["net_worth"]) == -1300
+    assert float(data["cash_savings"]) == 4200
     assert float(data["monthly_income"]) == 5000
     assert float(data["monthly_expenses"]) == 1810
     assert float(data["monthly_cash_flow"]) == 3190
     assert data["debt_breakdown"][0]["debt_type"] == "car_loan"
     assert len(data["recent_cash_flows"]) == 2
+    assert len(data["cash_savings_trend"]) == 6
+    assert float(data["cash_savings_trend"][-1]["amount"]) == 4200
 
 
 def test_financial_debts_and_recurring_cash_flows_crud(client):
@@ -259,10 +261,10 @@ def test_extended_summary_and_ownership(client):
         "frequency": "monthly", "start_date": date.today().isoformat(),
     })
     summary = client.get("/api/financials/summary", headers=first).json()
-    assert float(summary["total_assets"]) == 8800
+    assert float(summary["total_assets"]) == 10000
     assert float(summary["total_debts"]) == 4000
-    assert float(summary["net_worth"]) == 4800
-    assert float(summary["cash_savings"]) == 8800
+    assert float(summary["net_worth"]) == 6000
+    assert float(summary["cash_savings"]) == 10000
     assert float(summary["monthly_expenses"]) == 1200
     assert summary["debt_breakdown"][0]["debt_type"] == "car_loan"
     assert client.put(f"/api/financials/debts/{debt['id']}", headers=second, json={

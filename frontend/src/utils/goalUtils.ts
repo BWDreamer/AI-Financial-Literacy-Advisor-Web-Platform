@@ -10,37 +10,12 @@ const priorityRank: Record<GoalPriority, number> = { High: 0, Medium: 1, Low: 2 
 const priorityLabels: Record<number, GoalPriority> = { 1: "High", 2: "High", 3: "Medium", 4: "Low", 5: "Low" };
 const priorityValues: Record<GoalPriority, number> = { High: 1, Medium: 3, Low: 5 };
 
-export const mockGoals: Goal[] = [
-  { id: "goal-car", name: "Buy a Car", category: "General Saving", targetAmount: 15000, currentAmount: 5200, monthlyContribution: 600, createdAt: "2026-01-15", targetDate: "2027-12-01", priority: "Medium", status: "On Track" },
-  { id: "goal-emergency", name: "Emergency Fund", category: "Emergency Fund", targetAmount: 6000, currentAmount: 3600, monthlyContribution: 400, createdAt: "2026-04-01", targetDate: "2027-03-01", priority: "High", status: "On Track" },
-  { id: "goal-home", name: "Home Deposit", category: "Home Deposit", targetAmount: 50000, currentAmount: 12430, monthlyContribution: 800, createdAt: "2025-10-01", targetDate: "2030-06-01", priority: "High", status: "On Track" },
-  { id: "goal-debt", name: "Credit Card Debt", category: "Debt Repayment", targetAmount: 5200, currentAmount: 2800, monthlyContribution: 500, createdAt: "2026-05-01", targetDate: "2027-10-01", priority: "High", status: "Behind" },
-];
-
 export function formatGoalCurrency(value: number) {
   return new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(value || 0);
 }
 
 export function goalProgress(goal: Goal) {
-  if (goal.targetAmount <= 0) return 0;
-  return Math.min(Math.max(goal.currentAmount / goal.targetAmount * 100, 0), 100);
-}
-
-export function expectedGoalProgress(goal: Goal, today = new Date()) {
-  const created = new Date(goal.createdAt).getTime(); const target = new Date(goal.targetDate).getTime();
-  const now = today.getTime(); if (!created || !target || target <= created || now <= created) return 0;
-  return Math.min(Math.max((now - created) / (target - created) * 100, 0), 100);
-}
-
-export function monthsRemaining(goal: Goal, today = new Date()) {
-  const target = new Date(`${goal.targetDate}T00:00:00`);
-  const months = (target.getFullYear() - today.getFullYear()) * 12 + target.getMonth() - today.getMonth();
-  return Math.max(months + (target.getDate() >= today.getDate() ? 0 : -1), 1);
-}
-
-export function requiredMonthlyContribution(goal: Goal, today = new Date()) {
-  const remaining = Math.max(goal.targetAmount - goal.currentAmount, 0);
-  return remaining / monthsRemaining(goal, today);
+  return goal.progressPercentage;
 }
 
 export function goalStatus(goal: Goal): GoalStatus {
@@ -84,6 +59,7 @@ export function goalFromApi(record: GoalRecord): Goal {
     targetAmount: Number(record.target_amount),
     currentAmount: Number(record.current_amount),
     monthlyContribution: Number(record.monthly_contribution),
+    progressPercentage: Number(record.progress_percentage),
     targetDate: record.target_date,
     createdAt: record.created_at.slice(0, 10),
     priority: priorityLabels[record.priority] || "Medium",
@@ -101,7 +77,6 @@ export function goalToPayload(goal: Goal, priority?: number): GoalPayload {
     monthly_contribution: goal.monthlyContribution,
     target_date: goal.targetDate,
     priority: priority ?? priorityValues[goal.priority],
-    status: goal.status === "Completed" ? "completed" : goal.status === "Behind" ? "behind" : "on_track",
     category_details: goal.categoryDetails,
   };
 }

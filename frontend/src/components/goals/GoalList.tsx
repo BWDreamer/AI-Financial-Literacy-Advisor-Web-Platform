@@ -6,13 +6,13 @@ import GoalCard from "./GoalCard";
 
 type Props = {
   goals: Goal[];
-  monthlyAdditions?: Record<string, number>;
+  monthlyAmounts?: Record<string, number>;
   onCreate: () => void;
   onOpen: (goal: Goal) => void;
   onReorder?: (from: number, to: number) => void;
 };
 
-export default function GoalList({ goals, monthlyAdditions = {}, onCreate, onOpen, onReorder }: Props) {
+export default function GoalList({ goals, monthlyAmounts = {}, onCreate, onOpen, onReorder }: Props) {
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   if (!goals.length) {
     return (
@@ -33,7 +33,7 @@ export default function GoalList({ goals, monthlyAdditions = {}, onCreate, onOpe
         <GoalCard
           key={goal.id}
           goal={goal}
-          monthlyAdded={monthlyAdditions[goal.id] || 0}
+          monthlyAmount={monthlyAmounts[goal.id]}
           onOpen={onOpen}
           onDragStart={onReorder ? () => setDragIndex(goals.indexOf(goal)) : undefined}
           onDragOver={onReorder ? () => {

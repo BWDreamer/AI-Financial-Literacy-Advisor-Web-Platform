@@ -19,6 +19,7 @@ export type Goal = {
   targetAmount: number;
   currentAmount: number;
   monthlyContribution: number;
+  progressPercentage: number;
   createdAt: string;
   targetDate: string;
   priority: GoalPriority;
@@ -26,11 +27,10 @@ export type Goal = {
   categoryDetails?: Record<string, string | number>;
 };
 
-export type GoalFormValues = Omit<Goal, "id" | "createdAt">;
+export type GoalFormValues = Omit<Goal, "id" | "createdAt" | "progressPercentage">;
 
 export type GoalAllocation = {
   goalId: string;
   ratio: number;
   monthlyAmount: number;
-  currentAllocation: number;
 };
