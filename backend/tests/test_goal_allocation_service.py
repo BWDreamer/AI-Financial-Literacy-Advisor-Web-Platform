@@ -3,6 +3,7 @@ from decimal import Decimal
 
 import pytest
 
+from app.core.config import settings
 from app.services.financial_service import FinancialPlanningSnapshot
 from app.services.goal_allocation_service import (
     build_goal_allocation_context,
@@ -197,3 +198,55 @@ def test_allocation_distributes_surplus_across_four_goals():
         Decimal("0.00"),
     ) == Decimal("900.00")
     assert recurring_left == Decimal("0.00")
+
+
+def test_allocation_uses_configured_priority_weights(monkeypatch):
+    monkeypatch.setattr(
+        settings,
+        "goal_priority_high_weight",
+        Decimal("5"),
+    )
+    monkeypatch.setattr(
+        settings,
+        "goal_priority_medium_weight",
+        Decimal("2"),
+    )
+    monkeypatch.setattr(
+        settings,
+        "goal_priority_low_weight",
+        Decimal("1"),
+    )
+    state = normalize_goal_planning_state(
+        {
+            "goals": [
+                complete_general_goal(
+                    title="Car",
+                    target_amount=12000,
+                    priority="High",
+                ),
+                complete_general_goal(
+                    title="Travel",
+                    target_amount=6000,
+                    priority="Low",
+                ),
+            ],
+            "finished_adding_goals": True,
+        }
+    )
+
+    allocations, _, _ = calculate_goal_allocations(
+        state,
+        financial_snapshot(),
+        as_of=date(2026, 7, 14),
+    )
+    context = build_goal_allocation_context(
+        state,
+        financial_snapshot(),
+        as_of=date(2026, 7, 14),
+    )
+
+    assert allocations[0].one_off_amount == Decimal("500.00")
+    assert allocations[1].one_off_amount == Decimal("100.00")
+    assert allocations[0].recurring_monthly_amount == Decimal("750.00")
+    assert allocations[1].recurring_monthly_amount == Decimal("150.00")
+    assert "High=5, Medium=2, and Low=1 weights" in context

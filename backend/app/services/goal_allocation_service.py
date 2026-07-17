@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal, ROUND_DOWN, ROUND_HALF_UP
 
+from app.core.config import settings
 from app.services.financial_service import FinancialPlanningSnapshot
 from app.services.goal_planning_service import (
     CATEGORY_LABELS,
@@ -14,11 +15,18 @@ from app.services.goal_planning_service import (
 
 ZERO = Decimal("0.00")
 CENT = Decimal("0.01")
-PRIORITY_WEIGHTS = {
-    GoalPriority.HIGH: Decimal("3"),
-    GoalPriority.MEDIUM: Decimal("2"),
-    GoalPriority.LOW: Decimal("1"),
-}
+
+
+def _priority_weights() -> dict[GoalPriority, Decimal]:
+    return {
+        GoalPriority.HIGH: settings.goal_priority_high_weight,
+        GoalPriority.MEDIUM: settings.goal_priority_medium_weight,
+        GoalPriority.LOW: settings.goal_priority_low_weight,
+    }
+
+
+def _weight_label(value: Decimal) -> str:
+    return format(value.normalize(), "f")
 
 
 @dataclass(frozen=True)
@@ -190,7 +198,8 @@ def calculate_goal_allocations(
             snapshot.one_off_surplus, ZERO
         )
 
-    weights = [PRIORITY_WEIGHTS[goal.priority] for goal in funding_goals]
+    priority_weights = _priority_weights()
+    weights = [priority_weights[goal.priority] for goal in funding_goals]
     remaining_targets = [
         max(goal.target_amount - goal.current_amount, ZERO)
         for goal in funding_goals
@@ -246,6 +255,7 @@ def build_goal_allocation_context(
     as_of: date | None = None,
 ) -> str:
     effective_date = as_of or date.today()
+    priority_weights = _priority_weights()
     allocations, recurring_unallocated, one_off_unallocated = (
         calculate_goal_allocations(state, snapshot, effective_date)
     )
@@ -266,9 +276,12 @@ def build_goal_allocation_context(
             "not infer or choose a priority."
         ),
         (
-            "Allocation method: use High=3, Medium=2, and Low=1 weights, cap each "
-            "goal at its remaining target or deadline-based monthly need, then "
-            "redistribute any excess to the other goals."
+            "Allocation method: use "
+            f"High={_weight_label(priority_weights[GoalPriority.HIGH])}, "
+            f"Medium={_weight_label(priority_weights[GoalPriority.MEDIUM])}, "
+            f"and Low={_weight_label(priority_weights[GoalPriority.LOW])} "
+            "weights, cap each goal at its remaining target or deadline-based "
+            "monthly need, then redistribute any excess to the other goals."
         ),
         (
             "Available ongoing monthly surplus for allocation: "

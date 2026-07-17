@@ -28,6 +28,10 @@ docker compose up --build
 Startup waits for PostgreSQL to become healthy, applies the idempotent SQL
 migrations to both new and existing data volumes, and then starts the backend.
 Existing local data does not need to be deleted when a new migration is added.
+AI runtime tuning variables and validated ranges are documented in
+[`docs/runtime-configuration.md`](docs/runtime-configuration.md).
+OpenRouter is supported through `LLM_PROVIDER=openrouter`; keep its API key only
+in the untracked local `.env` file.
 
 Run the project in the background:
 

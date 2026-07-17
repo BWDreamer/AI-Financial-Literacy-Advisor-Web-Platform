@@ -3,6 +3,7 @@ import json
 from io import BytesIO
 
 import httpx
+import pytest
 from reportlab.pdfgen import canvas
 
 from app.ai.dependencies import get_ai_advisor_service
@@ -12,7 +13,7 @@ from app.ai.exceptions import (
     LLMServiceError,
 )
 from app.ai.prompts import FINANCIAL_ADVISOR_INSTRUCTIONS
-from app.ai.provider import GeminiProvider
+from app.ai.provider import GeminiProvider, OpenRouterProvider
 from app.main import app
 from app.models.financial_rule import FinancialRule
 from app.services import pdf_asset_classifier, pdf_financial_service
@@ -345,9 +346,10 @@ class FakeGeminiResponse:
 class RetryThenSuccessModels:
     def __init__(self) -> None:
         self.calls = 0
+        self.requests: list[dict] = []
 
     async def generate_content(self, **kwargs):
-        del kwargs
+        self.requests.append(kwargs)
         self.calls += 1
 
         if self.calls == 1:
@@ -366,6 +368,54 @@ class FakeGeminiAioClient:
 class FakeGeminiClient:
     def __init__(self, models: RetryThenSuccessModels) -> None:
         self.aio = FakeGeminiAioClient(models)
+
+
+class FakeOpenRouterResponse:
+    def __init__(self, payload: dict) -> None:
+        self._payload = payload
+
+    def raise_for_status(self) -> None:
+        return None
+
+    def json(self) -> dict:
+        return self._payload
+
+
+class RecordingOpenRouterClient:
+    def __init__(self, response_payloads: dict | list[dict]) -> None:
+        self.response_payloads = (
+            response_payloads
+            if isinstance(response_payloads, list)
+            else [response_payloads]
+        )
+        self.requests: list[tuple[str, dict]] = []
+
+    async def post(self, path: str, *, json: dict):
+        response_index = min(
+            len(self.requests),
+            len(self.response_payloads) - 1,
+        )
+        self.requests.append((path, json))
+        return FakeOpenRouterResponse(
+            self.response_payloads[response_index]
+        )
+
+
+def create_test_openrouter_provider(
+    client: RecordingOpenRouterClient,
+    retry_attempts: int = 1,
+) -> OpenRouterProvider:
+    provider = OpenRouterProvider(
+        api_key="test-api-key",
+        model="google/gemini-2.5-flash",
+        timeout_seconds=5,
+        temperature=0.65,
+        structured_temperature=0.05,
+        retry_attempts=retry_attempts,
+        retry_delay_seconds=0,
+    )
+    provider._client = client
+    return provider
 
 
 ATO_TAX_RATES_URL = (
@@ -677,6 +727,8 @@ def test_gemini_provider_retries_transient_transport_error():
         api_key="test-api-key",
         model="test-model",
         timeout_seconds=5,
+        temperature=0.65,
+        structured_temperature=0,
         retry_attempts=1,
         retry_delay_seconds=0,
     )
@@ -690,6 +742,241 @@ def test_gemini_provider_retries_transient_transport_error():
 
     assert answer == "Recovered response."
     assert models.calls == 2
+    assert models.requests[-1]["config"].temperature == 0.65
+
+
+def test_openrouter_provider_requests_structured_json():
+    client = RecordingOpenRouterClient(
+        {
+            "choices": [
+                {
+                    "message": {
+                        "content": '{"intent":"budgeting"}',
+                    },
+                },
+            ],
+        }
+    )
+    provider = OpenRouterProvider(
+        api_key="test-api-key",
+        model="google/gemini-2.5-flash",
+        timeout_seconds=5,
+        temperature=0.65,
+        structured_temperature=0.05,
+        retry_attempts=1,
+        retry_delay_seconds=0,
+    )
+    provider._client = client
+    response_schema = {
+        "type": "object",
+        "properties": {
+            "intent": {
+                "type": "string",
+            },
+        },
+        "required": ["intent"],
+        "additionalProperties": False,
+    }
+
+    result = asyncio.run(
+        provider.generate_json(
+            "Classify this request.",
+            response_schema,
+        )
+    )
+
+    assert result == {"intent": "budgeting"}
+    assert len(client.requests) == 1
+    path, payload = client.requests[0]
+    assert path == "/chat/completions"
+    assert payload["model"] == "google/gemini-2.5-flash"
+    assert payload["messages"][0] == {
+        "role": "system",
+        "content": FINANCIAL_ADVISOR_INSTRUCTIONS,
+    }
+    assert payload["response_format"] == {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "financial_advisor_response",
+            "strict": True,
+            "schema": response_schema,
+        },
+    }
+    assert payload["provider"] == {
+        "require_parameters": True,
+    }
+    assert payload["temperature"] == 0.05
+
+
+def test_openrouter_provider_uses_configured_conversation_temperature():
+    provider = OpenRouterProvider(
+        api_key="test-api-key",
+        model="google/gemini-2.5-flash",
+        timeout_seconds=5,
+        temperature=0.65,
+        structured_temperature=0.05,
+        retry_attempts=1,
+        retry_delay_seconds=0,
+    )
+
+    payload = provider._build_request_payload(
+        "Explain compound interest.",
+        response_schema=None,
+    )
+
+    assert payload["temperature"] == 0.65
+
+
+def test_openrouter_retries_embedded_provider_error(caplog):
+    client = RecordingOpenRouterClient(
+        [
+            {
+                "choices": [
+                    {
+                        "message": {"content": ""},
+                        "finish_reason": "error",
+                        "error": {
+                            "code": 502,
+                            "message": "sensitive upstream detail",
+                            "metadata": {
+                                "error_type": "provider_unavailable",
+                            },
+                        },
+                    }
+                ]
+            },
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "content": "Recovered response.",
+                        }
+                    }
+                ]
+            },
+        ]
+    )
+    provider = create_test_openrouter_provider(client)
+
+    answer = asyncio.run(provider.generate_reply("What is budgeting?"))
+
+    assert answer == "Recovered response."
+    assert len(client.requests) == 2
+    assert "error_type=provider_unavailable" in caplog.text
+    assert "sensitive upstream detail" not in caplog.text
+
+
+def test_openrouter_retries_empty_successful_http_response():
+    client = RecordingOpenRouterClient(
+        [
+            {
+                "choices": [
+                    {
+                        "message": {"content": None},
+                    }
+                ]
+            },
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "content": "Recovered response.",
+                        }
+                    }
+                ]
+            },
+        ]
+    )
+    provider = create_test_openrouter_provider(client)
+
+    answer = asyncio.run(provider.generate_reply("What is budgeting?"))
+
+    assert answer == "Recovered response."
+    assert len(client.requests) == 2
+
+
+def test_openrouter_retries_invalid_structured_json():
+    client = RecordingOpenRouterClient(
+        [
+            {
+                "choices": [
+                    {
+                        "message": {"content": "not-json"},
+                    }
+                ]
+            },
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "content": '{"intent":"budgeting"}',
+                        }
+                    }
+                ]
+            },
+        ]
+    )
+    provider = create_test_openrouter_provider(client)
+    response_schema = {
+        "type": "object",
+        "properties": {"intent": {"type": "string"}},
+        "required": ["intent"],
+        "additionalProperties": False,
+    }
+
+    result = asyncio.run(
+        provider.generate_json(
+            "Classify this request.",
+            response_schema,
+        )
+    )
+
+    assert result == {"intent": "budgeting"}
+    assert len(client.requests) == 2
+
+
+def test_openrouter_maps_embedded_rate_limit_without_retry():
+    client = RecordingOpenRouterClient(
+        {
+            "error": {
+                "code": "429",
+                "message": "Rate limit exceeded.",
+                "metadata": {
+                    "error_type": "rate_limit_exceeded",
+                },
+            }
+        }
+    )
+    provider = create_test_openrouter_provider(
+        client,
+        retry_attempts=3,
+    )
+
+    with pytest.raises(LLMRateLimitError):
+        asyncio.run(provider.generate_reply("What is budgeting?"))
+
+    assert len(client.requests) == 1
+
+
+def test_openrouter_stops_after_configured_response_retries():
+    client = RecordingOpenRouterClient(
+        {
+            "choices": [
+                {
+                    "message": {"content": ""},
+                }
+            ]
+        }
+    )
+    provider = create_test_openrouter_provider(
+        client,
+        retry_attempts=2,
+    )
+
+    with pytest.raises(LLMServiceError):
+        asyncio.run(provider.generate_reply("What is budgeting?"))
+
+    assert len(client.requests) == 3
 
 
 def test_financial_advisor_prompt_requires_readable_plain_text():
@@ -870,7 +1157,7 @@ def test_chat_reports_missing_api_configuration(client):
     assert response.status_code == 503
     assert response.json()["detail"] == (
         "The AI service is not configured. "
-        "Set GEMINI_API_KEY on the backend."
+        "Set the configured provider API key on the backend."
     )
 
 

@@ -241,7 +241,7 @@ def _raise_llm_http_error(error: Exception) -> None:
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=(
                 "The AI service is not configured. "
-                "Set GEMINI_API_KEY on the backend."
+                "Set the configured provider API key on the backend."
             ),
         ) from error
 
