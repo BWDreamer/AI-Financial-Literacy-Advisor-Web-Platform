@@ -16,6 +16,8 @@ export type ArticleContentBlock =
       content?: ArticleContentBlock[];
     };
 
+export type ArticleContentBlocks = ArticleContentBlock | ArticleContentBlock[];
+
 export type ArticleContentMark = {
   type: string;
   attrs?: Record<string, unknown>;
@@ -36,7 +38,7 @@ export type Article = {
 };
 
 export type ArticleDetail = Article & {
-  contentBlocks: ArticleContentBlock[];
+  contentBlocks: ArticleContentBlocks;
   likedByMe: boolean;
   savedByMe: boolean;
 };

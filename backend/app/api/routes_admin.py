@@ -11,12 +11,15 @@ from fastapi import (
     status,
 )
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_current_admin
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import hash_password
+from app.models.article import ArticleLike, ArticleSave
+from app.models.goal import Goal
 from app.models.user import User
 from app.repositories.article_repository import (
     create_article,
@@ -34,6 +37,7 @@ from app.repositories.user_repository import (
     list_users,
     update_admin_user,
 )
+from app.repositories.profile_repository import get_profile_by_user_id
 from app.schemas.article import (
     ArticleCreateRequest,
     ArticleDetailResponse,
@@ -60,6 +64,35 @@ def require_article(db: Session, article_id: str):
     return article
 
 
+def user_engagement_counts(db: Session, user_id: int) -> dict[str, int]:
+    goals_count = db.query(func.count(Goal.id)).filter(Goal.user_id == user_id).scalar() or 0
+    liked_articles_count = db.query(func.count(ArticleLike.id)).filter(ArticleLike.user_id == user_id).scalar() or 0
+    saved_articles_count = db.query(func.count(ArticleSave.id)).filter(ArticleSave.user_id == user_id).scalar() or 0
+    return {
+        "goals_count": goals_count,
+        "liked_articles_count": liked_articles_count,
+        "saved_articles_count": saved_articles_count,
+    }
+
+
+def admin_user_payload(db: Session, user: User) -> dict:
+    profile = get_profile_by_user_id(db, user.id)
+    return {
+        "id": user.id,
+        "user_id": user.user_id,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+        "email": user.email,
+        "avatar_url": user.avatar_url,
+        "role": user.role,
+        "region": profile.region if profile else None,
+        "created_at": user.created_at,
+        "is_online": user.is_online,
+        "last_seen_at": user.last_seen_at,
+        **user_engagement_counts(db, user.id),
+    }
+
+
 @router.get("/ping")
 def ping_admin():
     return {"module": "admin", "status": "ok"}
@@ -70,7 +103,7 @@ def get_admin_users(
     _admin: User = Depends(get_current_admin),
     db: Session = Depends(get_db),
 ):
-    return list_users(db)
+    return [admin_user_payload(db, user) for user in list_users(db)]
 
 
 @router.post(

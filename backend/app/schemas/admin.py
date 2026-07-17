@@ -42,9 +42,15 @@ class AdminUserResponse(BaseModel):
     first_name: str | None
     last_name: str | None
     email: EmailStr
+    avatar_url: str | None = None
+    role: str = "user"
+    region: str | None = None
     created_at: datetime
     is_online: bool
     last_seen_at: datetime | None
+    goals_count: int = 0
+    liked_articles_count: int = 0
+    saved_articles_count: int = 0
 
 
 class HeartbeatResponse(BaseModel):

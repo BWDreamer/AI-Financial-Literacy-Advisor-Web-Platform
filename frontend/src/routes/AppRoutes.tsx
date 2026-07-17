@@ -8,6 +8,7 @@ import KnowledgeHub from "../pages/KnowledgeHub";
 import Login from "../pages/Login";
 import MyGoals from "../pages/MyGoals";
 import Register from "../pages/Register";
+import AdminDashboard from "../pages/admin/AdminDashboard";
 import AdminPlaceholder from "../pages/admin/AdminPlaceholder";
 import AdminKnowledgeHub from "../pages/admin/KnowledgeHub";
 import UserManagement from "../pages/admin/UserManagement";
@@ -27,7 +28,7 @@ export default function AppRoutes() {
     <Route path="/register" element={<Register />} />
     <Route path="/admin" element={<AdminPortalLayout />}>
       <Route index element={<Navigate to="dashboard" replace />} />
-      <Route path="dashboard" element={<AdminPlaceholder title="Dashboard" />} />
+      <Route path="dashboard" element={<AdminDashboard />} />
       <Route path="users" element={<UserManagement />} />
       <Route path="settings" element={<AdminPlaceholder title="Advisory Settings" />} />
       <Route path="knowledge" element={<AdminKnowledgeHub />} />

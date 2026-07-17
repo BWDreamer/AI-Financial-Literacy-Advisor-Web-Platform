@@ -1,145 +1,103 @@
-import type { CSSProperties, ReactNode } from "react";
-import type { ArticleContentBlock, ArticleContentMark } from "../../api/articles";
+import { useEffect } from "react";
+import Image from "@tiptap/extension-image";
+import TextAlign from "@tiptap/extension-text-align";
+import Underline from "@tiptap/extension-underline";
+import { EditorContent, JSONContent, useEditor } from "@tiptap/react";
+import StarterKit from "@tiptap/starter-kit";
+import type { ArticleContentBlock, ArticleContentBlocks } from "../../api/articles";
 import { resolveImageUrl } from "../../utils/imageUrl";
+import { RichTextBlockStyle } from "./richTextExtensions";
 
 type RendererProps = {
-  contentBlocks: ArticleContentBlock[];
+  contentBlocks: ArticleContentBlocks;
 };
 
-function isSafeLink(value: unknown): value is string {
-  if (typeof value !== "string") return false;
-  return /^(https?:|mailto:|tel:|\/)/i.test(value);
-}
+function normalizeImageNode(node: JSONContent): JSONContent {
+  const attrs = node.attrs ? { ...node.attrs } : undefined;
 
-function safeTextAlign(value: unknown): CSSProperties | undefined {
-  if (value === "left" || value === "center" || value === "right" || value === "justify") {
-    return { textAlign: value };
+  if (node.type === "image" && typeof attrs?.src === "string") {
+    attrs.src = resolveImageUrl(attrs.src) ?? attrs.src;
   }
 
-  return undefined;
+  return {
+    ...node,
+    ...(attrs ? { attrs } : {}),
+    ...(node.content ? { content: node.content.map(normalizeImageNode) } : {}),
+  };
 }
 
-function safeFontStyle(attrs: Record<string, unknown> | undefined): CSSProperties | undefined {
-  if (!attrs) return undefined;
-
-  const style: CSSProperties = {};
-
-  if (typeof attrs.fontSize === "string" && /^\d{1,2}(px|rem|em)$/.test(attrs.fontSize)) {
-    style.fontSize = attrs.fontSize;
-  }
-
-  if (typeof attrs.color === "string" && /^#[0-9a-f]{3,8}$/i.test(attrs.color)) {
-    style.color = attrs.color;
-  }
-
-  return Object.keys(style).length ? style : undefined;
-}
-
-function renderMarkedText(text: string, marks: ArticleContentMark[] = []) {
-  return marks.reduce<ReactNode>((content, mark) => {
-    if (mark.type === "bold") return <strong>{content}</strong>;
-    if (mark.type === "italic") return <em>{content}</em>;
-    if (mark.type === "underline") return <u>{content}</u>;
-
-    if (mark.type === "link") {
-      const href = mark.attrs?.href;
-      if (!isSafeLink(href)) return content;
-
-      return <a href={href} target="_blank" rel="noreferrer">{content}</a>;
-    }
-
-    if (mark.type === "textStyle") {
-      const style = safeFontStyle(mark.attrs);
-      return style ? <span style={style}>{content}</span> : content;
-    }
-
-    return content;
-  }, text);
-}
-
-function renderChildren(block: ArticleContentBlock, keyPrefix: string) {
-  return block.content?.map((child, index) => renderBlock(child, `${keyPrefix}-${index}`)) ?? null;
-}
-
-function renderImage(block: ArticleContentBlock, key: string) {
-  const srcValue = typeof block.src === "string" ? block.src : block.attrs?.src;
-  const src = typeof srcValue === "string" ? resolveImageUrl(srcValue) : null;
-  const altValue = typeof block.alt === "string" ? block.alt : block.attrs?.alt;
-  const captionValue = typeof block.caption === "string" ? block.caption : block.attrs?.title;
-
-  if (!src) return null;
-
-  return (
-    <figure key={key} className="my-8">
-      <img src={src} alt={typeof altValue === "string" ? altValue : ""} />
-      {typeof captionValue === "string" && captionValue && <figcaption>{captionValue}</figcaption>}
-    </figure>
-  );
-}
-
-function renderHeading(block: ArticleContentBlock, key: string) {
-  const level = block.attrs?.level === 1 || block.attrs?.level === 2 || block.attrs?.level === 3
-    ? block.attrs.level
-    : 2;
-  const style = safeTextAlign(block.attrs?.textAlign);
-
-  if (level === 1) return <h1 key={key} style={style}>{renderChildren(block, key)}</h1>;
-  if (level === 3) return <h3 key={key} style={style}>{renderChildren(block, key)}</h3>;
-  return <h2 key={key} style={style}>{renderChildren(block, key)}</h2>;
-}
-
-function renderBlock(block: ArticleContentBlock, key: string): ReactNode {
-  if (block.type === "text") {
-    return renderMarkedText(block.text ?? "", block.marks);
-  }
-
+function legacyBlockToTipTapNode(block: ArticleContentBlock): JSONContent {
   if (block.type === "image") {
-    return renderImage(block, key);
+    const src = typeof block.src === "string" ? block.src : block.attrs?.src;
+    const alt = typeof block.alt === "string" ? block.alt : block.attrs?.alt;
+    const caption = typeof block.caption === "string" ? block.caption : block.attrs?.title;
+
+    return {
+      type: "image",
+      attrs: {
+        src: typeof src === "string" ? resolveImageUrl(src) ?? src : "",
+        alt: typeof alt === "string" ? alt : "",
+        title: typeof caption === "string" ? caption : null,
+      },
+    };
   }
 
-  if (block.type === "heading") {
-    return renderHeading(block, key);
+  if (block.content || block.attrs || block.marks || block.type === "heading" || block.type.includes("List")) {
+    return normalizeImageNode({
+      ...block,
+      content: block.content?.map(legacyBlockToTipTapNode),
+    } as JSONContent);
   }
 
   if (block.type === "paragraph") {
-    const style = safeTextAlign(block.attrs?.textAlign);
-    const legacyText = block.text ? renderMarkedText(block.text, block.marks) : null;
-    return <p key={key} style={style}>{renderChildren(block, key) ?? legacyText}</p>;
+    return {
+      type: "paragraph",
+      content: block.text ? [{ type: "text", text: block.text, marks: block.marks }] : [],
+      attrs: block.attrs,
+    };
   }
 
-  if (block.type === "bulletList") {
-    return <ul key={key}>{renderChildren(block, key)}</ul>;
+  return normalizeImageNode(block as JSONContent);
+}
+
+function toTipTapDoc(contentBlocks: ArticleContentBlocks): JSONContent {
+  if (!Array.isArray(contentBlocks) && contentBlocks.type === "doc") {
+    return normalizeImageNode(contentBlocks as JSONContent);
   }
 
-  if (block.type === "orderedList") {
-    return <ol key={key}>{renderChildren(block, key)}</ol>;
-  }
+  const content = Array.isArray(contentBlocks)
+    ? contentBlocks.map(legacyBlockToTipTapNode)
+    : [legacyBlockToTipTapNode(contentBlocks)];
 
-  if (block.type === "listItem") {
-    return <li key={key}>{renderChildren(block, key)}</li>;
-  }
-
-  if (block.type === "blockquote") {
-    return <blockquote key={key}>{renderChildren(block, key)}</blockquote>;
-  }
-
-  if (block.type === "hardBreak") {
-    return <br key={key} />;
-  }
-
-  return block.content?.length
-    ? <div key={key}>{renderChildren(block, key)}</div>
-    : null;
+  return {
+    type: "doc",
+    content: content.length ? content : [{ type: "paragraph" }],
+  };
 }
 
 export default function ArticleContentRenderer({ contentBlocks }: RendererProps) {
-  if (!contentBlocks.length) {
-    return <p>No article content is available yet.</p>;
-  }
+  const content = toTipTapDoc(contentBlocks);
+  const editor = useEditor({
+    editable: false,
+    extensions: [
+      StarterKit,
+      Underline,
+      RichTextBlockStyle,
+      Image.configure({ inline: false, allowBase64: false }),
+      TextAlign.configure({ types: ["heading", "paragraph"] }),
+    ],
+    content,
+    editorProps: {
+      attributes: {
+        class: "article-content mx-auto max-w-3xl text-base leading-8 text-slate-700 outline-none [&_a]:text-blue-600 [&_a]:underline [&_blockquote]:border-l-4 [&_blockquote]:border-slate-200 [&_blockquote]:pl-4 [&_blockquote]:italic [&_h1]:text-3xl [&_h1]:font-bold [&_h1]:leading-tight [&_h2]:text-2xl [&_h2]:font-bold [&_h3]:text-xl [&_h3]:font-bold [&_img]:mx-auto [&_img]:my-8 [&_img]:h-56 [&_img]:w-full [&_img]:max-w-xl [&_img]:rounded-2xl [&_img]:object-cover sm:[&_img]:h-64 [&_ol]:list-decimal [&_ol]:pl-6 [&_p]:my-5 [&_strong]:font-bold [&_ul]:list-disc [&_ul]:pl-6",
+      },
+    },
+  });
 
-  return (
-    <div className="article-content mx-auto max-w-3xl text-base leading-8 text-slate-700">
-      {contentBlocks.map((block, index) => renderBlock(block, `article-block-${index}`))}
-    </div>
-  );
+  useEffect(() => {
+    editor?.commands.setContent(toTipTapDoc(contentBlocks));
+  }, [contentBlocks, editor]);
+
+  if (!editor) return <p>No article content is available yet.</p>;
+  return <EditorContent editor={editor} />;
 }

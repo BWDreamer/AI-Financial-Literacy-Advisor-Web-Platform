@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 ArticleStatus = Literal["draft", "published", "archived"]
 ArticleSortBy = Literal["latest", "most_viewed", "most_liked", "most_saved"]
+ArticleContentBlocks = dict[str, Any] | list[dict[str, Any]]
 
 
 class ArticleBase(BaseModel):
@@ -16,7 +17,7 @@ class ArticleBase(BaseModel):
     source_name: str = Field(min_length=1, max_length=100, alias="sourceName")
     category: str = Field(min_length=1, max_length=50)
     published_at: datetime | None = Field(default=None, alias="publishedAt")
-    content_blocks: list[dict[str, Any]] = Field(default_factory=list, alias="contentBlocks")
+    content_blocks: ArticleContentBlocks = Field(default_factory=list, alias="contentBlocks")
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -51,7 +52,7 @@ class ArticleUpdateRequest(BaseModel):
     category: str | None = Field(default=None, min_length=1, max_length=50)
     status: ArticleStatus | None = None
     published_at: datetime | None = Field(default=None, alias="publishedAt")
-    content_blocks: list[dict[str, Any]] | None = Field(default=None, alias="contentBlocks")
+    content_blocks: ArticleContentBlocks | None = Field(default=None, alias="contentBlocks")
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -83,7 +84,7 @@ class ArticleListItemResponse(BaseModel):
 
 
 class ArticleDetailResponse(ArticleListItemResponse):
-    content_blocks: list[dict[str, Any]] = Field(alias="contentBlocks")
+    content_blocks: ArticleContentBlocks = Field(alias="contentBlocks")
     liked_by_me: bool = Field(default=False, alias="likedByMe")
     saved_by_me: bool = Field(default=False, alias="savedByMe")
 
