@@ -17,6 +17,11 @@ MONTHLY_MULTIPLIERS = {
 }
 
 
+def month_key(value: date, offset: int = 0) -> str:
+    month_index = value.year * 12 + value.month - 1 + offset
+    return f"{month_index // 12:04d}-{month_index % 12 + 1:02d}"
+
+
 @dataclass(frozen=True)
 class FinancialPlanningSnapshot:
     has_financial_records: bool
@@ -69,19 +74,19 @@ def build_financial_summary(
             else:
                 monthly_expenses += flow.amount
 
-    recurring_delta = ZERO
     for flow in recurring_cash_flows:
         if flow.start_date > today or (flow.end_date is not None and flow.end_date < today):
             continue
         monthly_amount = flow.amount * MONTHLY_MULTIPLIERS[flow.frequency]
         if flow.flow_type == "income":
             monthly_income += monthly_amount
-            recurring_delta += monthly_amount
         else:
             monthly_expenses += monthly_amount
-            recurring_delta -= monthly_amount
 
-    cash_savings = allocation["cash"] + cash_flow_delta + recurring_delta
+    # Recurring flows describe earning/spending capacity. They do not move the
+    # stored cash balance until an actual cash-flow transaction is recorded.
+    cash_asset_balance = allocation["cash"]
+    cash_savings = cash_asset_balance + cash_flow_delta
     allocation["cash"] = cash_savings
     non_cash_assets = sum(
         (asset.amount for asset in assets if asset.asset_type != "cash"),
@@ -107,8 +112,14 @@ def build_financial_summary(
             for debt_type, amount in sorted(debt_breakdown.items())
         ],
         "cash_savings_trend": [
-            {"month": month, "amount": amount}
-            for month, amount in sorted(monthly_totals.items())[-6:]
+            {
+                "month": period,
+                "amount": cash_asset_balance + sum(
+                    (amount for month, amount in monthly_totals.items() if month <= period),
+                    ZERO,
+                ),
+            }
+            for period in (month_key(today, offset) for offset in range(-5, 1))
         ],
         "recent_cash_flows": cash_flows[:5],
     }

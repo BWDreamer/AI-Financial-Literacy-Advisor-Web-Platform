@@ -4,16 +4,35 @@
 
 - GET /api/goals
 - POST /api/goals
+- POST /api/goals/preview
 - GET /api/goals/summary
 - GET /api/goals/{goal_id}
 - PUT /api/goals/{goal_id}
 - DELETE /api/goals/{goal_id}
-- POST /api/goals/{goal_id}/contributions
-- GET /api/goals/{goal_id}/contributions
+- GET /api/goals/{goal_id}/analysis
+- GET /api/goals/{goal_id}/chart
+- GET /api/goals/{goal_id}/progress
+- POST /api/goals/{goal_id}/progress
+- PUT /api/goals/{goal_id}/progress/{progress_id}
+- DELETE /api/goals/{goal_id}/progress/{progress_id}
+- GET /api/goals/allocation-settings
+- PUT /api/goals/allocation-settings
 
 Goal requests contain `name`, `category`, `target_amount`, `current_amount`,
-`monthly_contribution`, `target_date`, and `priority` (1-5). Contribution
-requests contain a positive `amount`.
+`monthly_contribution`, `target_date`, and `priority` (1-5). Goal responses
+include backend-calculated `status` and `progress_percentage`. Progress is the
+only public API that changes a goal's current amount; the older
+`/contributions` routes are retired.
+
+`POST /api/goals/preview` accepts the selected category, target date, priority,
+and raw `category_details`. It returns normalized goal fields plus goal analysis,
+so category target formulas and feasibility calculations are not duplicated in
+the frontend wizard.
+
+`GET/PUT /api/goals/allocation-settings` is the single source of truth for
+allocation ratios. Its response includes backend-calculated monthly net income,
+allocatable, assigned and unassigned totals, plus each goal's monthly amount.
+The former `/monthly-allocation` write route is retired.
 
 - GET /api/health
 - GET /api/auth/ping
@@ -118,5 +137,8 @@ all stored facts through `/api/memory/export`.
 cash flows. The summary includes total assets, total debts, debt-adjusted net
 worth, debt breakdown, and active recurring cash flows normalized to monthly
 amounts. `cash_savings` is the cash-asset balance plus recorded one-off cash
-flow net movement and one month of currently active recurring cash flow; the
-same adjusted cash value is included in `total_assets` and `asset_allocation`.
+flow net movement. Recurring cash flows affect `monthly_income` and
+`monthly_expenses`, but do not change cash until a transaction is recorded.
+`cash_savings_trend` contains six cumulative month-end balances calculated by
+the backend. The current cash value is included in `total_assets` and
+`asset_allocation`.

@@ -16,7 +16,6 @@ class GoalRequest(BaseModel):
     monthly_contribution: Decimal = Field(default=Decimal("0"), ge=0, max_digits=14, decimal_places=2)
     target_date: date
     priority: int = Field(default=1, ge=1, le=5)
-    status: GoalStatus | None = None
     category_details: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("name", "category")
@@ -34,23 +33,20 @@ class GoalRequest(BaseModel):
         return self
 
 
+class GoalPreviewRequest(BaseModel):
+    category: str = Field(min_length=1, max_length=50)
+    target_date: date
+    priority: Literal["High", "Medium", "Low"] = "Medium"
+    category_details: dict[str, Any] = Field(default_factory=dict)
+
+
 class GoalResponse(GoalRequest):
     model_config = ConfigDict(from_attributes=True)
     id: int
     created_at: datetime
     updated_at: datetime
     status: GoalStatus
-
-
-class ContributionRequest(BaseModel):
-    amount: Decimal = Field(gt=0, max_digits=14, decimal_places=2)
-
-
-class ContributionResponse(ContributionRequest):
-    model_config = ConfigDict(from_attributes=True)
-    id: int
-    goal_id: int
-    created_at: datetime
+    progress_percentage: Decimal
 
 
 class GoalSummaryResponse(BaseModel):
@@ -76,6 +72,11 @@ class GoalAnalysisResponse(BaseModel):
     months_remaining: int
     projected_completion_date: date | None
     status: GoalStatus
+
+
+class GoalPreviewResponse(BaseModel):
+    goal: GoalRequest
+    analysis: GoalAnalysisResponse
 
 
 class GoalProgressRequest(BaseModel):
@@ -125,24 +126,6 @@ class AllocationSettingsRequest(BaseModel):
         return self
 
 
-class AllocationSettingsResponse(AllocationSettingsRequest):
-    pass
-
-
-class MonthlyAllocationRequest(BaseModel):
-    monthly_allocatable_ratio: Decimal = Field(ge=0, le=100, max_digits=5, decimal_places=2)
-    goal_monthly_ratios: list[GoalRatio] = Field(default_factory=list)
-
-    @model_validator(mode="after")
-    def ratios_must_not_exceed_100(self):
-        ids = [item.goal_id for item in self.goal_monthly_ratios]
-        if len(ids) != len(set(ids)):
-            raise ValueError("Each goal may only appear once.")
-        if sum((item.ratio for item in self.goal_monthly_ratios), Decimal("0")) > 100:
-            raise ValueError("Total goal monthly ratio must be at most 100%.")
-        return self
-
-
 class GoalMonthlyAmount(BaseModel):
     goal_id: int
     ratio: Decimal
@@ -155,3 +138,7 @@ class MonthlyAllocationResponse(BaseModel):
     already_assigned: Decimal
     unassigned: Decimal
     goals: list[GoalMonthlyAmount]
+
+
+class AllocationSettingsResponse(AllocationSettingsRequest):
+    monthly_allocation: MonthlyAllocationResponse

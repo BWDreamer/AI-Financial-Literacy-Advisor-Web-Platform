@@ -15,18 +15,15 @@ const icons: Record<GoalCategory, React.ElementType> = {
 
 type Props = {
   goal: Goal;
-  monthlyAdded?: number;
+  monthlyAmount?: number;
   onOpen: (goal: Goal) => void;
   onDragStart?: () => void;
   onDragOver?: () => void;
 };
 
-export default function GoalCard({ goal, monthlyAdded, onOpen, onDragStart, onDragOver }: Props) {
+export default function GoalCard({ goal, monthlyAmount, onOpen, onDragStart, onDragOver }: Props) {
   const status = goalStatus(goal);
   const progress = Math.round(goalProgress(goal));
-  const displayedMonthly = monthlyAdded ?? goal.monthlyContribution;
-  const added = goal.targetAmount ? Math.min(displayedMonthly / goal.targetAmount * 100, 100 - progress) : 0;
-  const displayedProgress = Math.min(progress + added, 100);
   const Icon = icons[goal.category] || Flag;
 
   return (
@@ -53,13 +50,12 @@ export default function GoalCard({ goal, monthlyAdded, onOpen, onDragStart, onDr
         <div>
           <div className="mb-2 flex items-center justify-between text-sm">
             <span className="font-bold text-slate-900">{formatGoalCurrency(goal.currentAmount)} / {formatGoalCurrency(goal.targetAmount)}</span>
-            <span className="font-bold text-slate-700">{Math.round(displayedProgress)}%</span>
+            <span className="font-bold text-slate-700">{progress}%</span>
           </div>
-          {added > 0 && <p className="mb-1 text-right text-xs font-bold text-amber-600">+{Math.round(added)}% this month</p>}
-          <GoalProgressBar value={displayedProgress} status={status} added={added} />
+          <GoalProgressBar value={progress} status={status} />
         </div>
         <Info label="Target date" value={formatGoalDate(goal.targetDate)} />
-        <Info label="Monthly" value={formatGoalCurrency(displayedMonthly)} />
+        <Info label={monthlyAmount === undefined ? "Planned monthly" : "Allocated monthly"} value={formatGoalCurrency(monthlyAmount ?? goal.monthlyContribution)} />
         <ChevronRight className="hidden text-slate-400 lg:block" size={20} />
       </div>
     </button>

@@ -4,7 +4,7 @@ import { getGoalAnalysis, getGoalChart, getGoalProgress, type GoalAnalysis, type
 import Modal from "../Modal";
 import PrimaryButton from "../PrimaryButton";
 import type { Goal, GoalCategory } from "../../types/goalTypes";
-import { formatGoalCurrency, formatGoalDate, goalProgress, goalStatus } from "../../utils/goalUtils";
+import { formatGoalCurrency, formatGoalDate, goalStatus } from "../../utils/goalUtils";
 import GoalProgressBar from "./GoalProgressBar";
 import GoalStatusBadge from "./GoalStatusBadge";
 
@@ -54,9 +54,9 @@ function GoalHero({ goal }: { goal: Goal }) {
 }
 
 function ProgressOverview({ goal, analysis }: { goal: Goal; analysis: GoalAnalysis | null }) {
-  const progress = Math.round(analysis?.progress_percentage ?? goalProgress(goal));
+  const progress = Math.round(analysis?.progress_percentage ?? goal.progressPercentage);
   const required = analysis?.required_monthly ?? 0;
-  const difference = analysis?.monthly_difference ?? goal.monthlyContribution - required;
+  const difference = analysis?.monthly_difference ?? 0;
   const status = analysis?.status === "completed" ? "Completed" : analysis?.status === "behind" ? "Behind" : goalStatus(goal);
   return (
     <section className="grid gap-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm lg:grid-cols-[1.5fr_0.9fr]">
@@ -110,7 +110,7 @@ function RecentActivity({ rows, loading }: { rows: GoalProgress[]; loading: bool
       <h3 className="font-bold text-slate-900">Recent activity</h3>
       <div className="mt-4 divide-y divide-slate-100">
         {loading && <p className="py-3 text-sm text-slate-500">Loading activity...</p>}
-        {!loading && !rows.length && <p className="py-3 text-sm text-slate-500">No contributions have been recorded yet.</p>}
+        {!loading && !rows.length && <p className="py-3 text-sm text-slate-500">No progress has been recorded yet.</p>}
         {rows.map((row) => {
           const date = new Date(`${row.progress_date}T00:00:00`);
           return <div key={row.id} className="flex justify-between py-3 text-sm"><span className="font-bold text-emerald-600">+ {formatGoalCurrency(Number(row.amount))}</span><span className="text-slate-500">{date.toLocaleDateString("en-AU", { month: "short", day: "numeric", year: "numeric" })}</span></div>;

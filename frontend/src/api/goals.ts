@@ -8,7 +8,6 @@ export type GoalPayload = {
   monthly_contribution: number;
   target_date: string;
   priority: number;
-  status?: "on_track" | "behind" | "completed";
   category_details?: Record<string, unknown>;
 };
 
@@ -16,13 +15,8 @@ export type GoalRecord = GoalPayload & {
   id: number;
   created_at: string;
   updated_at: string;
-};
-
-export type GoalContribution = {
-  id: number;
-  goal_id: number;
-  amount: number;
-  created_at: string;
+  status: "on_track" | "behind" | "completed";
+  progress_percentage: number;
 };
 
 export type GoalSummaryRecord = {
@@ -46,6 +40,7 @@ export type GoalAllocationSettings = {
   cash_allocatable_ratio: number;
   monthly_allocatable_ratio: number;
   goal_monthly_ratios: GoalRatio[];
+  monthly_allocation: MonthlyAllocation;
 };
 export type MonthlyAllocation = {
   monthly_net_income: number;
@@ -61,8 +56,11 @@ export type GoalAnalysis = {
 export type GoalProgressPayload = { amount: number; progress_date: string; note?: string; source?: string };
 export type GoalProgress = GoalProgressPayload & { id: number; goal_id: number; new_current_amount: number; created_at: string; updated_at: string };
 export type GoalChart = { actual_progress_points: Array<{ date: string; amount: number }>; expected_progress_points: Array<{ date: string; amount: number }>; target_amount: number };
+export type GoalPreview = { goal: GoalPayload; analysis: GoalAnalysis };
+export type GoalPreviewInput = { category: string; target_date: string; priority: "High" | "Medium" | "Low"; category_details: Record<string, string | number> };
 
 export const getGoals = () => apiRequest<GoalRecord[]>("/goals", { authenticated: true });
+export const previewGoal = (input: GoalPreviewInput) => apiRequest<GoalPreview>("/goals/preview", { method: "POST", authenticated: true, body: JSON.stringify(input) });
 export const getGoalSummary = () => apiRequest<GoalSummaryRecord>("/goals/summary", { authenticated: true });
 export const getGoalAnalysis = (id: number) => apiRequest<GoalAnalysis>(`/goals/${id}/analysis`, { authenticated: true });
 export const getGoalChart = (id: number) => apiRequest<GoalChart>(`/goals/${id}/chart`, { authenticated: true });
@@ -71,10 +69,8 @@ export const createGoalProgress = (id: number, input: GoalProgressPayload) => ap
 export const updateGoalProgress = (goalId: number, progressId: number, input: GoalProgressPayload) => apiRequest<GoalProgress>(`/goals/${goalId}/progress/${progressId}`, { method: "PUT", authenticated: true, body: JSON.stringify(input) });
 export const deleteGoalProgress = (goalId: number, progressId: number) => apiRequest<void>(`/goals/${goalId}/progress/${progressId}`, { method: "DELETE", authenticated: true });
 export const getGoalAllocationSettings = () => apiRequest<GoalAllocationSettings>("/goals/allocation-settings", { authenticated: true });
-export const updateGoalAllocationSettings = (input: GoalAllocationSettings) => apiRequest<GoalAllocationSettings>("/goals/allocation-settings", { method: "PUT", authenticated: true, body: JSON.stringify(input) });
-export const updateMonthlyAllocation = (monthlyAllocatableRatio: number, goalMonthlyRatios: GoalRatio[]) => apiRequest<MonthlyAllocation>("/goals/monthly-allocation", { method: "PUT", authenticated: true, body: JSON.stringify({ monthly_allocatable_ratio: monthlyAllocatableRatio, goal_monthly_ratios: goalMonthlyRatios }) });
+export type GoalAllocationSettingsInput = Omit<GoalAllocationSettings, "monthly_allocation">;
+export const updateGoalAllocationSettings = (input: GoalAllocationSettingsInput) => apiRequest<GoalAllocationSettings>("/goals/allocation-settings", { method: "PUT", authenticated: true, body: JSON.stringify(input) });
 export const createGoal = (input: GoalPayload) => apiRequest<GoalRecord>("/goals", { method: "POST", authenticated: true, body: JSON.stringify(input) });
 export const updateGoal = (id: number, input: GoalPayload) => apiRequest<GoalRecord>(`/goals/${id}`, { method: "PUT", authenticated: true, body: JSON.stringify(input) });
 export const deleteGoal = (id: number) => apiRequest<void>(`/goals/${id}`, { method: "DELETE", authenticated: true });
-export const createGoalContribution = (goalId: number, amount: number) => apiRequest<GoalContribution>(`/goals/${goalId}/contributions`, { method: "POST", authenticated: true, body: JSON.stringify({ amount }) });
-export const getGoalContributions = (goalId: number) => apiRequest<GoalContribution[]>(`/goals/${goalId}/contributions`, { authenticated: true });

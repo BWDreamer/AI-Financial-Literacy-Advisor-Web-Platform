@@ -1,13 +1,15 @@
 import calendar
 from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
+from types import SimpleNamespace
 
 from sqlalchemy.orm import Session
 
 from app.models.goal import Goal
-from app.repositories.financial_repository import list_assets, list_cash_flows, list_debts, list_recurring_cash_flows
-from app.repositories.goal_repository import list_contributions, list_progress
+from app.repositories.financial_repository import list_assets, list_cash_buckets, list_cash_flows, list_debts, list_recurring_cash_flows
+from app.repositories.goal_repository import list_progress
 from app.services.financial_service import build_financial_summary
+from app.schemas.goal import GoalPreviewRequest, GoalRequest
 
 
 MONEY = Decimal("0.01")
@@ -64,11 +66,72 @@ def refresh_goal_status(goal: Goal) -> None:
     goal.status = analyse_goal(goal)["status"]
 
 
+def build_goal_preview(request: GoalPreviewRequest) -> dict:
+    details = request.category_details
+
+    def amount(field: str) -> Decimal:
+        try:
+            return Decimal(str(details.get(field) or 0))
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"{field} must be a valid number.") from exc
+
+    common = {
+        "category": request.category, "target_date": request.target_date,
+        "priority": {"High": 1, "Medium": 3, "Low": 5}[request.priority],
+        "category_details": details,
+    }
+    if request.category == "Emergency Fund":
+        values = {
+            "name": "Emergency Fund",
+            "target_amount": amount("essential_monthly_expenses") * amount("coverage_months"),
+            "current_amount": amount("current_amount"),
+            "monthly_contribution": amount("monthly_contribution"),
+        }
+    elif request.category == "Debt Repayment":
+        values = {
+            "name": str(details.get("debt_name") or "Debt Repayment"),
+            "target_amount": amount("debt_balance"), "current_amount": Decimal("0"),
+            "monthly_contribution": amount("minimum_repayment") + amount("extra_repayment"),
+        }
+    elif request.category == "Home Deposit":
+        calculated = amount("property_price") * amount("deposit_percent") / 100
+        values = {
+            "name": "Home Deposit",
+            "target_amount": max(amount("deposit_target"), calculated) + amount("cost_buffer"),
+            "current_amount": amount("current_amount"),
+            "monthly_contribution": amount("monthly_contribution"),
+        }
+    elif request.category == "Retirement":
+        values = {
+            "name": "Retirement Plan", "target_amount": amount("target_amount"),
+            "current_amount": amount("current_super"),
+            "monthly_contribution": amount("regular_contribution"),
+        }
+    elif request.category == "Budget":
+        values = {
+            "name": "Improve Monthly Cash Flow",
+            "target_amount": amount("target_monthly_surplus") * 12,
+            "current_amount": Decimal("0"),
+            "monthly_contribution": amount("target_monthly_surplus"),
+        }
+    elif request.category == "General Saving":
+        values = {
+            "name": str(details.get("goal_title") or "General Saving"),
+            "target_amount": amount("target_amount"),
+            "current_amount": amount("current_amount"),
+            "monthly_contribution": amount("monthly_contribution"),
+        }
+    else:
+        raise ValueError("Unsupported goal category.")
+
+    goal = GoalRequest(**common, **values)
+    analysis = analyse_goal(SimpleNamespace(**goal.model_dump()))
+    return {"goal": goal, "analysis": analysis}
+
+
 def build_goal_chart(db: Session, goal: Goal) -> dict:
     progress = list_progress(db, goal.id)
-    contributions = list_contributions(db, goal.id)
     events = [(item.progress_date, Decimal(item.amount)) for item in progress]
-    events += [(item.created_at.date(), Decimal(item.amount)) for item in contributions]
     events.sort(key=lambda item: item[0])
     baseline = max(Decimal(goal.current_amount) - sum((item[1] for item in events), Decimal("0")), Decimal("0"))
     actual = [{"date": goal.created_at.date(), "amount": money(baseline)}]
@@ -100,10 +163,12 @@ def build_goal_chart(db: Session, goal: Goal) -> dict:
 
 
 def financial_numbers(db: Session, user_id: int) -> dict:
-    return build_financial_summary(
+    summary = build_financial_summary(
         list_assets(db, user_id), list_debts(db, user_id),
         list_cash_flows(db, user_id), list_recurring_cash_flows(db, user_id),
     )
+    summary["cash_buckets"] = list_cash_buckets(db, user_id)
+    return summary
 
 
 def validate_owned_ratios(goals: list[Goal], ratios: list) -> None:
@@ -116,10 +181,15 @@ def validate_owned_ratios(goals: list[Goal], ratios: list) -> None:
 def calculate_monthly_allocation(finance: dict, ratio: Decimal, goal_ratios: list) -> dict:
     net = money(max(Decimal(finance["monthly_income"]) - Decimal(finance["monthly_expenses"]), Decimal("0")))
     allocatable = money(net * ratio / 100)
-    rows = [
-        {"goal_id": int(item.goal_id), "ratio": Decimal(str(item.ratio)), "monthly_amount": money(allocatable * Decimal(str(item.ratio)) / 100)}
-        for item in goal_ratios
-    ]
+    rows = []
+    for item in goal_ratios:
+        goal_id = item["goal_id"] if isinstance(item, dict) else item.goal_id
+        goal_ratio = item["ratio"] if isinstance(item, dict) else item.ratio
+        goal_ratio = Decimal(str(goal_ratio))
+        rows.append({
+            "goal_id": int(goal_id), "ratio": goal_ratio,
+            "monthly_amount": money(allocatable * goal_ratio / 100),
+        })
     assigned = money(sum((item["monthly_amount"] for item in rows), Decimal("0")))
     return {
         "monthly_net_income": net,

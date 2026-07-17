@@ -21,15 +21,6 @@ class Goal(Base):
     updated_at = Column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
 
 
-class GoalContribution(Base):
-    __tablename__ = "goal_contributions"
-
-    id = Column(Integer, primary_key=True, index=True)
-    goal_id = Column(Integer, ForeignKey("goals.id", ondelete="CASCADE"), nullable=False, index=True)
-    amount = Column(Numeric(14, 2), nullable=False)
-    created_at = Column(DateTime, nullable=False, server_default=func.now())
-
-
 class GoalProgress(Base):
     __tablename__ = "goal_progress"
 

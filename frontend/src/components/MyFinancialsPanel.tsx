@@ -1,12 +1,12 @@
 import { FormEvent, useState } from "react";
 import { Banknote, ChevronDown, ChevronUp, CreditCard, Grid2X2, Home, Plus } from "lucide-react";
-import { AssetType, CashFlowType, DebtType, FinancialEntry, Frequency, assetLabels, assetTotal, cashFlowTotal, debtLabels, debtTotal, money, recurringMonthlyTotal, sameMonth, todayInputValue } from "../utils/financials";
+import { AssetType, CashFlowType, DebtType, FinancialEntry, Frequency, assetLabels, debtLabels, money, todayInputValue } from "../utils/financials";
 import type { FinancialSummary } from "../api/financials";
 import DatePicker from "./DatePicker";
 import FormInput from "./FormInput";
 import PrimaryButton from "./PrimaryButton";
 
-type Props = { entries: FinancialEntry[]; summary?: FinancialSummary | null; onAdd: (entry: FinancialEntry) => void };
+type Props = { summary?: FinancialSummary | null; onAdd: (entry: FinancialEntry) => void };
 type AddMode = "asset" | "debt" | "cashflow";
 type ActiveMode = AddMode | null;
 
@@ -15,27 +15,20 @@ const debtOptions: DebtType[] = ["mortgage", "car_loan", "personal_loan", "credi
 const frequencies: Frequency[] = ["once", "weekly", "fortnightly", "monthly", "yearly"];
 const selectClass = "w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100";
 
-function cashSavingsTotal(entries: FinancialEntry[]) {
-  return assetTotal(entries, "cash") + cashFlowTotal(entries, "income") - cashFlowTotal(entries, "expense");
+function modeTotal(mode: AddMode, summary?: FinancialSummary | null) {
+  if (mode === "asset") return Number(summary?.total_assets ?? 0);
+  if (mode === "debt") return Number(summary?.total_debts ?? 0);
+  return Number(summary?.monthly_cash_flow ?? 0);
 }
 
-function modeTotal(mode: AddMode, entries: FinancialEntry[], summary?: FinancialSummary | null) {
-  if (summary && mode === "asset") return Number(summary.total_assets || 0);
-  if (summary && mode === "debt") return Number(summary.total_debts || 0);
-  if (summary && mode === "cashflow") return Number(summary.monthly_cash_flow || 0);
-  if (mode === "asset") return assetTotal(entries) - assetTotal(entries, "cash") + cashSavingsTotal(entries);
-  if (mode === "debt") return debtTotal(entries);
-  return cashFlowTotal(entries, "income", (entry) => sameMonth(entry.date)) + recurringMonthlyTotal(entries, "income") - cashFlowTotal(entries, "expense", (entry) => sameMonth(entry.date)) - recurringMonthlyTotal(entries, "expense");
-}
-
-function SummaryCard({ mode, entries, summary, active, onClick }: { mode: AddMode; entries: FinancialEntry[]; summary?: FinancialSummary | null; active: boolean; onClick: () => void }) {
+function SummaryCard({ mode, summary, active, onClick }: { mode: AddMode; summary?: FinancialSummary | null; active: boolean; onClick: () => void }) {
   const meta = {
     asset: { label: "Assets", helper: "Total assets", icon: Home, tone: "bg-blue-100 text-blue-600" },
     debt: { label: "Debt", helper: "Total debt", icon: CreditCard, tone: "bg-red-100 text-red-600" },
     cashflow: { label: "Cash Flow", helper: "Monthly net cash flow", icon: Banknote, tone: "bg-emerald-100 text-emerald-600" },
   }[mode];
   const Icon = meta.icon;
-  return <button type="button" onClick={onClick} className={`rounded-2xl border border-dashed p-4 text-left transition ${active ? "border-blue-400 bg-blue-50" : "border-slate-300 bg-white hover:border-blue-300"}`}><div className="flex items-center justify-between"><span className="flex items-center gap-3 font-bold text-slate-900"><span className={`grid size-10 place-items-center rounded-full ${meta.tone}`}><Icon size={20} /></span>{meta.label}</span><Plus size={18} className="text-blue-600" /></div><p className="mt-3 text-2xl font-bold">{money(modeTotal(mode, entries, summary))}</p><p className="text-xs text-slate-500">{meta.helper}</p></button>;
+  return <button type="button" onClick={onClick} className={`rounded-2xl border border-dashed p-4 text-left transition ${active ? "border-blue-400 bg-blue-50" : "border-slate-300 bg-white hover:border-blue-300"}`}><div className="flex items-center justify-between"><span className="flex items-center gap-3 font-bold text-slate-900"><span className={`grid size-10 place-items-center rounded-full ${meta.tone}`}><Icon size={20} /></span>{meta.label}</span><Plus size={18} className="text-blue-600" /></div><p className="mt-3 text-2xl font-bold">{money(modeTotal(mode, summary))}</p><p className="text-xs text-slate-500">{meta.helper}</p></button>;
 }
 
 function Actions({ label }: { label: string }) {
@@ -72,12 +65,12 @@ function CashFlowForm({ onAdd }: { onAdd: Props["onAdd"] }) {
   return <form onSubmit={submit} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6"><label><span className="mb-2 block text-sm font-medium text-slate-700">Type</span><select name="flowType" className={selectClass}><option value="income">Income</option><option value="expense">Expense</option></select></label><label><span className="mb-2 block text-sm font-medium text-slate-700">Frequency</span><select name="frequency" className={selectClass}>{frequencies.map((item) => <option key={item} value={item}>{item === "once" ? "One-off" : item[0].toUpperCase() + item.slice(1)}</option>)}</select></label><FormInput id="flow-name" name="name" label="Name" required /><DatePicker id="flow-date" name="date" label="Date / Start Date" defaultValue={todayInputValue()} max={todayInputValue()} placement="top" /><FormInput id="flow-amount" name="amount" type="number" min="0" step="0.01" label="Amount" required /><div className="flex items-end"><Actions label="Create Cash Flow" /></div></form>;
 }
 
-function ExpandedContent({ entries, summary, onAdd, mode, setMode }: { entries: FinancialEntry[]; summary?: FinancialSummary | null; onAdd: Props["onAdd"]; mode: ActiveMode; setMode: (mode: ActiveMode) => void }) {
+function ExpandedContent({ summary, onAdd, mode, setMode }: { summary?: FinancialSummary | null; onAdd: Props["onAdd"]; mode: ActiveMode; setMode: (mode: ActiveMode) => void }) {
   const toggle = (next: AddMode) => setMode(mode === next ? null : next);
-  return <div className="max-h-[78vh] overflow-y-auto rounded-t-3xl border border-slate-200 bg-white p-3 shadow-2xl transition-all duration-[900ms] ease-out sm:p-5"><div className="grid gap-4 md:grid-cols-3"><SummaryCard mode="asset" entries={entries} summary={summary} active={mode === "asset"} onClick={() => toggle("asset")} /><SummaryCard mode="debt" entries={entries} summary={summary} active={mode === "debt"} onClick={() => toggle("debt")} /><SummaryCard mode="cashflow" entries={entries} summary={summary} active={mode === "cashflow"} onClick={() => toggle("cashflow")} /></div><div className={`transition-all duration-[900ms] ease-out ${mode ? "mt-5 max-h-[34rem] overflow-visible" : "max-h-0 overflow-hidden"}`}><div className="rounded-2xl bg-slate-50 p-3 sm:p-4">{mode === "asset" && <AssetForm onAdd={onAdd} />}{mode === "debt" && <DebtForm onAdd={onAdd} />}{mode === "cashflow" && <CashFlowForm onAdd={onAdd} />}</div></div></div>;
+  return <div className="max-h-[78vh] overflow-y-auto rounded-t-3xl border border-slate-200 bg-white p-3 shadow-2xl transition-all duration-[900ms] ease-out sm:p-5"><div className="grid gap-4 md:grid-cols-3"><SummaryCard mode="asset" summary={summary} active={mode === "asset"} onClick={() => toggle("asset")} /><SummaryCard mode="debt" summary={summary} active={mode === "debt"} onClick={() => toggle("debt")} /><SummaryCard mode="cashflow" summary={summary} active={mode === "cashflow"} onClick={() => toggle("cashflow")} /></div><div className={`transition-all duration-[900ms] ease-out ${mode ? "mt-5 max-h-[34rem] overflow-visible" : "max-h-0 overflow-hidden"}`}><div className="rounded-2xl bg-slate-50 p-3 sm:p-4">{mode === "asset" && <AssetForm onAdd={onAdd} />}{mode === "debt" && <DebtForm onAdd={onAdd} />}{mode === "cashflow" && <CashFlowForm onAdd={onAdd} />}</div></div></div>;
 }
 
-export default function MyFinancialsPanel({ entries, summary, onAdd }: Props) {
+export default function MyFinancialsPanel({ summary, onAdd }: Props) {
   const [expanded, setExpanded] = useState(false); const [mode, setMode] = useState<ActiveMode>(null);
-  return <section className="sticky bottom-0 z-30 mx-auto max-w-5xl px-2 sm:px-4"><button type="button" onClick={() => setExpanded((value) => !value)} className="mx-auto flex w-[min(18rem,calc(100vw-1rem))] items-center justify-center gap-3 rounded-t-2xl bg-slate-900 px-4 py-3 text-sm font-bold text-white shadow-xl ring-2 ring-slate-700 transition-colors hover:bg-slate-800"><Grid2X2 size={18} />MyFinancial{expanded ? <ChevronDown size={16} /> : <ChevronUp size={16} />}</button><div className={`overflow-hidden transition-all duration-[900ms] ease-out ${expanded ? "max-h-[82vh]" : "max-h-0"}`}><ExpandedContent entries={entries} summary={summary} onAdd={onAdd} mode={mode} setMode={setMode} /></div></section>;
+  return <section className="sticky bottom-0 z-30 mx-auto max-w-5xl px-2 sm:px-4"><button type="button" onClick={() => setExpanded((value) => !value)} className="mx-auto flex w-[min(18rem,calc(100vw-1rem))] items-center justify-center gap-3 rounded-t-2xl bg-slate-900 px-4 py-3 text-sm font-bold text-white shadow-xl ring-2 ring-slate-700 transition-colors hover:bg-slate-800"><Grid2X2 size={18} />MyFinancial{expanded ? <ChevronDown size={16} /> : <ChevronUp size={16} />}</button><div className={`overflow-hidden transition-all duration-[900ms] ease-out ${expanded ? "max-h-[82vh]" : "max-h-0"}`}><ExpandedContent summary={summary} onAdd={onAdd} mode={mode} setMode={setMode} /></div></section>;
 }

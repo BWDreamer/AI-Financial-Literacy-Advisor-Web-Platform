@@ -2,7 +2,7 @@ from decimal import Decimal
 
 from sqlalchemy.orm import Session
 
-from app.models.goal import Goal, GoalAllocationSettings, GoalContribution, GoalProgress
+from app.models.goal import Goal, GoalAllocationSettings, GoalProgress
 from app.schemas.goal import AllocationSettingsRequest, GoalProgressRequest, GoalRequest
 
 
@@ -16,10 +16,8 @@ def get_goal(db: Session, user_id: int, goal_id: int) -> Goal | None:
 
 def save_goal(db: Session, user_id: int, data: GoalRequest, goal: Goal | None = None) -> Goal:
     goal = goal or Goal(user_id=user_id)
-    for field, value in data.model_dump(exclude={"status"}).items():
+    for field, value in data.model_dump().items():
         setattr(goal, field, value)
-    if data.status is not None:
-        goal.status = data.status
     db.add(goal)
     db.commit()
     db.refresh(goal)
@@ -29,19 +27,6 @@ def save_goal(db: Session, user_id: int, data: GoalRequest, goal: Goal | None = 
 def delete_goal(db: Session, goal: Goal) -> None:
     db.delete(goal)
     db.commit()
-
-
-def add_contribution(db: Session, goal: Goal, amount: Decimal) -> GoalContribution:
-    contribution = GoalContribution(goal_id=goal.id, amount=amount)
-    goal.current_amount += amount
-    db.add_all([goal, contribution])
-    db.commit()
-    db.refresh(contribution)
-    return contribution
-
-
-def list_contributions(db: Session, goal_id: int) -> list[GoalContribution]:
-    return db.query(GoalContribution).filter(GoalContribution.goal_id == goal_id).order_by(GoalContribution.created_at.desc(), GoalContribution.id.desc()).all()
 
 
 def list_progress(db: Session, goal_id: int) -> list[GoalProgress]:
