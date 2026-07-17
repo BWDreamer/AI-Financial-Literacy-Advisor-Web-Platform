@@ -11,6 +11,7 @@ from app.services.financial_service import build_financial_summary
 
 
 MONEY = Decimal("0.01")
+MAX_EXPECTED_CHART_POINTS = 600
 
 
 def money(value: Decimal) -> Decimal:
@@ -78,8 +79,17 @@ def build_goal_chart(db: Session, goal: Goal) -> dict:
 
     start = goal.created_at.date()
     total_months = max((goal.target_date.year - start.year) * 12 + goal.target_date.month - start.month, 1)
+    needs_final_target = add_months(start, total_months) != goal.target_date
+    monthly_point_limit = MAX_EXPECTED_CHART_POINTS - int(needs_final_target)
+    if total_months + 1 <= monthly_point_limit:
+        expected_indices = range(total_months + 1)
+    else:
+        expected_indices = (
+            sample_index * total_months // (monthly_point_limit - 1)
+            for sample_index in range(monthly_point_limit)
+        )
     expected = []
-    for index in range(total_months + 1):
+    for index in expected_indices:
         point_date = min(add_months(start, index), goal.target_date)
         expected.append({"date": point_date, "amount": money(Decimal(goal.target_amount) * index / total_months)})
         if point_date == goal.target_date:
