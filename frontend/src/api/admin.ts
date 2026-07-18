@@ -27,6 +27,35 @@ export type AdminUserCreate = {
 
 export type AdminUserUpdate = Omit<AdminUserCreate, "password">;
 
+export type AdvisoryTopicName =
+  | "Budgeting"
+  | "Saving"
+  | "Tax"
+  | "Superannuation"
+  | "Investing"
+  | "Debt";
+
+export type AdvisoryTopicSetting = {
+  name: AdvisoryTopicName;
+  enabled: boolean;
+};
+
+export type AdvisorySettings = {
+  topics: AdvisoryTopicSetting[];
+};
+
+export function getAdvisorySettings() {
+  return apiGet<AdvisorySettings>("/admin/advisory-settings", true);
+}
+
+export function updateAdvisorySettings(topics: AdvisoryTopicSetting[]) {
+  return apiRequest<AdvisorySettings>("/admin/advisory-settings", {
+    method: "PATCH",
+    authenticated: true,
+    body: JSON.stringify({ topics }),
+  });
+}
+
 export function getAdminUsers() {
   return apiGet<AdminUser[]>("/admin/users", true);
 }
