@@ -8,6 +8,7 @@ from app.core.database import Base, get_db
 from app.main import app
 
 # These imports register the database tables with SQLAlchemy.
+from app.models.advisory_settings import AdvisorySettings
 from app.models.financial_rule import FinancialRule
 from app.models.financial import Asset, CashBucket, CashFlow, Debt, RecurringCashFlow
 from app.models.chat import ChatConversation, ChatMessage

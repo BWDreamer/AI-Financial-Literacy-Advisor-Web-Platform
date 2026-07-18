@@ -1,8 +1,71 @@
 from sqlalchemy.orm import Session
 
 from app.core.security import hash_password
+from app.models.advisory_settings import AdvisorySettings
 from app.models.user import User
+from app.repositories.advisory_settings_repository import (
+    find_advisory_settings,
+    save_advisory_settings,
+)
 from app.repositories.user_repository import create_user, get_user_by_email
+from app.schemas.admin import AdvisorySettingsUpdateRequest
+
+
+DEFAULT_ADVISORY_TOPICS = {
+    "Budgeting": True,
+    "Saving": True,
+    "Tax": True,
+    "Superannuation": True,
+    "Investing": False,
+    "Debt": True,
+}
+
+
+def advisory_settings_payload(
+    settings: AdvisorySettings | None,
+) -> dict[str, list[dict[str, object]]]:
+    values = DEFAULT_ADVISORY_TOPICS.copy()
+    if settings is not None and isinstance(settings.topics, list):
+        for topic in settings.topics:
+            if not isinstance(topic, dict):
+                continue
+            name = topic.get("name")
+            enabled = topic.get("enabled")
+            if name in values and isinstance(enabled, bool):
+                values[name] = enabled
+
+    return {
+        "topics": [
+            {"name": name, "enabled": enabled}
+            for name, enabled in values.items()
+        ]
+    }
+
+
+def get_advisory_settings(db: Session) -> dict[str, list[dict[str, object]]]:
+    return advisory_settings_payload(find_advisory_settings(db))
+
+
+def update_advisory_settings(
+    db: Session,
+    request: AdvisorySettingsUpdateRequest,
+) -> dict[str, list[dict[str, object]]]:
+    current = get_advisory_settings(db)
+    values = {
+        topic["name"]: topic["enabled"]
+        for topic in current["topics"]
+    }
+    values.update(
+        {
+            topic.name: topic.enabled
+            for topic in request.topics
+        }
+    )
+    topics = [
+        {"name": name, "enabled": values[name]}
+        for name in DEFAULT_ADVISORY_TOPICS
+    ]
+    return advisory_settings_payload(save_advisory_settings(db, topics))
 
 
 def create_admin_user(

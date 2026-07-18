@@ -45,9 +45,15 @@ from app.schemas.article import (
     ArticleUpdateRequest,
 )
 from app.schemas.admin import (
+    AdvisorySettingsResponse,
+    AdvisorySettingsUpdateRequest,
     AdminUserCreateRequest,
     AdminUserResponse,
     AdminUserUpdateRequest,
+)
+from app.services.admin_service import (
+    get_advisory_settings,
+    update_advisory_settings,
 )
 
 
@@ -96,6 +102,29 @@ def admin_user_payload(db: Session, user: User) -> dict:
 @router.get("/ping")
 def ping_admin():
     return {"module": "admin", "status": "ok"}
+
+
+@router.get(
+    "/advisory-settings",
+    response_model=AdvisorySettingsResponse,
+)
+def read_advisory_settings(
+    _admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    return get_advisory_settings(db)
+
+
+@router.patch(
+    "/advisory-settings",
+    response_model=AdvisorySettingsResponse,
+)
+def patch_advisory_settings(
+    request: AdvisorySettingsUpdateRequest,
+    _admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    return update_advisory_settings(db, request)
 
 
 @router.get("/users", response_model=list[AdminUserResponse])
