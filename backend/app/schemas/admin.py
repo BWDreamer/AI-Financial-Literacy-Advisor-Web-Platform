@@ -1,6 +1,47 @@
 from datetime import datetime
+from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    Field,
+    field_validator,
+    model_validator,
+)
+
+
+AdvisoryTopicName = Literal[
+    "Budgeting",
+    "Saving",
+    "Tax",
+    "Superannuation",
+    "Investing",
+    "Debt",
+]
+
+
+class AdvisoryTopicSetting(BaseModel):
+    name: AdvisoryTopicName
+    enabled: bool
+
+
+class AdvisorySettingsResponse(BaseModel):
+    topics: list[AdvisoryTopicSetting]
+
+
+class AdvisorySettingsUpdateRequest(BaseModel):
+    topics: list[AdvisoryTopicSetting] = Field(
+        min_length=1,
+        max_length=6,
+    )
+
+    @model_validator(mode="after")
+    def reject_duplicate_topics(self):
+        names = [topic.name for topic in self.topics]
+        if len(names) != len(set(names)):
+            raise ValueError("Each advisory topic may only appear once.")
+        return self
 
 
 class AdminUserCreateRequest(BaseModel):

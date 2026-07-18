@@ -58,11 +58,18 @@ The former `/monthly-allocation` write route is retired.
 - POST /api/admin/users (admin only)
 - PATCH /api/admin/users/{id} (admin only)
 - DELETE /api/admin/users/{id} (admin only)
+- GET /api/admin/advisory-settings (admin only)
+- PATCH /api/admin/advisory-settings (admin only)
 - POST /api/auth/heartbeat (authenticated user)
 
 Admin user requests use `first_name`, `last_name`, `email`, and `password`
 for creation. Update requests omit `password`. User responses include `id`,
 `user_id`, `created_at`, `is_online`, and `last_seen_at`.
+
+Advisory settings return the canonical Budgeting, Saving, Tax,
+Superannuation, Investing, and Debt topics. PATCH accepts one or more of
+those topics with an `enabled` boolean, preserves omitted topic values, and
+persists the resulting global configuration.
 
 ## Financials
 
