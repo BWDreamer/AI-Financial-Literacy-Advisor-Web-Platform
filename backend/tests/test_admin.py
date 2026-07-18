@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
 from app.core.security import hash_password, verify_password
+from app.models.advisory_settings import AdvisorySettings
 from app.models.user import User
 
 
@@ -27,6 +28,86 @@ def test_admin_users_require_admin_role(client, db_session):
     headers = create_user_and_headers(client, db_session)
     response = client.get("/api/admin/users", headers=headers)
     assert response.status_code == 403
+
+
+def test_advisory_settings_require_admin_role(client, db_session):
+    headers = create_user_and_headers(client, db_session)
+
+    assert client.get(
+        "/api/admin/advisory-settings",
+        headers=headers,
+    ).status_code == 403
+    assert client.patch(
+        "/api/admin/advisory-settings",
+        headers=headers,
+        json={"topics": [{"name": "Budgeting", "enabled": False}]},
+    ).status_code == 403
+
+
+def test_admin_can_read_and_update_advisory_settings(client, db_session):
+    headers = create_user_and_headers(client, db_session, role="admin")
+    expected_defaults = [
+        {"name": "Budgeting", "enabled": True},
+        {"name": "Saving", "enabled": True},
+        {"name": "Tax", "enabled": True},
+        {"name": "Superannuation", "enabled": True},
+        {"name": "Investing", "enabled": False},
+        {"name": "Debt", "enabled": True},
+    ]
+
+    initial = client.get(
+        "/api/admin/advisory-settings",
+        headers=headers,
+    )
+    assert initial.status_code == 200
+    assert initial.json() == {"topics": expected_defaults}
+    assert db_session.query(AdvisorySettings).count() == 0
+
+    updated = client.patch(
+        "/api/admin/advisory-settings",
+        headers=headers,
+        json={
+            "topics": [
+                {"name": "Investing", "enabled": True},
+                {"name": "Tax", "enabled": False},
+            ]
+        },
+    )
+    assert updated.status_code == 200
+    expected_defaults[2]["enabled"] = False
+    expected_defaults[4]["enabled"] = True
+    assert updated.json() == {"topics": expected_defaults}
+
+    persisted = client.get(
+        "/api/admin/advisory-settings",
+        headers=headers,
+    )
+    assert persisted.status_code == 200
+    assert persisted.json() == updated.json()
+    assert db_session.query(AdvisorySettings).count() == 1
+
+
+def test_advisory_settings_reject_invalid_topics(client, db_session):
+    headers = create_user_and_headers(client, db_session, role="admin")
+
+    unknown = client.patch(
+        "/api/admin/advisory-settings",
+        headers=headers,
+        json={"topics": [{"name": "Crypto", "enabled": True}]},
+    )
+    assert unknown.status_code == 422
+
+    duplicate = client.patch(
+        "/api/admin/advisory-settings",
+        headers=headers,
+        json={
+            "topics": [
+                {"name": "Saving", "enabled": True},
+                {"name": "Saving", "enabled": False},
+            ]
+        },
+    )
+    assert duplicate.status_code == 422
 
 
 def test_admin_user_crud(client, db_session):
