@@ -23,7 +23,12 @@ class CapturingAdvisorService:
             "confidence": 0.0,
         }
 
-    async def reply(self, message: str) -> str:
+    async def reply(
+        self,
+        message: str,
+        system_instruction: str | None = None,
+    ) -> str:
+        del system_instruction
         self.messages.append(message)
         return "Captured educational response."
 

@@ -17,6 +17,7 @@ from app.ai.exceptions import (
     LLMRateLimitError,
     LLMServiceError,
 )
+from app.ai.prompts import build_advisory_topic_instructions
 from app.api.dependencies import get_current_user
 from app.core.database import get_db
 from app.core.config import settings
@@ -35,6 +36,7 @@ from app.schemas.ai import (
     AIChatResponse,
     AIPdfChatResponse,
 )
+from app.services.admin_service import get_advisory_settings
 from app.services.ai_advisor_service import AIAdvisorService
 from app.services.chat_context_service import (
     build_conversation_context,
@@ -414,6 +416,9 @@ async def chat_with_advisor(
 ):
     """Return an educational reply from the configured LLM."""
     try:
+        advisory_topic_instructions = build_advisory_topic_instructions(
+            get_advisory_settings(db)["topics"]
+        )
         memory_context = None
         conversation_context = None
         goal_conversation_context = None
@@ -504,7 +509,10 @@ async def chat_with_advisor(
             rule_context=rule_context,
         )
         answer = _formatted_answer(
-            await advisor_service.reply(message)
+            await advisor_service.reply(
+                message,
+                system_instruction=advisory_topic_instructions,
+            )
         )
 
         remember_from_message(db, current_user.id, request.message)

@@ -16,7 +16,7 @@ from app.ai.exceptions import (
     LLMRateLimitError,
     LLMServiceError,
 )
-from app.ai.prompts import FINANCIAL_ADVISOR_INSTRUCTIONS
+from app.ai.prompts import build_financial_advisor_instructions
 
 
 logger = logging.getLogger(__name__)
@@ -204,9 +204,12 @@ class GeminiProvider:
         message: str,
         *,
         response_schema: dict[str, Any] | None = None,
+        system_instruction: str | None = None,
     ):
         config_kwargs: dict[str, Any] = {
-            "system_instruction": FINANCIAL_ADVISOR_INSTRUCTIONS,
+            "system_instruction": build_financial_advisor_instructions(
+                system_instruction
+            ),
             "temperature": self._temperature,
         }
 
@@ -233,6 +236,7 @@ class GeminiProvider:
         message: str,
         *,
         response_schema: dict[str, Any] | None = None,
+        system_instruction: str | None = None,
     ):
         if not self._api_key:
             raise LLMConfigurationError(
@@ -243,6 +247,7 @@ class GeminiProvider:
             lambda: self._generate_once(
                 message,
                 response_schema=response_schema,
+                system_instruction=system_instruction,
             ),
             provider_name="Gemini",
             api_key=self._api_key,
@@ -253,8 +258,12 @@ class GeminiProvider:
     async def generate_reply(
         self,
         message: str,
+        system_instruction: str | None = None,
     ) -> str:
-        response = await self._generate_with_retries(message)
+        response = await self._generate_with_retries(
+            message,
+            system_instruction=system_instruction,
+        )
         answer = (response.text or "").strip()
 
         if not answer:
@@ -381,13 +390,16 @@ class OpenRouterProvider:
         self,
         message: str,
         response_schema: dict[str, Any] | None,
+        system_instruction: str | None = None,
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "model": self.model,
             "messages": [
                 {
                     "role": "system",
-                    "content": FINANCIAL_ADVISOR_INSTRUCTIONS,
+                    "content": build_financial_advisor_instructions(
+                        system_instruction
+                    ),
                 },
                 {
                     "role": "user",
@@ -422,6 +434,7 @@ class OpenRouterProvider:
         message: str,
         *,
         response_schema: dict[str, Any] | None = None,
+        system_instruction: str | None = None,
     ) -> str:
         async with asyncio.timeout(self._timeout_seconds):
             response = await self._client.post(
@@ -429,6 +442,7 @@ class OpenRouterProvider:
                 json=self._build_request_payload(
                     message,
                     response_schema=response_schema,
+                    system_instruction=system_instruction,
                 )
             )
             response.raise_for_status()
@@ -534,19 +548,25 @@ class OpenRouterProvider:
         message: str,
         *,
         response_schema: dict[str, Any] | None = None,
+        system_instruction: str | None = None,
     ) -> str:
         return await self._run_operation_with_retries(
             lambda: self._generate_once(
                 message,
                 response_schema=response_schema,
+                system_instruction=system_instruction,
             )
         )
 
     async def generate_reply(
         self,
         message: str,
+        system_instruction: str | None = None,
     ) -> str:
-        return await self._generate_with_retries(message)
+        return await self._generate_with_retries(
+            message,
+            system_instruction=system_instruction,
+        )
 
     async def generate_json(
         self,

@@ -8,7 +8,9 @@ class SuccessfulTestAdvisorService:
     async def reply(
         self,
         message: str,
+        system_instruction: str | None = None,
     ) -> str:
+        del system_instruction
         return f"Educational response for: {message}"
 
 
@@ -21,7 +23,9 @@ class CapturingTestAdvisorService:
     async def reply(
         self,
         message: str,
+        system_instruction: str | None = None,
     ) -> str:
+        del system_instruction
         self.messages.append(message)
         return "Educational response."
 
