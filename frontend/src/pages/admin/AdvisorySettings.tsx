@@ -1,29 +1,45 @@
-import { FormEvent, useMemo, useState } from "react";
-import { RotateCcw, Save, ShieldCheck } from "lucide-react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { RefreshCw, RotateCcw, Save, ShieldCheck } from "lucide-react";
+import {
+  getAdvisorySettings,
+  updateAdvisorySettings,
+  type AdvisorySettings as AdvisorySettingsData,
+} from "../../api/admin";
 
-type TopicControl = {
-  name: string;
-  enabled: boolean;
-};
-
-type AdvisorySettingsState = {
-  topics: TopicControl[];
-};
-
-const defaultSettings: AdvisorySettingsState = {
+const defaultSettings: AdvisorySettingsData = {
   topics: [
     { name: "Budgeting", enabled: true },
     { name: "Saving", enabled: true },
     { name: "Tax", enabled: true },
     { name: "Superannuation", enabled: true },
-    { name: "Investing", enabled: true },
+    { name: "Investing", enabled: false },
     { name: "Debt", enabled: true },
   ],
 };
 
 export default function AdvisorySettings() {
-  const [settings, setSettings] = useState<AdvisorySettingsState>(defaultSettings);
+  const [settings, setSettings] = useState<AdvisorySettingsData>(defaultSettings);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [pageError, setPageError] = useState("");
   const [savedMessage, setSavedMessage] = useState("");
+
+  const loadSettings = useCallback(async () => {
+    setLoading(true);
+    setPageError("");
+    try {
+      const data = await getAdvisorySettings();
+      setSettings(data);
+    } catch (error) {
+      setPageError(error instanceof Error ? error.message : "Unable to load advisory settings.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadSettings();
+  }, [loadSettings]);
 
   const summary = useMemo(() => {
     const enabledTopics = settings.topics.filter((topic) => topic.enabled);
@@ -44,14 +60,33 @@ export default function AdvisorySettings() {
     setSavedMessage("");
   }
 
-  function submit(event: FormEvent) {
+  async function submit(event: FormEvent) {
     event.preventDefault();
-    setSavedMessage("Advisory settings saved for this session.");
+    setSaving(true);
+    setPageError("");
+    try {
+      const data = await updateAdvisorySettings(settings.topics);
+      setSettings(data);
+      setSavedMessage("Advisory settings saved.");
+    } catch (error) {
+      setPageError(error instanceof Error ? error.message : "Unable to save advisory settings.");
+    } finally {
+      setSaving(false);
+    }
   }
 
-  function resetSettings() {
-    setSettings(defaultSettings);
-    setSavedMessage("Advisory settings reset to defaults.");
+  async function resetSettings() {
+    setSaving(true);
+    setPageError("");
+    try {
+      const data = await updateAdvisorySettings(defaultSettings.topics);
+      setSettings(data);
+      setSavedMessage("Advisory settings reset to defaults.");
+    } catch (error) {
+      setPageError(error instanceof Error ? error.message : "Unable to reset advisory settings.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -69,6 +104,18 @@ export default function AdvisorySettings() {
           className="mt-6 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700"
         >
           {savedMessage}
+        </div>
+      )}
+
+      {pageError && (
+        <div
+          role="alert"
+          className="mt-6 flex flex-col gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 sm:flex-row sm:items-center sm:justify-between"
+        >
+          <span>{pageError}</span>
+          <button type="button" onClick={() => void loadSettings()} className="inline-flex items-center gap-2 font-semibold">
+            <RefreshCw size={16} /> Try Again
+          </button>
         </div>
       )}
 
@@ -101,13 +148,14 @@ export default function AdvisorySettings() {
                   <button
                     type="button"
                     onClick={() => updateTopic(index, !topic.enabled)}
+                    disabled={loading || saving}
                     className={`w-fit rounded-full px-3 py-1 text-xs font-bold transition ${
                       topic.enabled
                         ? "bg-emerald-50 text-emerald-700"
                         : "bg-slate-100 text-slate-500"
                     }`}
                   >
-                    {topic.enabled ? "Enabled" : "Disabled"}
+                    {loading ? "Loading" : topic.enabled ? "Enabled" : "Disabled"}
                   </button>
                 </div>
               ))}
@@ -151,14 +199,16 @@ export default function AdvisorySettings() {
             <div className="mt-7 grid gap-3">
               <button
                 type="submit"
-                className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
+                disabled={loading || saving}
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                <Save size={17} /> Save Settings
+                <Save size={17} /> {saving ? "Saving..." : "Save Settings"}
               </button>
               <button
                 type="button"
-                onClick={resetSettings}
-                className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                onClick={() => void resetSettings()}
+                disabled={loading || saving}
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <RotateCcw size={17} /> Reset Defaults
               </button>
