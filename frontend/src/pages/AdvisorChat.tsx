@@ -10,6 +10,8 @@ import {
   visibleChatMessage,
   type GoalCategoryId,
 } from "../components/chat/GoalPlanningControls";
+import FormattedChatMessage from "../components/chat/FormattedChatMessage";
+import { useUser } from "../store/UserProvider";
 
 type AttachmentPreview = { id: string; name: string; extension: string; isImage: boolean; file: File; dataUrl?: string };
 type LocalAttachmentMap = Record<number, AttachmentPreview[]>;
@@ -36,7 +38,21 @@ function ConversationSidebar({ conversations, activeId, onNew, onSelect, onDelet
   return <aside className="sticky top-0 h-screen w-64 shrink-0 overflow-y-auto border-r border-slate-200 bg-white p-4"><button type="button" onClick={onNew} className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white"><Plus size={18} />New Conversation</button><p className="mt-5 px-1 text-xs font-bold uppercase tracking-[0.2em] text-slate-400">Historical Conversation</p><div className="mt-3 space-y-2">{conversations.length === 0 && <p className="p-3 text-sm text-slate-500">No saved conversations.</p>}{conversations.map((item) => <HistoryItem key={item.conversation_id} item={item} activeId={activeId} onSelect={() => onSelect(item.conversation_id)} onDelete={() => onDelete(item.conversation_id)} />)}</div></aside>;
 }
 
-function MessageList({ messages, attachments, sending, onSelectGoalCategory }: { messages: ChatMessage[]; attachments: LocalAttachmentMap; sending: boolean; onSelectGoalCategory: (categoryId: GoalCategoryId) => void }) {
+function EmptyConversationWelcome({ userName }: { userName: string }) {
+  return (
+    <div className="grid min-h-0 flex-1 place-items-center px-4 py-12 text-center">
+      <h2 className="text-3xl font-extrabold tracking-tight text-slate-950 sm:text-4xl">
+        How can I help, <span className="text-slate-950">{userName}</span>?
+      </h2>
+    </div>
+  );
+}
+
+function MessageList({ messages, attachments, sending, userName, onSelectGoalCategory }: { messages: ChatMessage[]; attachments: LocalAttachmentMap; sending: boolean; userName: string; onSelectGoalCategory: (categoryId: GoalCategoryId) => void }) {
+  if (messages.length === 0) {
+    return <EmptyConversationWelcome userName={userName} />;
+  }
+
   const planningState = getGoalPlanningUiState(messages);
   return (
     <div className="mt-8 flex-1 space-y-4 overflow-y-auto pr-1">
@@ -50,10 +66,13 @@ function MessageList({ messages, attachments, sending, onSelectGoalCategory }: {
                 className={`inline-block w-fit rounded-2xl p-4 ${message.role === "user" ? "bg-blue-600 text-white" : "bg-white shadow-sm"}`}
               >
                 <MessageAttachments files={attachments[message.id] || []} inBubble />
-                {content && (
+                {content && message.role === "user" && (
                   <p className="max-w-full whitespace-pre-wrap break-words text-sm leading-6">
                     {content}
                   </p>
+                )}
+                {content && message.role === "assistant" && (
+                  <FormattedChatMessage content={content} />
                 )}
               </article>
             </div>
@@ -120,6 +139,7 @@ async function toPreview(file: File): Promise<AttachmentPreview> {
 }
 
 export default function AdvisorChat() {
+  const { user } = useUser();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [active, setActive] = useState<ConversationDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -128,6 +148,9 @@ export default function AdvisorChat() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [localAttachments, setLocalAttachments] = useState<LocalAttachmentMap>({});
   const [draftConversationId, setDraftConversationId] = useState<number | null>(null);
+  const userName = user?.username?.trim()
+    || user?.email.split("@")[0]
+    || "there";
   const orderedConversations = useMemo(
     () => sortedConversations(conversations).filter(
       (item) => item.conversation_id !== draftConversationId,
@@ -309,6 +332,7 @@ export default function AdvisorChat() {
           messages={active?.messages || []}
           attachments={localAttachments}
           sending={sending}
+          userName={userName}
           onSelectGoalCategory={selectGoalCategory}
         />
         <div className="mt-6">

@@ -1183,7 +1183,7 @@ def build_pdf_ai_context(
     lines = [
         "The user uploaded PDF financial document(s) through the chat UI.",
         "The backend has already parsed the PDF text and either updated HomePage financial basics or selected fallback.",
-        "Reply in English using plain text only. Do not use Markdown symbols, headings, bullet markers, bold markers, code backticks, or a visible AI analysis heading.",
+        "Reply in English using the chat format: start with a short ## heading, bold important user-supplied keywords with ** markers, and use concise paragraphs or lists. Do not use raw HTML, fenced code blocks, or a visible AI analysis heading.",
         "Explain what was extracted, whether OCR was needed, and whether HomePage was updated.",
         f"User message: {user_message or 'Extract financial information from the uploaded PDF.'}",
         "",

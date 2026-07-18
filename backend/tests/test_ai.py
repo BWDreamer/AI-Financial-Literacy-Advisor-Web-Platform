@@ -979,14 +979,15 @@ def test_openrouter_stops_after_configured_response_retries():
     assert len(client.requests) == 3
 
 
-def test_financial_advisor_prompt_requires_readable_plain_text():
+def test_financial_advisor_prompt_requires_structured_chat_format():
     normalized_prompt = " ".join(
         FINANCIAL_ADVISOR_INSTRUCTIONS.split()
     )
 
-    assert "Use plain text only" in normalized_prompt
-    assert "Do not use Markdown syntax" in normalized_prompt
-    assert "Format responses for readability" in normalized_prompt
+    assert "Start with a short, informative ## heading" in normalized_prompt
+    assert "keywords and phrases from the user's current question" in normalized_prompt
+    assert "terms in **bold**" in normalized_prompt
+    assert "headings meaningfully larger than body text" in normalized_prompt
 
 
 def test_financial_advisor_prompt_hides_explicit_ai_analysis_label():
@@ -1100,7 +1101,7 @@ def test_chat_returns_advisor_response(client):
     }
 
 
-def test_chat_strips_markdown_and_ai_analysis_heading(client):
+def test_chat_preserves_safe_formatting_and_strips_ai_analysis_heading(client):
     app.dependency_overrides[
         get_ai_advisor_service
     ] = lambda: MarkdownTestAdvisorService()
@@ -1124,10 +1125,8 @@ def test_chat_strips_markdown_and_ai_analysis_heading(client):
     assert response.status_code == 200
     answer = response.json()["answer"]
     assert "AI analysis" not in answer
-    assert "#" not in answer
-    assert "*" not in answer
+    assert "- **Cash balance:** $12,500" in answer
     assert "`" not in answer
-    assert "Cash balance: $12,500" in answer
     assert "HomePage was updated." in answer
 
 

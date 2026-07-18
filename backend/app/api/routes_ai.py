@@ -280,7 +280,7 @@ def _raise_llm_http_error(error: Exception) -> None:
         ) from error
 
 
-def _plain_text_answer(answer: str) -> str:
+def _formatted_answer(answer: str) -> str:
     cleaned_lines: list[str] = []
 
     for raw_line in answer.splitlines():
@@ -291,19 +291,13 @@ def _plain_text_answer(answer: str) -> str:
                 cleaned_lines.append("")
             continue
 
-        line = re.sub(r"^#{1,6}\s*", "", line)
-        line = re.sub(r"^\s*[-*+]\s+", "", line)
-        line = re.sub(r"^\s*\d+[.)]\s+", "", line)
-        line = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", line)
-        line = line.replace("**", "")
-        line = line.replace("__", "")
-        line = line.replace("`", "")
-        line = line.replace("*", "")
-
         if re.fullmatch(r"[-_]{3,}", line):
             continue
 
-        if re.fullmatch(r"(?i)ai analysis[:：]?", line):
+        if re.fullmatch(
+            r"(?i)(?:#{1,6}\s*)?ai analysis[:：]?",
+            line,
+        ):
             continue
 
         line = re.sub(
@@ -311,6 +305,19 @@ def _plain_text_answer(answer: str) -> str:
             "",
             line,
         ).strip()
+
+        line = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", line)
+        line = line.replace("```", "").replace("`", "")
+        line = re.sub(r"<[^>]+>", "", line)
+        line = re.sub(r"__([^_\n]+)__", r"**\1**", line)
+
+        heading = re.match(r"^(#{1,6})\s*(.+)$", line)
+        if heading:
+            heading_marker = "##" if len(heading.group(1)) <= 2 else "###"
+            line = f"{heading_marker} {heading.group(2).strip()}"
+        else:
+            line = re.sub(r"^\s*[-*+]\s+", "- ", line)
+            line = re.sub(r"^\s*(\d+)[.)]\s+", r"\1. ", line)
 
         if line:
             cleaned_lines.append(line)
@@ -496,7 +503,7 @@ async def chat_with_advisor(
             goal_planning_context=goal_planning_context,
             rule_context=rule_context,
         )
-        answer = _plain_text_answer(
+        answer = _formatted_answer(
             await advisor_service.reply(message)
         )
 
@@ -661,7 +668,7 @@ async def chat_with_pdf_upload(
             goal_planning_context=goal_planning_context,
             rule_context=None,
         )
-        answer = _plain_text_answer(
+        answer = _formatted_answer(
             await advisor_service.reply(context)
         )
     except (
