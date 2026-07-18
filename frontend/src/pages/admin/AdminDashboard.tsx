@@ -8,6 +8,7 @@ import {
   Heart,
   Plus,
   RefreshCw,
+  SlidersHorizontal,
   Users,
   UserPlus,
 } from "lucide-react";
@@ -63,23 +64,23 @@ function OnlineStatusChart({ online, offline }: { online: number; offline: numbe
   const onlinePercent = total ? Math.round((online / total) * 100) : 0;
 
   return (
-    <div className="flex flex-col gap-6 sm:flex-row sm:items-center">
+    <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
       <div
-        className="grid size-36 shrink-0 place-items-center rounded-full"
+        className="grid size-32 shrink-0 place-items-center rounded-full"
         style={{ background: `conic-gradient(#10b981 0 ${onlinePercent}%, #e2e8f0 ${onlinePercent}% 100%)` }}
         aria-label={`${onlinePercent}% users online`}
       >
-        <div className="grid size-24 place-items-center rounded-full bg-white text-center shadow-inner">
+        <div className="grid size-20 place-items-center rounded-full bg-white text-center shadow-inner">
           <span className="text-2xl font-bold text-slate-950">{onlinePercent}%</span>
-          <span className="-mt-5 text-xs font-semibold text-slate-400">online</span>
+          <span className="-mt-4 text-xs font-semibold text-slate-400">online</span>
         </div>
       </div>
       <div className="min-w-0 flex-1 space-y-3">
-        <div className="flex items-center justify-between rounded-xl bg-emerald-50 px-4 py-3">
+        <div className="flex items-center justify-between rounded-xl bg-emerald-50 px-4 py-2.5">
           <span className="inline-flex items-center gap-2 text-sm font-semibold text-emerald-700"><span className="size-2 rounded-full bg-emerald-500" /> Online</span>
           <strong className="text-slate-950">{online}</strong>
         </div>
-        <div className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3">
+        <div className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-2.5">
           <span className="inline-flex items-center gap-2 text-sm font-semibold text-slate-500"><span className="size-2 rounded-full bg-slate-300" /> Offline</span>
           <strong className="text-slate-950">{offline}</strong>
         </div>
@@ -91,7 +92,7 @@ function OnlineStatusChart({ online, offline }: { online: number; offline: numbe
 function MonthlyLineChart({ data }: { data: { label: string; value: number }[] }) {
   const max = Math.max(...data.map((item) => item.value), 1);
   const width = 360;
-  const height = 160;
+  const height = 140;
   const paddingX = 18;
   const paddingY = 18;
   const usableWidth = width - paddingX * 2;
@@ -105,7 +106,7 @@ function MonthlyLineChart({ data }: { data: { label: string; value: number }[] }
 
   return (
     <div>
-      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="New users by month line chart" className="h-48 w-full overflow-visible">
+      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="New users by month line chart" className="h-40 w-full overflow-visible">
         {[0, 1, 2].map((line) => {
           const y = paddingY + (line / 2) * usableHeight;
           return <line key={line} x1={paddingX} x2={width - paddingX} y1={y} y2={y} stroke="#e2e8f0" strokeWidth="1" />;
@@ -130,7 +131,7 @@ function CategoryEngagementChart({ data }: { data: { category: string; engagemen
   const max = Math.max(...visibleData.map((item) => item.engagement), 1);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {visibleData.map((item) => {
         const width = item.engagement ? Math.max((item.engagement / max) * 100, 8) : 0;
         return (
@@ -149,14 +150,14 @@ function CategoryEngagementChart({ data }: { data: { category: string; engagemen
   );
 }
 
-function SectionCard({ title, children, action }: { title: string; children: React.ReactNode; action?: React.ReactNode }) {
+function SectionCard({ title, children, action, className = "" }: { title: string; children: React.ReactNode; action?: React.ReactNode; className?: string }) {
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+    <section className={`min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-sm ${className}`}>
       <header className="flex items-center justify-between gap-4">
-        <h2 className="text-lg font-bold text-slate-950">{title}</h2>
+        <h2 className="min-w-0 text-lg font-bold text-slate-950">{title}</h2>
         {action}
       </header>
-      <div className="mt-5">{children}</div>
+      <div className="mt-4">{children}</div>
     </section>
   );
 }
@@ -173,7 +174,7 @@ function TopArticleRow({ label, article, metric }: { label: string; article: Art
   };
 
   return (
-    <div className="flex items-center justify-between gap-4 rounded-xl bg-slate-50 px-4 py-3">
+    <div className="flex items-center justify-between gap-4 rounded-xl bg-slate-50 px-4 py-2.5">
       <div className="min-w-0">
         <p className="text-xs font-bold uppercase tracking-wide text-slate-400">{label}</p>
         <p className="mt-1 truncate font-semibold text-slate-900">{article.title}</p>
@@ -185,15 +186,14 @@ function TopArticleRow({ label, article, metric }: { label: string; article: Art
   );
 }
 
-function QuickAction({ to, icon, title, description }: { to: string; icon: React.ReactNode; title: string; description: string }) {
+function QuickAction({ to, icon, title }: { to: string; icon: React.ReactNode; title: string; description?: string }) {
   return (
-    <Link to={to} className="group rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-md">
-      <div className="flex items-start justify-between gap-4">
-        <span className="grid size-11 place-items-center rounded-xl bg-indigo-50 text-indigo-600">{icon}</span>
-        <ArrowRight size={18} className="text-slate-300 transition group-hover:translate-x-1 group-hover:text-indigo-500" />
+    <Link to={to} className="group min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white p-3 shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-md">
+      <div className="flex items-start justify-between gap-3">
+        <span className="grid size-9 place-items-center rounded-lg bg-indigo-50 text-indigo-600">{icon}</span>
+        <ArrowRight size={16} className="text-slate-300 transition group-hover:translate-x-1 group-hover:text-indigo-500" />
       </div>
-      <h3 className="mt-4 font-bold text-slate-950">{title}</h3>
-      <p className="mt-1 text-sm leading-6 text-slate-500">{description}</p>
+      <h3 className="mt-2 text-sm font-bold text-slate-950">{title}</h3>
     </Link>
   );
 }
@@ -305,56 +305,61 @@ export default function AdminDashboard() {
         <MetricCard label="Published Articles" value={articles.length} helper="Visible in Knowledge Hub" icon={<FileText size={22} />} tone="bg-violet-50 text-violet-600" />
       </div>
 
-      <div className="mt-7 grid gap-7 xl:grid-cols-3">
-        <SectionCard title="Platform Activity">
-          <OnlineStatusChart online={dashboard.onlineUsers.length} offline={Math.max(dashboard.regularUsers.length - dashboard.onlineUsers.length, 0)} />
-        </SectionCard>
-        <SectionCard title="New Users by Month">
-          <MonthlyLineChart data={dashboard.newUsersByMonth} />
-        </SectionCard>
-        <SectionCard title="Content Engagement by Category">
-          <CategoryEngagementChart data={dashboard.engagementByCategory} />
-        </SectionCard>
-      </div>
+      <div className="mt-7 grid items-start gap-7 xl:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+        <div className="grid min-w-0 gap-7">
+          <SectionCard title="Platform Activity">
+            <OnlineStatusChart online={dashboard.onlineUsers.length} offline={Math.max(dashboard.regularUsers.length - dashboard.onlineUsers.length, 0)} />
+          </SectionCard>
 
-      <div className="mt-7 grid gap-7 xl:grid-cols-[minmax(0,1fr)_minmax(320px,0.8fr)]">
-        <SectionCard title="Knowledge Hub Performance" action={<Link to="/admin/knowledge" className="text-sm font-semibold text-indigo-600 hover:text-indigo-800">Manage articles</Link>}>
-          <div className="space-y-3">
-            <TopArticleRow label="Most viewed" article={dashboard.byViews} metric="views" />
-            <TopArticleRow label="Most liked" article={dashboard.byLikes} metric="likes" />
-            <TopArticleRow label="Most saved" article={dashboard.bySaves} metric="saves" />
-          </div>
-        </SectionCard>
+          <SectionCard title="New Users by Month">
+            <MonthlyLineChart data={dashboard.newUsersByMonth} />
+          </SectionCard>
 
-        <SectionCard title="Quick Actions">
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-1">
-            <QuickAction to="/admin/users" icon={<UserPlus size={20} />} title="Invite or manage users" description="Add new users, review details, and manage accounts." />
-            <QuickAction to="/admin/knowledge" icon={<Plus size={20} />} title="Create a new article" description="Publish Knowledge Hub content for users." />
-          </div>
-        </SectionCard>
-      </div>
-
-      <div className="mt-10">
-        <SectionCard title="Recently Joined Users" action={<Link to="/admin/users" className="text-sm font-semibold text-indigo-600 hover:text-indigo-800">View all users</Link>}>
-          {loading && <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">Loading dashboard data...</p>}
-          {!loading && dashboard.recentUsers.length === 0 && <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">No user data yet.</p>}
-          {!loading && dashboard.recentUsers.length > 0 && (
-            <div className="divide-y divide-slate-200 overflow-hidden rounded-xl border border-slate-200">
-              {dashboard.recentUsers.map((user) => (
-                <div key={user.id} className="grid gap-3 px-4 py-4 sm:grid-cols-[minmax(0,1fr)_180px_120px] sm:items-center">
-                  <div className="min-w-0">
-                    <p className="truncate font-semibold text-slate-950">{fullName(user)}</p>
-                    <p className="truncate text-sm text-slate-500">{user.email}</p>
+          <SectionCard title="Recently Joined Users" action={<Link to="/admin/users" className="text-sm font-semibold text-indigo-600 hover:text-indigo-800">View all users</Link>}>
+            {loading && <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">Loading dashboard data...</p>}
+            {!loading && dashboard.recentUsers.length === 0 && <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">No user data yet.</p>}
+            {!loading && dashboard.recentUsers.length > 0 && (
+              <div className="divide-y divide-slate-200 overflow-hidden rounded-xl border border-slate-200">
+                {dashboard.recentUsers.map((user) => (
+                  <div key={user.id} className="grid gap-3 px-4 py-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                    <div className="min-w-0">
+                      <p className="truncate font-semibold text-slate-950">{fullName(user)}</p>
+                      <p className="truncate text-sm text-slate-500">{user.email}</p>
+                      <p className="mt-1 text-xs text-slate-400">Joined {displayDate(user.created_at)}</p>
+                    </div>
+                    <span className={`w-fit rounded-full px-3 py-1 text-xs font-semibold ${user.is_online ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
+                      {user.is_online ? "Online" : "Offline"}
+                    </span>
                   </div>
-                  <p className="text-sm text-slate-500">Joined {displayDate(user.created_at)}</p>
-                  <span className={`w-fit rounded-full px-3 py-1 text-xs font-semibold ${user.is_online ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
-                    {user.is_online ? "Online" : "Offline"}
-                  </span>
-                </div>
-              ))}
+                ))}
+              </div>
+            )}
+          </SectionCard>
+        </div>
+
+        <div className="grid min-w-0 gap-7">
+          <div className="grid min-w-0 items-stretch gap-7 xl:grid-cols-[minmax(0,1.35fr)_minmax(220px,0.65fr)]">
+            <SectionCard title="Content Engagement by Category" className="h-full">
+              <CategoryEngagementChart data={dashboard.engagementByCategory} />
+            </SectionCard>
+
+            <SectionCard title="Quick Actions" className="h-full">
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+                <QuickAction to="/admin/users" icon={<UserPlus size={20} />} title="Invite or manage users" description="Add new users, review details, and manage accounts." />
+                <QuickAction to="/admin/knowledge" icon={<Plus size={20} />} title="Create a new article" description="Publish Knowledge Hub content for users." />
+                <QuickAction to="/admin/settings" icon={<SlidersHorizontal size={20} />} title="Configure advisory topics" description="Enable or disable the topics available to the AI advisor." />
+              </div>
+            </SectionCard>
+          </div>
+
+          <SectionCard title="Knowledge Hub Performance" action={<Link to="/admin/knowledge" className="text-sm font-semibold text-indigo-600 hover:text-indigo-800">Manage articles</Link>}>
+            <div className="space-y-3">
+              <TopArticleRow label="Most viewed" article={dashboard.byViews} metric="views" />
+              <TopArticleRow label="Most liked" article={dashboard.byLikes} metric="likes" />
+              <TopArticleRow label="Most saved" article={dashboard.bySaves} metric="saves" />
             </div>
-          )}
-        </SectionCard>
+          </SectionCard>
+        </div>
       </div>
     </section>
   );
