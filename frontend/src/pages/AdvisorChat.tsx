@@ -11,6 +11,7 @@ import {
   type GoalCategoryId,
 } from "../components/chat/GoalPlanningControls";
 import FormattedChatMessage from "../components/chat/FormattedChatMessage";
+import SuggestedQuestions, { rememberSuggestedQuestions, selectSuggestedQuestions } from "../components/chat/SuggestedQuestions";
 import { useUser } from "../store/UserProvider";
 
 type AttachmentPreview = { id: string; name: string; extension: string; isImage: boolean; file: File; dataUrl?: string };
@@ -148,9 +149,14 @@ export default function AdvisorChat() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [localAttachments, setLocalAttachments] = useState<LocalAttachmentMap>({});
   const [draftConversationId, setDraftConversationId] = useState<number | null>(null);
+  const [suggestedQuestions] = useState(selectSuggestedQuestions);
+  const [goalPlanningPending, setGoalPlanningPending] = useState(false);
   const userName = user?.username?.trim()
     || user?.email.split("@")[0]
     || "there";
+  const goalPlanningMode = goalPlanningPending || (
+    getGoalPlanningUiState(active?.messages || []).startMessageId !== null
+  );
   const orderedConversations = useMemo(
     () => sortedConversations(conversations).filter(
       (item) => item.conversation_id !== draftConversationId,
@@ -162,6 +168,10 @@ export default function AdvisorChat() {
     setConversations(items);
     return items;
   }, []);
+
+  useEffect(() => {
+    rememberSuggestedQuestions(suggestedQuestions);
+  }, [suggestedQuestions]);
 
   useEffect(() => {
     loadList()
@@ -280,7 +290,9 @@ export default function AdvisorChat() {
   }
 
   function startGoalPlanning() {
-    void appendGoalPlanningPrompt(GOAL_PLANNING_START_MESSAGE);
+    setGoalPlanningPending(true);
+    void appendGoalPlanningPrompt(GOAL_PLANNING_START_MESSAGE)
+      .finally(() => setGoalPlanningPending(false));
   }
 
   function selectGoalCategory(categoryId: GoalCategoryId) {
@@ -336,6 +348,13 @@ export default function AdvisorChat() {
           onSelectGoalCategory={selectGoalCategory}
         />
         <div className="mt-6">
+          {!goalPlanningMode && (
+            <SuggestedQuestions
+              disabled={sending}
+              questions={suggestedQuestions}
+              onSelect={(question) => void sendMessage(question, [])}
+            />
+          )}
           <ChatComposer sending={sending} onSubmit={sendMessage} />
         </div>
       </section>
