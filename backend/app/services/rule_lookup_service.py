@@ -731,7 +731,7 @@ def lookup_tax_bracket(
                 f"{rule.rule_year}, taxable income "
                 f"${_round_money(taxable_income):,.2f} falls in "
                 f"the {bracket_label} bracket. The marginal "
-                f"rate is {marginal_rate_label}; the ATO formula "
+                f"rate is {marginal_rate_label}; the verified formula "
                 f"is: {rule_data['formula']}. The estimated tax "
                 "from this bracket formula is "
                 f"${_round_money(estimated_tax):,.2f}, excluding "

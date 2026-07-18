@@ -79,13 +79,13 @@ def get_tax_bracket(
         max_length=100,
     ),
     rule_year: str = Query(
-        default="2025-2026",
+        default="2026-2027",
         min_length=1,
         max_length=20,
     ),
     db: Session = Depends(get_db),
 ):
-    """Return the ATO resident tax bracket for a taxable income."""
+    """Return the Australian resident tax bracket for a taxable income."""
     result = lookup_tax_bracket(
         db=db,
         region=region,
@@ -116,7 +116,7 @@ def get_employer_superannuation_rule(
         max_length=100,
     ),
     rule_year: str = Query(
-        default="2025-2026",
+        default="2026-2027",
         min_length=1,
         max_length=20,
     ),

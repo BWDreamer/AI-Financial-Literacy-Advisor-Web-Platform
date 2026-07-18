@@ -97,8 +97,8 @@ POST /api/calculator/goal-monthly-saving
 ```text
 GET /api/rules
 GET /api/rules/{rule_id}
-GET /api/rules/tax-bracket?region=Australia&rule_year=2025-2026&income=80000
-GET /api/rules/superannuation/employer-contribution?region=Australia&rule_year=2025-2026
+GET /api/rules/tax-bracket?region=Australia&rule_year=2026-2027&income=80000
+GET /api/rules/superannuation/employer-contribution?region=Australia&rule_year=2026-2027
 ```
 
 ### Long-term Memory

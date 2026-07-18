@@ -418,14 +418,13 @@ def create_test_openrouter_provider(
     return provider
 
 
-ATO_TAX_RATES_URL = (
-    "https://www.ato.gov.au/tax-rates-and-codes/"
-    "tax-rates-australian-residents"
+TAX_RATES_SOURCE_URL = (
+    "https://www.legislation.gov.au/"
+    "C2025A00028/asmade"
 )
 ATO_SUPER_GUARANTEE_URL = (
-    "https://www.ato.gov.au/tax-rates-and-codes/"
-    "key-superannuation-rates-and-thresholds/"
-    "super-guarantee"
+    "https://www.ato.gov.au/businesses-and-organisations/"
+    "super-for-employers/about-payday-super"
 )
 ATO_SUPER_CAPS_URL = (
     "https://www.ato.gov.au/tax-rates-and-codes/"
@@ -434,12 +433,12 @@ ATO_SUPER_CAPS_URL = (
 )
 
 
-def create_2025_2026_tax_rules(db_session) -> None:
+def create_2026_2027_tax_rules(db_session) -> None:
     rules = [
         FinancialRule(
             region="Australia",
             category="tax",
-            rule_year="2025-2026",
+            rule_year="2026-2027",
             rule_key="resident_income_tax_bracket_0_18200",
             rule_value=json.dumps(
                 {
@@ -453,13 +452,16 @@ def create_2025_2026_tax_rules(db_session) -> None:
                     "medicare_levy_included": False,
                 }
             ),
-            source_name="Australian Taxation Office",
-            source_url=ATO_TAX_RATES_URL,
+            source_name=(
+                "Australian Government – Federal Register "
+                "of Legislation"
+            ),
+            source_url=TAX_RATES_SOURCE_URL,
         ),
         FinancialRule(
             region="Australia",
             category="tax",
-            rule_year="2025-2026",
+            rule_year="2026-2027",
             rule_key="resident_income_tax_bracket_18201_45000",
             rule_value=json.dumps(
                 {
@@ -468,131 +470,102 @@ def create_2025_2026_tax_rules(db_session) -> None:
                     "income_to": 45000,
                     "base_tax": 0,
                     "threshold": 18200,
-                    "marginal_rate": 0.16,
-                    "formula": "16c for each $1 over $18,200",
+                    "marginal_rate": 0.15,
+                    "formula": "15c for each $1 over $18,200",
                     "medicare_levy_included": False,
                 }
             ),
-            source_name="Australian Taxation Office",
-            source_url=ATO_TAX_RATES_URL,
+            source_name=(
+                "Australian Government – Federal Register "
+                "of Legislation"
+            ),
+            source_url=TAX_RATES_SOURCE_URL,
         ),
         FinancialRule(
             region="Australia",
             category="tax",
-            rule_year="2025-2026",
+            rule_year="2026-2027",
             rule_key="resident_income_tax_bracket_45001_135000",
             rule_value=json.dumps(
                 {
                     "bracket_label": "$45,001 – $135,000",
                     "income_from": 45000.01,
                     "income_to": 135000,
-                    "base_tax": 4288,
+                    "base_tax": 4020,
                     "threshold": 45000,
                     "marginal_rate": 0.30,
                     "formula": (
-                        "$4,288 plus 30c for each $1 "
+                        "$4,020 plus 30c for each $1 "
                         "over $45,000"
                     ),
                     "medicare_levy_included": False,
                 }
             ),
-            source_name="Australian Taxation Office",
-            source_url=ATO_TAX_RATES_URL,
+            source_name=(
+                "Australian Government – Federal Register "
+                "of Legislation"
+            ),
+            source_url=TAX_RATES_SOURCE_URL,
         ),
         FinancialRule(
             region="Australia",
             category="tax",
-            rule_year="2025-2026",
+            rule_year="2026-2027",
             rule_key="resident_income_tax_bracket_135001_190000",
             rule_value=json.dumps(
                 {
                     "bracket_label": "$135,001 – $190,000",
                     "income_from": 135000.01,
                     "income_to": 190000,
-                    "base_tax": 31288,
+                    "base_tax": 31020,
                     "threshold": 135000,
                     "marginal_rate": 0.37,
                     "formula": (
-                        "$31,288 plus 37c for each $1 "
+                        "$31,020 plus 37c for each $1 "
                         "over $135,000"
                     ),
                     "medicare_levy_included": False,
                 }
             ),
-            source_name="Australian Taxation Office",
-            source_url=ATO_TAX_RATES_URL,
+            source_name=(
+                "Australian Government – Federal Register "
+                "of Legislation"
+            ),
+            source_url=TAX_RATES_SOURCE_URL,
         ),
         FinancialRule(
             region="Australia",
             category="tax",
-            rule_year="2025-2026",
+            rule_year="2026-2027",
             rule_key="resident_income_tax_bracket_190001_over",
             rule_value=json.dumps(
                 {
                     "bracket_label": "$190,001 and over",
                     "income_from": 190000.01,
                     "income_to": None,
-                    "base_tax": 51638,
+                    "base_tax": 51370,
                     "threshold": 190000,
                     "marginal_rate": 0.45,
                     "formula": (
-                        "$51,638 plus 45c for each $1 "
+                        "$51,370 plus 45c for each $1 "
                         "over $190,000"
                     ),
                     "medicare_levy_included": False,
                 }
             ),
-            source_name="Australian Taxation Office",
-            source_url=ATO_TAX_RATES_URL,
+            source_name=(
+                "Australian Government – Federal Register "
+                "of Legislation"
+            ),
+            source_url=TAX_RATES_SOURCE_URL,
         ),
     ]
     db_session.add_all(rules)
     db_session.commit()
 
 
-def create_2026_2027_tax_rule(db_session) -> None:
-    db_session.add(
-        FinancialRule(
-            region="Australia",
-            category="tax",
-            rule_year="2026-2027",
-            rule_key="resident_income_tax_bracket_0_over",
-            rule_value=json.dumps(
-                {
-                    "bracket_label": "$0 and over",
-                    "income_from": 0,
-                    "income_to": None,
-                    "base_tax": 0,
-                    "threshold": 0,
-                    "marginal_rate": 0.31,
-                    "formula": "31c for each $1",
-                    "medicare_levy_included": False,
-                }
-            ),
-            source_name="Australian Taxation Office",
-            source_url=ATO_TAX_RATES_URL,
-        )
-    )
-    db_session.commit()
-
-
 def create_current_superannuation_rules(db_session) -> None:
     rules = [
-        FinancialRule(
-            region="Australia",
-            category="superannuation",
-            rule_year="2025-2026",
-            rule_key="employer_super_contribution",
-            rule_value=json.dumps(
-                {
-                    "period": "1 July 2025 – 30 June 2026",
-                    "general_super_guarantee_percent": 12.00,
-                    "earnings_basis": "ordinary time earnings",
-                }
-            ),
-            source_name="Australian Taxation Office",
-            source_url=ATO_SUPER_GUARANTEE_URL,
-        ),
         FinancialRule(
             region="Australia",
             category="superannuation",
@@ -603,7 +576,11 @@ def create_current_superannuation_rules(db_session) -> None:
                     "period": "1 July 2026 – 30 June 2027",
                     "general_super_guarantee_percent": 12.00,
                     "earnings_basis": "qualifying earnings",
-                    "payment_timing": "Payday Super from 1 July 2026",
+                    "payment_timing": (
+                        "Payday Super from 1 July 2026; contributions "
+                        "must generally reach the employee's super fund "
+                        "within 7 business days after payday"
+                    ),
                 }
             ),
             source_name="Australian Taxation Office",
@@ -616,30 +593,6 @@ def create_current_superannuation_rules(db_session) -> None:
 
 def create_super_contribution_cap_rules(db_session) -> None:
     rules = [
-        FinancialRule(
-            region="Australia",
-            category="superannuation",
-            rule_year="2025-2026",
-            rule_key="concessional_contributions_cap",
-            rule_value=json.dumps(
-                {
-                    "period": "1 July 2025 – 30 June 2026",
-                    "cap_amount": 30000,
-                    "cap_type": "concessional",
-                    "applies_to": "all ages",
-                    "includes": [
-                        "employer contributions",
-                        "salary sacrifice contributions",
-                        (
-                            "personal contributions claimed "
-                            "as a tax deduction"
-                        ),
-                    ],
-                }
-            ),
-            source_name="Australian Taxation Office",
-            source_url=ATO_SUPER_CAPS_URL,
-        ),
         FinancialRule(
             region="Australia",
             category="superannuation",
@@ -667,32 +620,6 @@ def create_super_contribution_cap_rules(db_session) -> None:
         FinancialRule(
             region="Australia",
             category="superannuation",
-            rule_year="2025-2026",
-            rule_key="non_concessional_contributions_cap",
-            rule_value=json.dumps(
-                {
-                    "period": "1 July 2025 – 30 June 2026",
-                    "cap_amount": 120000,
-                    "cap_type": "non-concessional",
-                    "applies_to": (
-                        "personal contributions not claimed "
-                        "as an income tax deduction"
-                    ),
-                    "important_condition": (
-                        "The non-concessional cap can be nil "
-                        "if total superannuation balance is "
-                        "greater than or equal to the general "
-                        "transfer balance cap at the end of "
-                        "the previous financial year."
-                    ),
-                }
-            ),
-            source_name="Australian Taxation Office",
-            source_url=ATO_SUPER_CAPS_URL,
-        ),
-        FinancialRule(
-            region="Australia",
-            category="superannuation",
             rule_year="2026-2027",
             rule_key="non_concessional_contributions_cap",
             rule_value=json.dumps(
@@ -705,8 +632,8 @@ def create_super_contribution_cap_rules(db_session) -> None:
                         "as an income tax deduction"
                     ),
                     "important_condition": (
-                        "The non-concessional cap can be nil "
-                        "if total superannuation balance is "
+                        "The non-concessional cap is nil if the "
+                        "total superannuation balance is "
                         "greater than or equal to the general "
                         "transfer balance cap at the end of "
                         "the previous financial year."
@@ -1204,7 +1131,7 @@ def test_chat_includes_selected_rule_context(client, db_session):
     rule = FinancialRule(
         region="Australia",
         category="tax",
-        rule_year="2025-2026",
+        rule_year="2026-2027",
         rule_key="test_rule",
         rule_value="Verified test rule content.",
         source_name="Australian Taxation Office",
@@ -1239,7 +1166,7 @@ def test_chat_automatically_injects_current_tax_table_context(
     client,
     db_session,
 ):
-    create_2025_2026_tax_rules(db_session)
+    create_2026_2027_tax_rules(db_session)
     service = SuccessfulTestAdvisorService()
     app.dependency_overrides[
         get_ai_advisor_service
@@ -1268,17 +1195,16 @@ def test_chat_automatically_injects_current_tax_table_context(
     assert "Verified financial rule context" in service.messages[0]
     assert "User question:" in service.messages[0]
     answer = response.json()["answer"]
-    assert "2025-2026" in answer
-    assert "16c for each $1 over $18,200" in answer
-    assert ATO_TAX_RATES_URL in answer
+    assert "2026-2027" in answer
+    assert "15c for each $1 over $18,200" in answer
+    assert TAX_RATES_SOURCE_URL in answer
 
 
 def test_chat_uses_latest_supported_tax_year_from_database(
     client,
     db_session,
 ):
-    create_2025_2026_tax_rules(db_session)
-    create_2026_2027_tax_rule(db_session)
+    create_2026_2027_tax_rules(db_session)
     service = SuccessfulTestAdvisorService()
     app.dependency_overrides[
         get_ai_advisor_service
@@ -1304,14 +1230,14 @@ def test_chat_uses_latest_supported_tax_year_from_database(
     assert response.status_code == 200
     answer = response.json()["answer"]
     assert "2026-2027" in answer
-    assert "31c for each $1" in answer
+    assert "15c for each $1 over $18,200" in answer
 
 
 def test_chat_automatically_injects_current_tax_bracket_context(
     client,
     db_session,
 ):
-    create_2025_2026_tax_rules(db_session)
+    create_2026_2027_tax_rules(db_session)
     service = SuccessfulTestAdvisorService()
     app.dependency_overrides[
         get_ai_advisor_service
@@ -1339,18 +1265,18 @@ def test_chat_automatically_injects_current_tax_bracket_context(
     assert len(service.messages) == 1
     assert "Verified financial rule context" in service.messages[0]
     answer = response.json()["answer"]
-    assert "2025-2026" in answer
+    assert "2026-2027" in answer
     assert "taxable income $80,000.00 falls in" in answer
     assert "marginal rate is 30%" in answer
-    assert "$14,788.00" in answer
-    assert ATO_TAX_RATES_URL in answer
+    assert "$14,520.00" in answer
+    assert TAX_RATES_SOURCE_URL in answer
 
 
 def test_chat_uses_llm_intent_for_fuzzy_tax_calculation(
     client,
     db_session,
 ):
-    create_2025_2026_tax_rules(db_session)
+    create_2026_2027_tax_rules(db_session)
     service = SuccessfulTestAdvisorService()
     app.dependency_overrides[
         get_ai_advisor_service
@@ -1379,14 +1305,14 @@ def test_chat_uses_llm_intent_for_fuzzy_tax_calculation(
     assert "Verified financial rule context" in service.messages[0]
     answer = response.json()["answer"]
     assert "taxable income $80,000.00 falls in" in answer
-    assert "$14,788.00" in answer
+    assert "$14,520.00" in answer
 
 
 def test_chat_warns_when_requested_tax_year_is_not_available(
     client,
     db_session,
 ):
-    create_2025_2026_tax_rules(db_session)
+    create_2026_2027_tax_rules(db_session)
     service = SuccessfulTestAdvisorService()
     app.dependency_overrides[
         get_ai_advisor_service
@@ -1453,6 +1379,7 @@ def test_chat_automatically_injects_payday_super_context(
     assert "general super guarantee rate is 12%" in answer
     assert "qualifying earnings" in answer
     assert "Payday Super from 1 July 2026" in answer
+    assert "within 7 business days after payday" in answer
     assert ATO_SUPER_GUARANTEE_URL in answer
 
 
@@ -1492,7 +1419,7 @@ def test_chat_automatically_injects_super_contribution_cap_context(
     assert "Concessional contributions cap: $32,500" in answer
     assert "Non-Concessional contributions cap: $130,000" in answer
     assert "salary sacrifice contributions" in answer
-    assert "The non-concessional cap can be nil" in answer
+    assert "The non-concessional cap is nil" in answer
     assert ATO_SUPER_CAPS_URL in answer
 
 
@@ -1539,7 +1466,7 @@ def test_chat_does_not_route_partial_english_keyword_matches(
     client,
     db_session,
 ):
-    create_2025_2026_tax_rules(db_session)
+    create_2026_2027_tax_rules(db_session)
     create_current_superannuation_rules(db_session)
     service = SuccessfulTestAdvisorService()
     app.dependency_overrides[
@@ -2216,7 +2143,7 @@ def test_chat_summarizes_supported_rule_years(
     client,
     db_session,
 ):
-    create_2025_2026_tax_rules(db_session)
+    create_2026_2027_tax_rules(db_session)
     create_current_superannuation_rules(db_session)
     create_super_contribution_cap_rules(db_session)
     service = SuccessfulTestAdvisorService()
@@ -2245,7 +2172,7 @@ def test_chat_summarizes_supported_rule_years(
     assert len(service.messages) == 1
     assert "Verified financial rule context" in service.messages[0]
     answer = response.json()["answer"]
-    assert "2025-2026" in answer
+    assert "2025-2026" not in answer
     assert "2026-2027" in answer
     assert "super contribution cap rules" in answer
     assert "2021-2022" not in answer
