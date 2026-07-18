@@ -29,8 +29,8 @@ class Settings(BaseSettings):
 
     chat_context_max_messages: int = Field(default=16, ge=1)
     chat_context_max_message_characters: int = Field(default=1200, ge=4)
-    goal_context_max_messages: int = Field(default=96, ge=1)
-    goal_context_max_message_characters: int = Field(default=400, ge=4)
+    goal_context_max_messages: int = Field(default=24, ge=1)
+    goal_context_max_message_characters: int = Field(default=4000, ge=4)
     pdf_context_max_characters: int = Field(default=6000, ge=1)
 
     goal_priority_high_weight: Decimal = Field(

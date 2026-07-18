@@ -1001,6 +1001,18 @@ def test_financial_advisor_prompt_hides_explicit_ai_analysis_label():
     assert "Always reply in English" in normalized_prompt
 
 
+def test_financial_advisor_prompt_enforces_goal_recommendation_flow():
+    normalized_prompt = " ".join(
+        FINANCIAL_ADVISOR_INSTRUCTIONS.split()
+    )
+
+    assert "one complete, decision-ready best recommendation" in normalized_prompt
+    assert "Use Preference and Profile memories" in normalized_prompt
+    assert "Do not ask the user for those details" in normalized_prompt
+    assert "ask only the single macro-level trade-off question" in normalized_prompt
+    assert "Never ask for amounts, balances, contributions" in normalized_prompt
+
+
 def create_authorization_headers(client) -> dict[str, str]:
     client.post(
         "/api/auth/register",
