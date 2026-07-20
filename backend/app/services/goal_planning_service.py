@@ -56,25 +56,23 @@ class GoalPriority(str, Enum):
     LOW = "Low"
 
 
-@dataclass(frozen=True)
-class GoalQuestion:
-    field: str
-    prompt: str
-    optional: bool = False
+class GoalRecommendationStatus(str, Enum):
+    NEEDS_RECOMMENDATION = "needs_recommendation"
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"
 
 
 @dataclass(frozen=True)
 class GoalPlanningGoal:
     category: GoalCategory
     answers: dict[str, Any]
-    answered_fields: frozenset[str]
     priority: GoalPriority | None
 
 
 @dataclass(frozen=True)
 class GoalPlanningState:
     goals: tuple[GoalPlanningGoal, ...]
-    finished_adding_goals: bool
+    recommendation_status: GoalRecommendationStatus
 
 
 CATEGORY_LABELS = {
@@ -85,116 +83,6 @@ CATEGORY_LABELS = {
     GoalCategory.RETIREMENT: "Retirement / Super",
     GoalCategory.BUDGET: "Budget / Cash Flow",
 }
-
-
-GOAL_QUESTIONS = {
-    GoalCategory.GENERAL_SAVING: (
-        GoalQuestion("goal_title", "What are you saving for?"),
-        GoalQuestion("target_amount", "How much do you want to save?"),
-        GoalQuestion("deadline", "When do you want to reach it?"),
-        GoalQuestion("current_amount", "How much have you already saved?"),
-        GoalQuestion(
-            "monthly_contribution",
-            "How much can you save each month?",
-        ),
-    ),
-    GoalCategory.EMERGENCY_FUND: (
-        GoalQuestion(
-            "essential_monthly_expenses",
-            "What are your essential monthly expenses?",
-        ),
-        GoalQuestion("coverage_months", "How many months do you want to cover?"),
-        GoalQuestion(
-            "deadline",
-            "When would you like to complete this buffer?",
-        ),
-        GoalQuestion("current_amount", "How much do you already have saved?"),
-        GoalQuestion(
-            "monthly_contribution",
-            "How much can you save monthly?",
-        ),
-    ),
-    GoalCategory.DEBT_REPAYMENT: (
-        GoalQuestion("debt_name", "What debt do you want to pay off?"),
-        GoalQuestion("debt_balance", "What is the current balance?"),
-        GoalQuestion(
-            "interest_rate",
-            "What is the interest rate? You can say you do not know.",
-            optional=True,
-        ),
-        GoalQuestion("minimum_repayment", "What is the minimum repayment?"),
-        GoalQuestion(
-            "extra_repayment",
-            "How much extra can you repay monthly?",
-        ),
-        GoalQuestion("deadline", "Do you have a preferred payoff deadline?"),
-    ),
-    GoalCategory.HOME_DEPOSIT: (
-        GoalQuestion(
-            "property_price",
-            "Do you know the target property price?",
-            optional=True,
-        ),
-        GoalQuestion(
-            "deposit_percent",
-            "What deposit percentage do you want?",
-            optional=True,
-        ),
-        GoalQuestion(
-            "deposit_target",
-            "If you prefer, what direct deposit target would you use?",
-            optional=True,
-        ),
-        GoalQuestion(
-            "cost_buffer",
-            "Do you want to include an upfront cost buffer?",
-            optional=True,
-        ),
-        GoalQuestion("current_amount", "How much have you already saved?"),
-        GoalQuestion(
-            "monthly_contribution",
-            "How much can you save monthly?",
-        ),
-        GoalQuestion("deadline", "When do you want to be ready?"),
-    ),
-    GoalCategory.RETIREMENT: (
-        GoalQuestion("target_age", "What is your target retirement age?"),
-        GoalQuestion(
-            "current_super",
-            "What is your current super or retirement saving?",
-        ),
-        GoalQuestion(
-            "target_amount",
-            "What retirement amount do you want to track?",
-        ),
-        GoalQuestion(
-            "regular_contribution",
-            "How much is contributed regularly each month?",
-        ),
-        GoalQuestion("deadline", "What review target date should we use?"),
-    ),
-    GoalCategory.BUDGET: (
-        GoalQuestion("monthly_income", "What is your monthly income?"),
-        GoalQuestion("fixed_expenses", "What are your fixed expenses?"),
-        GoalQuestion("variable_expenses", "What are your variable expenses?"),
-        GoalQuestion(
-            "target_monthly_surplus",
-            "How much extra do you want to save each month?",
-        ),
-        GoalQuestion(
-            "adjustable_categories",
-            "Which spending areas are flexible?",
-            optional=True,
-        ),
-        GoalQuestion("deadline", "What monthly review target date should we use?"),
-    ),
-}
-
-
-PRIORITY_QUESTION = GoalQuestion(
-    "priority",
-    "For this goal, which priority do you choose: High, Medium, or Low?",
-)
 
 
 NUMERIC_FIELDS = frozenset(
@@ -224,7 +112,62 @@ NUMERIC_FIELDS = frozenset(
 DATE_FIELDS = frozenset({"deadline"})
 TEXT_FIELDS = frozenset({"goal_title", "debt_name", "adjustable_categories"})
 ANSWER_FIELDS = tuple(sorted(NUMERIC_FIELDS | DATE_FIELDS | TEXT_FIELDS))
-USER_CONFIRMED_FIELDS = (*ANSWER_FIELDS, "priority")
+
+REQUIRED_FIELDS = {
+    GoalCategory.GENERAL_SAVING: (
+        "goal_title",
+        "target_amount",
+        "deadline",
+        "current_amount",
+        "monthly_contribution",
+    ),
+    GoalCategory.EMERGENCY_FUND: (
+        "essential_monthly_expenses",
+        "coverage_months",
+        "deadline",
+        "current_amount",
+        "monthly_contribution",
+    ),
+    GoalCategory.DEBT_REPAYMENT: (
+        "debt_name",
+        "debt_balance",
+        "minimum_repayment",
+        "extra_repayment",
+        "deadline",
+    ),
+    GoalCategory.HOME_DEPOSIT: (
+        "current_amount",
+        "monthly_contribution",
+        "deadline",
+    ),
+    GoalCategory.RETIREMENT: (
+        "target_age",
+        "current_super",
+        "target_amount",
+        "regular_contribution",
+        "deadline",
+    ),
+    GoalCategory.BUDGET: (
+        "monthly_income",
+        "fixed_expenses",
+        "variable_expenses",
+        "target_monthly_surplus",
+        "deadline",
+    ),
+}
+ZERO_ALLOWED_FIELDS = frozenset(
+    {
+        "current_amount",
+        "current_super",
+        "minimum_repayment",
+        "extra_repayment",
+        "cost_buffer",
+        "fixed_expenses",
+        "monthly_income",
+        "variable_expenses",
+        "regular_contribution",
+    }
+)
 
 
 def _nullable(schema: dict[str, Any]) -> dict[str, Any]:
@@ -235,13 +178,6 @@ GOAL_ITEM_PROPERTIES: dict[str, Any] = {
     "category": {
         "type": "string",
         "enum": [category.value for category in GoalCategory],
-    },
-    "answered_fields": {
-        "type": "array",
-        "items": {
-            "type": "string",
-            "enum": list(USER_CONFIRMED_FIELDS),
-        },
     },
     "priority": _nullable(
         {
@@ -270,30 +206,35 @@ GOAL_PLANNING_STATE_RESPONSE_SCHEMA: dict[str, Any] = {
             "type": "integer",
             "minimum": 0,
         },
-        "finished_adding_goals": {"type": "boolean"},
+        "recommendation_status": {
+            "type": "string",
+            "enum": [status.value for status in GoalRecommendationStatus],
+        },
     },
-    "required": ["goals", "goal_count", "finished_adding_goals"],
+    "required": ["goals", "goal_count", "recommendation_status"],
 }
 
 
 def build_goal_state_extraction_prompt(
     conversation_context: str | None,
     user_message: str,
+    memory_context: str | None = None,
+    financial_context: str | None = None,
 ) -> str:
-    question_fields = [
+    category_fields = [
         (
             f"- {category.value}: "
-            + ", ".join(question.field for question in questions)
+            + ", ".join(REQUIRED_FIELDS[category])
         )
-        for category, questions in GOAL_QUESTIONS.items()
+        for category in GoalCategory
     ]
     return "\n".join(
         [
-            "Extract the user's goal-planning state from this conversation.",
+            "Extract and complete the user's goal-planning state.",
             "Return only a structured object matching the supplied JSON Schema.",
             (
                 "Inventory every distinct goal from all user messages before "
-                "extracting fields. Set goal_count to that inventory size and "
+                "building the plan. Set goal_count to that inventory size and "
                 "return exactly that many goal objects in the user's order."
             ),
             (
@@ -303,41 +244,67 @@ def build_goal_state_extraction_prompt(
             ),
             (
                 "Never drop a previously stated goal unless the user explicitly "
-                "removes it. An assistant focusing on one goal does not remove or "
-                "deprioritise the other user-stated goals."
-            ),
-            "Use only these categories and their MyGoals fields:",
-            *question_fields,
-            "All categories also have the priority field.",
-            (
-                "Only record facts the user explicitly supplied. Never copy an "
-                "amount, date, priority, or suggestion from an assistant message."
+                "removes it. An assistant discussing one goal does not remove the "
+                "other user-stated goals."
             ),
             (
-                "Put a field in answered_fields only when the user supplied a "
-                "value or explicitly said they do not know or want to skip it."
+                "When the earlier conversation contains UI metadata in the form "
+                "'Financial goal planning mode: category=<category>', treat that "
+                "as the user's explicit category selection for the next goal they "
+                "describe, unless the user clearly chooses a different category."
+            ),
+            "Use these categories and decision-ready fields:",
+            *category_fields,
+            (
+                "A home_deposit goal additionally needs either a positive direct "
+                "deposit_target or both a positive property_price and a positive "
+                "deposit_percent. Optional fields may be null."
             ),
             (
-                "Never infer, recommend, or preselect priority. Set priority and "
-                "include priority in answered_fields only after the user directly "
-                "chooses High, Medium, or Low. Otherwise return priority as null."
+                "Classify recommendation_status from the current user turn. Use "
+                "needs_recommendation when the user introduces or changes goals, "
+                "when no complete recommendation has been shown yet, or when the "
+                "user answers the assistant's macro-level follow-up. Use accepted "
+                "only when the user clearly agrees with the latest complete "
+                "recommendation without changing it. Use rejected when the user "
+                "disagrees with the latest recommendation and the assistant must "
+                "ask a macro-level follow-up next."
             ),
             (
-                "Map short user answers to the immediately preceding assistant "
-                "question for the labelled goal. Keep the latest user answer if "
-                "a value was corrected."
+                "For needs_recommendation, produce a complete proposed plan now. "
+                "Preserve details explicitly supplied by the user, then decide all "
+                "missing amounts, current planning balances, contribution levels, "
+                "deadlines, and priorities yourself. Base those decisions on the "
+                "Preference and Profile memory text and verified financial context "
+                "below. Do not leave a required detail for the user to choose."
             ),
             (
-                f"Today's date is {date.today().isoformat()}. Convert explicit "
-                "relative deadlines such as 'within two months' or 'in ten years' "
-                "to an ISO YYYY-MM-DD deadline from today. If conversion is "
-                "uncertain, preserve the user's exact relative phrase in deadline "
-                "instead of returning null."
+                "For accepted, copy every value and priority from the latest "
+                "assistant recommendation exactly so the accepted plan is not "
+                "silently regenerated. For rejected, preserve the latest proposal "
+                "while the assistant asks about the user's high-level direction."
             ),
             (
-                "Set finished_adding_goals to true only when the user explicitly "
-                "says there are no more goals or that the listed goals are all."
+                "Do not ask the user for target amounts, current saved amounts, "
+                "monthly contributions, income, expenses, dates, rates, balances, "
+                "or priorities. These planning details are AI decisions unless the "
+                "user volunteered them."
             ),
+            (
+                "When verified financial records are unavailable, use conservative "
+                "and explicit planning assumptions: use zero for an unknown current "
+                "balance, do not fabricate income or affordability, and choose an "
+                "illustrative target, deadline, and required contribution."
+            ),
+            (
+                f"Today's date is {date.today().isoformat()}. Convert relative "
+                "deadlines to ISO YYYY-MM-DD dates. Every required deadline must "
+                "be a future date."
+            ),
+            "Preference and Profile memory text:",
+            memory_context or "No Preference or Profile memory is available.",
+            "Verified financial context:",
+            financial_context or "No verified financial context is available.",
             "Earlier conversation:",
             conversation_context or "No earlier messages.",
             "Current user message:",
@@ -346,12 +313,83 @@ def build_goal_state_extraction_prompt(
     )
 
 
+def _raw_decimal_is_usable(value: Any, allow_zero: bool) -> bool:
+    amount = _decimal_value(value)
+    if amount is None:
+        return False
+    return amount >= ZERO if allow_zero else amount > ZERO
+
+
+def _missing_goal_fields(raw_goal: Any) -> list[str]:
+    if not isinstance(raw_goal, dict):
+        return ["goal object"]
+    try:
+        category = GoalCategory(str(raw_goal.get("category", "")).strip())
+    except ValueError:
+        return ["valid category"]
+
+    missing: list[str] = []
+    try:
+        GoalPriority(raw_goal.get("priority"))
+    except (TypeError, ValueError):
+        missing.append("priority")
+
+    for field in REQUIRED_FIELDS[category]:
+        value = raw_goal.get(field)
+        if field in NUMERIC_FIELDS:
+            if not _raw_decimal_is_usable(
+                value,
+                allow_zero=field in ZERO_ALLOWED_FIELDS,
+            ):
+                missing.append(field)
+        elif field in DATE_FIELDS:
+            if _date_value(value, date.today()) is None:
+                missing.append(field)
+        elif _text_value(value) is None:
+            missing.append(field)
+
+    if category == GoalCategory.HOME_DEPOSIT:
+        has_direct_target = _raw_decimal_is_usable(
+            raw_goal.get("deposit_target"),
+            allow_zero=False,
+        )
+        has_price_and_percent = _raw_decimal_is_usable(
+            raw_goal.get("property_price"),
+            allow_zero=False,
+        ) and _raw_decimal_is_usable(
+            raw_goal.get("deposit_percent"),
+            allow_zero=False,
+        )
+        if not has_direct_target and not has_price_and_percent:
+            missing.append("deposit_target or property_price + deposit_percent")
+    return missing
+
+
 def goal_state_payload_is_complete(payload: dict[str, Any]) -> bool:
     raw_count = payload.get("goal_count")
     raw_goals = payload.get("goals")
+    try:
+        recommendation_status = GoalRecommendationStatus(
+            payload.get("recommendation_status")
+        )
+    except (TypeError, ValueError):
+        return False
     if not isinstance(raw_count, int) or not isinstance(raw_goals, list):
         return False
-    return raw_count == len(raw_goals)
+    if raw_count != len(raw_goals):
+        return False
+    if recommendation_status == GoalRecommendationStatus.REJECTED:
+        return raw_count > 0 and all(
+            isinstance(raw_goal, dict)
+            and raw_goal.get("category") in {
+                category.value for category in GoalCategory
+            }
+            for raw_goal in raw_goals
+        )
+    return raw_count > 0 and not any(
+        _missing_goal_fields(raw_goal)
+        for raw_goal in raw_goals
+    )
 
 
 def build_goal_state_correction_prompt(
@@ -360,14 +398,34 @@ def build_goal_state_correction_prompt(
 ) -> str:
     raw_goals = payload.get("goals")
     returned_count = len(raw_goals) if isinstance(raw_goals, list) else 0
+    issues: list[str] = []
+    if payload.get("goal_count") != returned_count:
+        issues.append(
+            f"It reported goal_count={payload.get('goal_count')} but returned "
+            f"{returned_count} goal objects."
+        )
+    if payload.get("recommendation_status") not in {
+        status.value for status in GoalRecommendationStatus
+    }:
+        issues.append("recommendation_status is missing or invalid.")
+    if isinstance(raw_goals, list):
+        for index, raw_goal in enumerate(raw_goals, start=1):
+            missing = _missing_goal_fields(raw_goal)
+            if missing:
+                issues.append(
+                    f"Goal {index} is missing usable values for: {', '.join(missing)}."
+                )
+    if not issues:
+        issues.append("The structured goal plan is incomplete.")
     return "\n".join(
         [
             original_prompt,
             "Correction required for the previous structured output:",
+            *issues,
             (
-                f"It reported goal_count={payload.get('goal_count')} but returned "
-                f"{returned_count} goal objects. Re-read every user message, "
-                "preserve every distinct goal, and make these counts equal."
+                "Re-read every user message, preserve every distinct goal, use "
+                "the supplied Preference/Profile and financial context, and return "
+                "a complete decision-ready plan with matching counts."
             ),
         ]
     )
@@ -377,22 +435,13 @@ def is_goal_planning_follow_up(conversation_context: str | None) -> bool:
     if conversation_context is None:
         return False
     lowered_context = conversation_context.lower()
-    question_prompts = [
-        question.prompt
-        for questions in GOAL_QUESTIONS.values()
-        for question in questions
-    ]
-    question_prompts.extend(
-        [
-            PRIORITY_QUESTION.prompt,
-            "Would you like to add another goal before we work out the allocation?",
-            "What direct deposit target should we use",
-        ]
+    workflow_phrases = (
+        "does this overall plan work for you?",
+        "what should the revised plan optimise for at a high level",
+        "complete goal recommendation",
+        "confirmed goal plan",
     )
-    return any(
-        prompt.lower() in lowered_context
-        for prompt in question_prompts
-    )
+    return any(phrase in lowered_context for phrase in workflow_phrases)
 
 
 def _decimal_value(value: Any) -> Decimal | None:
@@ -426,7 +475,7 @@ def _date_value(value: Any, as_of: date) -> date | None:
     if text is None:
         return None
     try:
-        return date.fromisoformat(text)
+        parsed_date = date.fromisoformat(text)
     except ValueError:
         match = RELATIVE_DEADLINE_PATTERN.search(text)
         if match is None:
@@ -435,12 +484,14 @@ def _date_value(value: Any, as_of: date) -> date | None:
         duration = int(raw_number) if raw_number.isdigit() else NUMBER_WORDS[raw_number]
         unit = match.group("unit").lower()
         if unit.startswith("day"):
-            return as_of + timedelta(days=duration)
-        if unit.startswith("week"):
-            return as_of + timedelta(weeks=duration)
-        if unit.startswith("month"):
-            return _add_months(as_of, duration)
-        return _add_months(as_of, duration * 12)
+            parsed_date = as_of + timedelta(days=duration)
+        elif unit.startswith("week"):
+            parsed_date = as_of + timedelta(weeks=duration)
+        elif unit.startswith("month"):
+            parsed_date = _add_months(as_of, duration)
+        else:
+            parsed_date = _add_months(as_of, duration * 12)
+    return parsed_date if parsed_date > as_of else None
 
 
 def normalize_goal_planning_state(
@@ -462,14 +513,6 @@ def normalize_goal_planning_state(
             continue
 
         answers: dict[str, Any] = {}
-        raw_answered_fields = raw_goal.get("answered_fields")
-        if not isinstance(raw_answered_fields, list):
-            raw_answered_fields = []
-        answered_fields = {
-            str(field)
-            for field in raw_answered_fields
-            if str(field) in USER_CONFIRMED_FIELDS
-        }
         for field in ANSWER_FIELDS:
             raw_value = raw_goal.get(field)
             if field in NUMERIC_FIELDS:
@@ -480,14 +523,9 @@ def normalize_goal_planning_state(
                 value = _text_value(raw_value)
             if value is not None:
                 answers[field] = value
-                answered_fields.add(field)
 
         try:
-            priority = (
-                GoalPriority(raw_goal.get("priority"))
-                if "priority" in answered_fields
-                else None
-            )
+            priority = GoalPriority(raw_goal.get("priority"))
         except (TypeError, ValueError):
             priority = None
 
@@ -495,98 +533,21 @@ def normalize_goal_planning_state(
             GoalPlanningGoal(
                 category=category,
                 answers=answers,
-                answered_fields=frozenset(answered_fields),
                 priority=priority,
             )
         )
 
+    try:
+        recommendation_status = GoalRecommendationStatus(
+            payload.get("recommendation_status")
+        )
+    except (TypeError, ValueError):
+        recommendation_status = GoalRecommendationStatus.NEEDS_RECOMMENDATION
+
     return GoalPlanningState(
         goals=tuple(goals),
-        finished_adding_goals=payload.get("finished_adding_goals") is True,
+        recommendation_status=recommendation_status,
     )
-
-
-def _has_positive_answer(goal: GoalPlanningGoal, field: str) -> bool:
-    value = goal.answers.get(field)
-    return isinstance(value, Decimal) and value > ZERO
-
-
-def _is_question_answered(
-    goal: GoalPlanningGoal,
-    question: GoalQuestion,
-    as_of: date,
-) -> bool:
-    if question.field not in goal.answered_fields:
-        return False
-    if question.optional:
-        return True
-
-    value = goal.answers.get(question.field)
-    if question.field == "current_amount":
-        return isinstance(value, Decimal) and value >= ZERO
-    if question.field in NUMERIC_FIELDS:
-        return isinstance(value, Decimal) and value > ZERO
-    if question.field in DATE_FIELDS:
-        return isinstance(value, date) and value > as_of
-    return isinstance(value, str) and bool(value)
-
-
-def _next_home_deposit_question(
-    goal: GoalPlanningGoal,
-    as_of: date,
-) -> GoalQuestion | None:
-    property_question, percent_question, target_question, *remaining = (
-        GOAL_QUESTIONS[GoalCategory.HOME_DEPOSIT]
-    )
-    has_direct_target = _has_positive_answer(goal, "deposit_target")
-    has_price = _has_positive_answer(goal, "property_price")
-    has_percent = _has_positive_answer(goal, "deposit_percent")
-
-    if not has_direct_target and not (has_price and has_percent):
-        if "property_price" not in goal.answered_fields:
-            return property_question
-        if has_price and "deposit_percent" not in goal.answered_fields:
-            return percent_question
-        if "deposit_target" not in goal.answered_fields:
-            return target_question
-        if not _has_positive_answer(goal, "deposit_target"):
-            return GoalQuestion(
-                "deposit_target",
-                (
-                    "What direct deposit target should we use so the home "
-                    "deposit can be calculated?"
-                ),
-            )
-
-    for question in remaining:
-        if not _is_question_answered(goal, question, as_of):
-            return question
-    return None
-
-
-def _next_question(
-    goal: GoalPlanningGoal,
-    snapshot: FinancialPlanningSnapshot,
-    as_of: date,
-) -> GoalQuestion | None:
-    if goal.category == GoalCategory.HOME_DEPOSIT:
-        question = _next_home_deposit_question(goal, as_of)
-        if question is not None:
-            return question
-    else:
-        for question in GOAL_QUESTIONS[goal.category]:
-            if (
-                goal.category == GoalCategory.BUDGET
-                and question.field == "monthly_income"
-                and snapshot.ongoing_monthly_income > ZERO
-            ):
-                continue
-            if not _is_question_answered(goal, question, as_of):
-                return question
-
-    if goal.priority is None:
-        return PRIORITY_QUESTION
-    return None
 
 
 def _goal_name(goal: GoalPlanningGoal) -> str:
@@ -597,138 +558,65 @@ def _goal_name(goal: GoalPlanningGoal) -> str:
     )
 
 
-def build_goal_question_context(
+def build_goal_dialogue_context(
     state: GoalPlanningState | None,
     snapshot: FinancialPlanningSnapshot,
-    as_of: date | None = None,
 ) -> str | None:
-    effective_date = as_of or date.today()
-    if not snapshot.has_financial_records:
+    if state is not None and state.recommendation_status == GoalRecommendationStatus.REJECTED:
+        recognized_goals = ", ".join(
+            f"{index}. {_goal_name(goal)}"
+            for index, goal in enumerate(state.goals, start=1)
+        )
         return "\n".join(
             [
                 "Goal planning workflow directive:",
-                "Stage: financial foundation required.",
+                "Stage: recommendation rejected; collect macro direction.",
+                f"Recognized goals ({len(state.goals)}): {recognized_goals}.",
                 (
-                    "Remind the user to upload a bank statement or transaction "
-                    "PDF with the + button in AI Chat before goal questions continue."
+                    "Acknowledge the disagreement briefly, then ask exactly one "
+                    "concise macro-level question. Ask what the revised plan should "
+                    "optimise for at a high level, such as faster progress, more "
+                    "monthly flexibility, lower pressure, or a different overall "
+                    "goal priority."
                 ),
                 (
-                    "Explain briefly that the PDF supplies the financial basis for "
-                    "later questions. Do not ask a goal-detail question this turn."
+                    "Do not ask for target amounts, saved amounts, contribution "
+                    "amounts, balances, income, expenses, rates, dates, coverage "
+                    "months, or High/Medium/Low labels. Do not ask more than one "
+                    "question and do not propose the revised plan in this response."
+                ),
+                (
+                    "After the user answers, the AI will choose all detailed values "
+                    "using Preference/Profile memory and financial context."
                 ),
             ]
         )
 
     if state is None or not state.goals:
+        foundation_rule = (
+            "Use verified financial records as the affordability basis."
+            if snapshot.has_financial_records
+            else (
+                "No verified financial records are available. Use conservative, "
+                "clearly labelled planning assumptions and do not claim that the "
+                "illustrative contribution is proven affordable."
+            )
+        )
         return "\n".join(
             [
                 "Goal planning workflow directive:",
-                "Stage: identify goals.",
+                "Stage: complete recommendation awaiting approval.",
                 (
-                    "Ask exactly this one question: Which goal would you like to "
-                    "plan first: general saving, an emergency fund, debt repayment, "
-                    "a home deposit, retirement, or a budget?"
+                    "Give the user one complete best recommendation immediately. "
+                    "Use the Preference/Profile memory and financial context in the "
+                    "prompt to decide every detailed amount, deadline, contribution, "
+                    "and priority. Do not ask the user for any detailed input."
                 ),
-                "Do not ask any additional question in this response.",
-            ]
-        )
-
-    pending_questions: list[tuple[int, GoalPlanningGoal, GoalQuestion]] = []
-    for index, goal in enumerate(state.goals, start=1):
-        question = _next_question(goal, snapshot, effective_date)
-        if question is not None:
-            pending_questions.append((index, goal, question))
-
-    if pending_questions:
-        recognized_goals = ", ".join(
-            f"{index}. {_goal_name(goal)}"
-            for index, goal in enumerate(state.goals, start=1)
-        )
-        if len(pending_questions) == 1:
-            goal_index, _, _ = pending_questions[0]
-            stage = (
-                f"Stage: collect goal {goal_index} details one question at a time."
-            )
-            question_rule = (
-                "Ask exactly this one labelled question. Do not ask any "
-                "additional question in this response."
-            )
-        else:
-            stage = (
-                "Stage: collect all incomplete goals in parallel, one next "
-                "question per goal."
-            )
-            question_rule = (
-                f"Ask exactly these {len(pending_questions)} numbered, labelled "
-                "questions in the same response. Ask one for every listed goal. "
-                "Do not omit, merge, or focus on only one goal."
-            )
-
-        lines = [
-            "Goal planning workflow directive:",
-            stage,
-            f"Recognized goals ({len(state.goals)}): {recognized_goals}.",
-            question_rule,
-        ]
-        for batch_index, (goal_index, goal, question) in enumerate(
-            pending_questions,
-            start=1,
-        ):
-            lines.extend(
-                [
-                    (
-                        f"Question {batch_index} — Goal {goal_index}: "
-                        f"{_goal_name(goal)} ({CATEGORY_LABELS[goal.category]})."
-                    ),
-                    f"Next MyGoals field: {question.field}.",
-                    f"Use this exact question: {question.prompt}",
-                ]
-            )
-
-        lines.append(
-            "Keep each question attached to its goal name so a combined user "
-            "reply can be mapped back to every goal."
-        )
-        if any(
-            question.field == "priority"
-            for _, _, question in pending_questions
-        ):
-            lines.append(
-                "Present High, Medium, and Low neutrally for every priority "
-                "question. Do not choose, recommend, or imply any priority."
-            )
-        else:
-            lines.append(
-                "Briefly acknowledge the shared trade-off across all recognized "
-                "goals, using the user's profile and financial context. Do not "
-                "give a final affordability conclusion until every goal is complete."
-            )
-
-        for _, goal, question in pending_questions:
-            if not (
-                goal.category == GoalCategory.BUDGET
-                and question.field != "monthly_income"
-                and snapshot.ongoing_monthly_income > ZERO
-                and "monthly_income" not in goal.answers
-            ):
-                continue
-            lines.append(
-                "For the budget goal, reuse the HomePage ongoing monthly income "
-                "rather than asking the user to repeat it."
-            )
-            break
-        return "\n".join(lines)
-
-    if not state.finished_adding_goals:
-        return "\n".join(
-            [
-                "Goal planning workflow directive:",
-                "Stage: confirm the goal list.",
+                foundation_rule,
                 (
-                    "Ask exactly this one question: Would you like to add another "
-                    "goal before we work out the allocation?"
+                    "Explain the recommendation and its key trade-off, then end with "
+                    "exactly this one question: Does this overall plan work for you?"
                 ),
-                "Do not ask any additional question in this response.",
             ]
         )
 

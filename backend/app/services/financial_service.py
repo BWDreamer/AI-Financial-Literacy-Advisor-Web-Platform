@@ -198,11 +198,13 @@ def build_financial_planning_context(
             "Homepage financial foundation:\n"
             "Financial records: none. The user did not provide an onboarding "
             "financial snapshot and has no later HomePage or PDF records. "
-            "If the user proposes one or more financial goals, the response "
-            "must first remind them to upload a bank statement or transaction "
-            "PDF with the + button in AI Chat so later questions have a "
-            "financial basis. Do not invent income, expenses, savings, debts, "
-            "or available surplus."
+            "For goal planning, still give a complete recommendation using "
+            "conservative, clearly labelled assumptions. Use zero as the planning "
+            "baseline for unknown current savings, do not fabricate income, "
+            "expenses, debts, or available surplus, and do not claim that an "
+            "illustrative monthly amount is proven affordable. The user may upload "
+            "a bank statement or transaction PDF with the + button later to refine "
+            "the plan, but an upload is not a prerequisite for a recommendation."
         )
 
     lines = [

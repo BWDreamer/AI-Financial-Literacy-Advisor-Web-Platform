@@ -7,6 +7,7 @@ class LLMProvider(Protocol):
     async def generate_reply(
         self,
         message: str,
+        system_instruction: str | None = None,
     ) -> str:
         """Generate one assistant reply for a user message."""
 
@@ -34,9 +35,11 @@ class AIAdvisorService:
     async def reply(
         self,
         message: str,
+        system_instruction: str | None = None,
     ) -> str:
         return await self._provider.generate_reply(
-            message
+            message,
+            system_instruction=system_instruction,
         )
 
     async def reply_json(

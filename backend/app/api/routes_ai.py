@@ -17,6 +17,7 @@ from app.ai.exceptions import (
     LLMRateLimitError,
     LLMServiceError,
 )
+from app.ai.prompts import build_advisory_topic_instructions
 from app.api.dependencies import get_current_user
 from app.core.database import get_db
 from app.core.config import settings
@@ -35,6 +36,7 @@ from app.schemas.ai import (
     AIChatResponse,
     AIPdfChatResponse,
 )
+from app.services.admin_service import get_advisory_settings
 from app.services.ai_advisor_service import AIAdvisorService
 from app.services.chat_context_service import (
     build_conversation_context,
@@ -51,7 +53,8 @@ from app.services.goal_allocation_service import (
 from app.services.goal_planning_service import (
     GOAL_PLANNING_STATE_RESPONSE_SCHEMA,
     GoalPlanningState,
-    build_goal_question_context,
+    GoalRecommendationStatus,
+    build_goal_dialogue_context,
     build_goal_state_correction_prompt,
     build_goal_state_extraction_prompt,
     goal_state_payload_is_complete,
@@ -206,10 +209,14 @@ async def _extract_goal_planning_state(
     advisor_service: AIAdvisorService,
     conversation_context: str | None,
     user_message: str,
+    memory_context: str | None,
+    financial_context: str | None,
 ) -> GoalPlanningState:
     extraction_prompt = build_goal_state_extraction_prompt(
         conversation_context,
         user_message,
+        memory_context,
+        financial_context,
     )
     payload = await advisor_service.reply_json(
         extraction_prompt,
@@ -220,6 +227,10 @@ async def _extract_goal_planning_state(
             build_goal_state_correction_prompt(extraction_prompt, payload),
             GOAL_PLANNING_STATE_RESPONSE_SCHEMA,
         )
+    if not goal_state_payload_is_complete(payload):
+        raise LLMServiceError(
+            "The AI provider returned an incomplete goal recommendation."
+        )
     return normalize_goal_planning_state(payload)
 
 
@@ -227,12 +238,19 @@ def _build_goal_workflow_context(
     state: GoalPlanningState | None,
     snapshot: FinancialPlanningSnapshot,
 ) -> str:
-    question_context = build_goal_question_context(state, snapshot)
-    if question_context is not None:
-        return question_context
+    dialogue_context = build_goal_dialogue_context(state, snapshot)
+    if dialogue_context is not None:
+        return dialogue_context
     if state is None:
         raise ValueError("Completed goal planning requires extracted goal state.")
-    return build_goal_allocation_context(state, snapshot)
+    return build_goal_allocation_context(
+        state,
+        snapshot,
+        awaiting_approval=(
+            state.recommendation_status
+            == GoalRecommendationStatus.NEEDS_RECOMMENDATION
+        ),
+    )
 
 
 def _raise_llm_http_error(error: Exception) -> None:
@@ -241,7 +259,7 @@ def _raise_llm_http_error(error: Exception) -> None:
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=(
                 "The AI service is not configured. "
-                "Set GEMINI_API_KEY on the backend."
+                "Set the configured provider API key on the backend."
             ),
         ) from error
 
@@ -264,7 +282,7 @@ def _raise_llm_http_error(error: Exception) -> None:
         ) from error
 
 
-def _plain_text_answer(answer: str) -> str:
+def _formatted_answer(answer: str) -> str:
     cleaned_lines: list[str] = []
 
     for raw_line in answer.splitlines():
@@ -275,19 +293,13 @@ def _plain_text_answer(answer: str) -> str:
                 cleaned_lines.append("")
             continue
 
-        line = re.sub(r"^#{1,6}\s*", "", line)
-        line = re.sub(r"^\s*[-*+]\s+", "", line)
-        line = re.sub(r"^\s*\d+[.)]\s+", "", line)
-        line = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", line)
-        line = line.replace("**", "")
-        line = line.replace("__", "")
-        line = line.replace("`", "")
-        line = line.replace("*", "")
-
         if re.fullmatch(r"[-_]{3,}", line):
             continue
 
-        if re.fullmatch(r"(?i)ai analysis[:：]?", line):
+        if re.fullmatch(
+            r"(?i)(?:#{1,6}\s*)?ai analysis[:：]?",
+            line,
+        ):
             continue
 
         line = re.sub(
@@ -295,6 +307,19 @@ def _plain_text_answer(answer: str) -> str:
             "",
             line,
         ).strip()
+
+        line = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", line)
+        line = line.replace("```", "").replace("`", "")
+        line = re.sub(r"<[^>]+>", "", line)
+        line = re.sub(r"__([^_\n]+)__", r"**\1**", line)
+
+        heading = re.match(r"^(#{1,6})\s*(.+)$", line)
+        if heading:
+            heading_marker = "##" if len(heading.group(1)) <= 2 else "###"
+            line = f"{heading_marker} {heading.group(2).strip()}"
+        else:
+            line = re.sub(r"^\s*[-*+]\s+", "- ", line)
+            line = re.sub(r"^\s*(\d+)[.)]\s+", r"\1. ", line)
 
         if line:
             cleaned_lines.append(line)
@@ -391,6 +416,9 @@ async def chat_with_advisor(
 ):
     """Return an educational reply from the configured LLM."""
     try:
+        advisory_topic_instructions = build_advisory_topic_instructions(
+            get_advisory_settings(db)["topics"]
+        )
         memory_context = None
         conversation_context = None
         goal_conversation_context = None
@@ -423,6 +451,13 @@ async def chat_with_advisor(
             financial_snapshot,
             include_empty=goal_discussion,
         )
+        memory_context = build_memory_context(
+            retrieve_relevant_memories(
+                db,
+                current_user.id,
+                request.message,
+            )
+        )
         if request.rule_id is not None:
             rule = get_financial_rule_by_id(db, request.rule_id)
             if rule is None:
@@ -438,14 +473,13 @@ async def chat_with_advisor(
         reply_json = getattr(advisor_service, "reply_json", None)
         if goal_discussion:
             goal_state = None
-            if (
-                financial_snapshot.has_financial_records
-                and reply_json is not None
-            ):
+            if reply_json is not None:
                 goal_state = await _extract_goal_planning_state(
                     advisor_service,
                     goal_conversation_context,
                     request.message,
+                    memory_context,
+                    financial_context,
                 )
             goal_planning_context = _build_goal_workflow_context(
                 goal_state,
@@ -466,14 +500,6 @@ async def chat_with_advisor(
                 intent=rule_intent,
             )
 
-        memory_context = build_memory_context(
-            retrieve_relevant_memories(
-                db,
-                current_user.id,
-                request.message,
-            )
-        )
-
         message = _build_grounded_message(
             user_message=request.message,
             memory_context=memory_context,
@@ -482,8 +508,11 @@ async def chat_with_advisor(
             goal_planning_context=goal_planning_context,
             rule_context=rule_context,
         )
-        answer = _plain_text_answer(
-            await advisor_service.reply(message)
+        answer = _formatted_answer(
+            await advisor_service.reply(
+                message,
+                system_instruction=advisory_topic_instructions,
+            )
         )
 
         remember_from_message(db, current_user.id, request.message)
@@ -621,6 +650,10 @@ async def chat_with_pdf_upload(
     financial_snapshot = _financial_snapshot_for_user(
         db, current_user.id
     )
+    financial_context = _financial_context_from_snapshot(
+        financial_snapshot,
+        include_empty=goal_discussion,
+    )
     goal_planning_context = None
     try:
         if goal_discussion:
@@ -628,6 +661,8 @@ async def chat_with_pdf_upload(
                 advisor_service,
                 goal_conversation_context,
                 user_message,
+                memory_context,
+                financial_context,
             )
             goal_planning_context = _build_goal_workflow_context(
                 goal_state,
@@ -637,14 +672,11 @@ async def chat_with_pdf_upload(
             user_message=pdf_context,
             memory_context=memory_context,
             conversation_context=conversation_context,
-            financial_context=_financial_context_from_snapshot(
-                financial_snapshot,
-                include_empty=goal_discussion,
-            ),
+            financial_context=financial_context,
             goal_planning_context=goal_planning_context,
             rule_context=None,
         )
-        answer = _plain_text_answer(
+        answer = _formatted_answer(
             await advisor_service.reply(context)
         )
     except (

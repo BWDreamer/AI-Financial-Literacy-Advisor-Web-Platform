@@ -40,10 +40,10 @@ The former `/monthly-allocation` write route is retired.
 - GET /api/calculator/ping
 - GET /api/calculator/goal-monthly-saving?target_amount=10000&current_amount=1000&months=12
 - GET /api/rules/ping
-- GET /api/rules?region=Australia&category=tax&rule_year=2025-2026
+- GET /api/rules?region=Australia&category=tax&rule_year=2026-2027
 - GET /api/rules/{rule_id}
-- GET /api/rules/tax-bracket?region=Australia&rule_year=2025-2026&income=80000
-- GET /api/rules/superannuation/employer-contribution?region=Australia&rule_year=2025-2026
+- GET /api/rules/tax-bracket?region=Australia&rule_year=2026-2027&income=80000
+- GET /api/rules/superannuation/employer-contribution?region=Australia&rule_year=2026-2027
 - GET /api/ai/ping
 - POST /api/ai/chat
 - POST /api/ai/chat/pdf
@@ -70,6 +70,11 @@ Advisory settings return the canonical Budgeting, Saving, Tax,
 Superannuation, Investing, and Debt topics. PATCH accepts one or more of
 those topics with an `enabled` boolean, preserves omitted topic values, and
 persists the resulting global configuration.
+
+Before generating the final response for every `POST /api/ai/chat` request,
+the backend reads the current global advisory settings and appends the enabled
+and disabled topic lists to the AI system instruction. Settings are not cached,
+so an admin update applies to the next chat request without a service restart.
 
 ## Financials
 

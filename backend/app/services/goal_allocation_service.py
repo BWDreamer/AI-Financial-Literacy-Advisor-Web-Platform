@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal, ROUND_DOWN, ROUND_HALF_UP
 
+from app.core.config import settings
 from app.services.financial_service import FinancialPlanningSnapshot
 from app.services.goal_planning_service import (
     CATEGORY_LABELS,
@@ -14,11 +15,18 @@ from app.services.goal_planning_service import (
 
 ZERO = Decimal("0.00")
 CENT = Decimal("0.01")
-PRIORITY_WEIGHTS = {
-    GoalPriority.HIGH: Decimal("3"),
-    GoalPriority.MEDIUM: Decimal("2"),
-    GoalPriority.LOW: Decimal("1"),
-}
+
+
+def _priority_weights() -> dict[GoalPriority, Decimal]:
+    return {
+        GoalPriority.HIGH: settings.goal_priority_high_weight,
+        GoalPriority.MEDIUM: settings.goal_priority_medium_weight,
+        GoalPriority.LOW: settings.goal_priority_low_weight,
+    }
+
+
+def _weight_label(value: Decimal) -> str:
+    return format(value.normalize(), "f")
 
 
 @dataclass(frozen=True)
@@ -65,7 +73,7 @@ def _funding_goal(goal: GoalPlanningGoal) -> FundingGoal | None:
         return None
     if goal.priority is None:
         raise ValueError(
-            f"User-confirmed priority is missing for {_goal_name(goal)}."
+            f"Planning priority is missing for {_goal_name(goal)}."
         )
     if goal.category == GoalCategory.EMERGENCY_FUND:
         target_amount = (
@@ -177,7 +185,7 @@ def calculate_goal_allocations(
     ]
     if missing_priorities:
         raise ValueError(
-            "Every goal needs a user-confirmed priority before allocation: "
+            "Every goal needs a planning priority before allocation: "
             + ", ".join(missing_priorities)
         )
     funding_goals = [
@@ -190,7 +198,8 @@ def calculate_goal_allocations(
             snapshot.one_off_surplus, ZERO
         )
 
-    weights = [PRIORITY_WEIGHTS[goal.priority] for goal in funding_goals]
+    priority_weights = _priority_weights()
+    weights = [priority_weights[goal.priority] for goal in funding_goals]
     remaining_targets = [
         max(goal.target_amount - goal.current_amount, ZERO)
         for goal in funding_goals
@@ -212,12 +221,18 @@ def calculate_goal_allocations(
             one_off_allocations,
         )
     ]
-    available_recurring = max(snapshot.ongoing_monthly_surplus, ZERO)
-    recurring_allocations = _weighted_capped_allocation(
-        available_recurring,
-        required_monthly,
-        weights,
-    )
+    if snapshot.has_financial_records:
+        available_recurring = max(snapshot.ongoing_monthly_surplus, ZERO)
+        recurring_allocations = _weighted_capped_allocation(
+            available_recurring,
+            required_monthly,
+            weights,
+        )
+    else:
+        # Without verified cash-flow records, the deadline-based requirement is
+        # an illustrative planning amount rather than an affordability claim.
+        recurring_allocations = required_monthly
+        available_recurring = sum(required_monthly, ZERO)
 
     allocations = tuple(
         GoalAllocation(
@@ -244,14 +259,36 @@ def build_goal_allocation_context(
     state: GoalPlanningState,
     snapshot: FinancialPlanningSnapshot,
     as_of: date | None = None,
+    awaiting_approval: bool = False,
 ) -> str:
     effective_date = as_of or date.today()
+    priority_weights = _priority_weights()
     allocations, recurring_unallocated, one_off_unallocated = (
         calculate_goal_allocations(state, snapshot, effective_date)
     )
+    if awaiting_approval:
+        stage_lines = [
+            "Stage: complete recommendation awaiting approval.",
+            (
+                "Present one complete best recommendation immediately. The AI "
+                "has already selected every missing detail using the user's "
+                "Preference/Profile memory and financial context. Do not ask the "
+                "user to choose or supply a detailed value."
+            ),
+        ]
+    else:
+        stage_lines = [
+            "Stage: confirmed goal plan.",
+            (
+                "The user accepted the latest complete recommendation. Present "
+                "the agreed goal plan with the exact values below and make clear "
+                "that planning is complete."
+            ),
+        ]
+
     lines = [
         "Goal planning workflow directive:",
-        "Stage: final negotiated allocation.",
+        *stage_lines,
         f"Recognized goals to cover in the final response: {len(state.goals)}.",
         (
             "Discuss every recognized goal below in the final response. Do not "
@@ -262,23 +299,43 @@ def build_goal_allocation_context(
             "or invent these amounts."
         ),
         (
-            "Every priority below was explicitly selected by the user. The AI did "
-            "not infer or choose a priority."
+            "The priority and planning details below came from explicit user "
+            "input where available; otherwise the AI selected them using the "
+            "Preference/Profile memory and financial context."
         ),
         (
-            "Allocation method: use High=3, Medium=2, and Low=1 weights, cap each "
-            "goal at its remaining target or deadline-based monthly need, then "
-            "redistribute any excess to the other goals."
-        ),
-        (
-            "Available ongoing monthly surplus for allocation: "
-            f"{_money(max(snapshot.ongoing_monthly_surplus, ZERO))}."
-        ),
-        (
-            "Available one-off surplus for allocation: "
-            f"{_money(max(snapshot.one_off_surplus, ZERO))}."
+            "Allocation method: use "
+            f"High={_weight_label(priority_weights[GoalPriority.HIGH])}, "
+            f"Medium={_weight_label(priority_weights[GoalPriority.MEDIUM])}, "
+            f"and Low={_weight_label(priority_weights[GoalPriority.LOW])} "
+            "weights, cap each goal at its remaining target or deadline-based "
+            "monthly need, then redistribute any excess to the other goals."
         ),
     ]
+    if snapshot.has_financial_records:
+        lines.extend(
+            [
+                (
+                    "Available ongoing monthly surplus for allocation: "
+                    f"{_money(max(snapshot.ongoing_monthly_surplus, ZERO))}."
+                ),
+                (
+                    "Available one-off surplus for allocation: "
+                    f"{_money(max(snapshot.one_off_surplus, ZERO))}."
+                ),
+            ]
+        )
+    else:
+        lines.extend(
+            [
+                "Verified income, expenses, savings, and available surplus are unavailable.",
+                (
+                    "Treat every current balance as a conservative assumption and "
+                    "every monthly amount as the illustrative requirement for the "
+                    "selected deadline, not as proven affordability."
+                ),
+            ]
+        )
     for allocation in allocations:
         goal = allocation.goal
         remaining_target = max(goal.target_amount - goal.current_amount, ZERO)
@@ -302,7 +359,7 @@ def build_goal_allocation_context(
                     f"{_money(allocation.required_monthly_amount)}."
                 ),
                 (
-                    "User-proposed monthly amount: "
+                    "Planning monthly amount: "
                     f"{_money(goal.proposed_monthly_amount)}."
                 ),
                 (
@@ -328,7 +385,7 @@ def build_goal_allocation_context(
                 "Budget goal is a cash-flow improvement plan, not a funding account.",
                 f"Budget monthly income basis: {_money(monthly_income)}.",
                 (
-                    "User-stated fixed plus variable expenses: "
+                    "Planning fixed plus variable expenses: "
                     f"{_money(expenses)}."
                 ),
                 (
@@ -338,19 +395,36 @@ def build_goal_allocation_context(
             ]
         )
 
+    if snapshot.has_financial_records:
+        lines.extend(
+            [
+                f"Unallocated ongoing monthly surplus: {_money(recurring_unallocated)}.",
+                f"Unallocated one-off surplus: {_money(one_off_unallocated)}.",
+            ]
+        )
     lines.extend(
         [
-            f"Unallocated ongoing monthly surplus: {_money(recurring_unallocated)}.",
-            f"Unallocated one-off surplus: {_money(one_off_unallocated)}.",
             (
-                "Explain the trade-offs against the user's proposed amounts and "
-                "priorities. Show how the user could adjust a contribution, "
-                "deadline, or priority when the available surplus is insufficient."
+                "Explain the key trade-off in the recommended amounts and "
+                "priorities. When verified surplus is insufficient, explain the "
+                "AI-selected adjustment without asking the user for a number."
             ),
             (
                 "Keep one-off allocations separate from recurring monthly "
-                "allocations. Do not ask another question in this response."
+                "allocations."
             ),
         ]
     )
+    if awaiting_approval:
+        lines.extend(
+            [
+                (
+                    "End with exactly this one question: Does this overall plan "
+                    "work for you?"
+                ),
+                "Do not ask any other question in this response.",
+            ]
+        )
+    else:
+        lines.append("Do not ask another question in this response.")
     return "\n".join(lines)

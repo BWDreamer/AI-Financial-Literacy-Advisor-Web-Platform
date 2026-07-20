@@ -3,6 +3,7 @@ from decimal import Decimal
 
 import pytest
 
+from app.core.config import settings
 from app.services.financial_service import FinancialPlanningSnapshot
 from app.services.goal_allocation_service import (
     build_goal_allocation_context,
@@ -38,14 +39,6 @@ def complete_general_goal(
 ) -> dict:
     return {
         "category": GoalCategory.GENERAL_SAVING.value,
-        "answered_fields": [
-            "goal_title",
-            "target_amount",
-            "deadline",
-            "current_amount",
-            "monthly_contribution",
-            "priority",
-        ],
         "goal_title": title,
         "target_amount": target_amount,
         "deadline": deadline,
@@ -70,7 +63,7 @@ def test_allocation_keeps_one_off_and_recurring_surplus_separate():
                     priority="Low",
                 ),
             ],
-            "finished_adding_goals": True,
+            "recommendation_status": "accepted",
         }
     )
     snapshot = financial_snapshot()
@@ -105,12 +98,12 @@ def test_allocation_keeps_one_off_and_recurring_surplus_separate():
         snapshot,
         as_of=date(2026, 7, 14),
     )
-    assert "Stage: final negotiated allocation" in context
+    assert "Stage: confirmed goal plan" in context
     assert "Recognized goals to cover in the final response: 2" in context
     assert "Do not omit a goal" in context
     assert "Available ongoing monthly surplus for allocation: $900.00" in context
     assert "Available one-off surplus for allocation: $600.00" in context
-    assert "Every priority below was explicitly selected by the user" in context
+    assert "the AI selected them using the Preference/Profile memory" in context
     assert "Goal: Car" in context
     assert "Priority: High" in context
     assert "Goal: Travel" in context
@@ -118,21 +111,21 @@ def test_allocation_keeps_one_off_and_recurring_surplus_separate():
     assert "Do not change, merge, or invent these amounts" in context
 
 
-def test_allocation_rejects_a_goal_without_user_confirmed_priority():
+def test_allocation_rejects_a_goal_without_planning_priority():
     goal = complete_general_goal(
         title="Car",
         target_amount=12000,
         priority="High",
     )
-    goal["answered_fields"].remove("priority")
+    goal["priority"] = None
     state = normalize_goal_planning_state(
         {
             "goals": [goal],
-            "finished_adding_goals": True,
+            "recommendation_status": "accepted",
         }
     )
 
-    with pytest.raises(ValueError, match="user-confirmed priority"):
+    with pytest.raises(ValueError, match="planning priority"):
         calculate_goal_allocations(
             state,
             financial_snapshot(),
@@ -169,7 +162,7 @@ def test_allocation_distributes_surplus_across_four_goals():
                     deadline="2046-07-14",
                 ),
             ],
-            "finished_adding_goals": True,
+            "recommendation_status": "accepted",
         }
     )
 
@@ -197,3 +190,128 @@ def test_allocation_distributes_surplus_across_four_goals():
         Decimal("0.00"),
     ) == Decimal("900.00")
     assert recurring_left == Decimal("0.00")
+
+
+def test_allocation_uses_configured_priority_weights(monkeypatch):
+    monkeypatch.setattr(
+        settings,
+        "goal_priority_high_weight",
+        Decimal("5"),
+    )
+    monkeypatch.setattr(
+        settings,
+        "goal_priority_medium_weight",
+        Decimal("2"),
+    )
+    monkeypatch.setattr(
+        settings,
+        "goal_priority_low_weight",
+        Decimal("1"),
+    )
+    state = normalize_goal_planning_state(
+        {
+            "goals": [
+                complete_general_goal(
+                    title="Car",
+                    target_amount=12000,
+                    priority="High",
+                ),
+                complete_general_goal(
+                    title="Travel",
+                    target_amount=6000,
+                    priority="Low",
+                ),
+            ],
+            "recommendation_status": "accepted",
+        }
+    )
+
+    allocations, _, _ = calculate_goal_allocations(
+        state,
+        financial_snapshot(),
+        as_of=date(2026, 7, 14),
+    )
+    context = build_goal_allocation_context(
+        state,
+        financial_snapshot(),
+        as_of=date(2026, 7, 14),
+    )
+
+    assert allocations[0].one_off_amount == Decimal("500.00")
+    assert allocations[1].one_off_amount == Decimal("100.00")
+    assert allocations[0].recurring_monthly_amount == Decimal("750.00")
+    assert allocations[1].recurring_monthly_amount == Decimal("150.00")
+    assert "High=5, Medium=2, and Low=1 weights" in context
+
+
+def test_initial_recommendation_is_complete_and_only_requests_approval():
+    state = normalize_goal_planning_state(
+        {
+            "goals": [
+                complete_general_goal(
+                    title="Car",
+                    target_amount=12000,
+                    priority="Medium",
+                )
+            ],
+            "recommendation_status": "needs_recommendation",
+        }
+    )
+
+    context = build_goal_allocation_context(
+        state,
+        financial_snapshot(),
+        as_of=date(2026, 7, 14),
+        awaiting_approval=True,
+    )
+
+    assert "Stage: complete recommendation awaiting approval" in context
+    assert "Present one complete best recommendation immediately" in context
+    assert "Target amount: $12,000.00" in context
+    assert "Planning monthly amount: $500.00" in context
+    assert "Does this overall plan work for you?" in context
+    assert "Do not ask any other question" in context
+
+
+def test_unverified_finances_use_deadline_requirement_as_an_assumption():
+    state = normalize_goal_planning_state(
+        {
+            "goals": [
+                complete_general_goal(
+                    title="Car",
+                    target_amount=12000,
+                    priority="Medium",
+                )
+            ],
+            "recommendation_status": "needs_recommendation",
+        }
+    )
+    snapshot = FinancialPlanningSnapshot(
+        has_financial_records=False,
+        has_cash_flow_records=False,
+        total_assets=Decimal("0"),
+        total_debts=Decimal("0"),
+        cash_savings=Decimal("0"),
+        ongoing_monthly_income=Decimal("0"),
+        ongoing_monthly_expenses=Decimal("0"),
+        one_off_period=None,
+        one_off_income=Decimal("0"),
+        one_off_expenses=Decimal("0"),
+    )
+
+    allocations, recurring_left, _ = calculate_goal_allocations(
+        state,
+        snapshot,
+        as_of=date(2026, 7, 14),
+    )
+    context = build_goal_allocation_context(
+        state,
+        snapshot,
+        as_of=date(2026, 7, 14),
+        awaiting_approval=True,
+    )
+
+    assert allocations[0].recurring_monthly_amount == Decimal("1000.00")
+    assert recurring_left == Decimal("0.00")
+    assert "illustrative requirement" in context
+    assert "not as proven affordability" in context
