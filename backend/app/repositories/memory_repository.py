@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from datetime import datetime, timezone
 
 from sqlalchemy import func, or_
@@ -36,6 +37,34 @@ def save_memory(
     memory.fact = data.fact
     memory.source = source
     db.add(memory)
+    db.commit()
+    db.refresh(memory)
+    return memory
+
+
+def save_memory_replacing(
+    db: Session,
+    user_id: int,
+    data: MemoryRequest,
+    memory: UserMemory | None = None,
+    duplicates: Sequence[UserMemory] = (),
+    source: str = "chat",
+) -> UserMemory:
+    if memory is not None and memory.user_id != user_id:
+        raise ValueError("Cannot replace another user's memory.")
+
+    memory = memory or UserMemory(user_id=user_id)
+    memory.category = data.category
+    memory.fact = data.fact
+    memory.source = source
+    db.add(memory)
+
+    for duplicate in duplicates:
+        if duplicate.user_id != user_id:
+            raise ValueError("Cannot delete another user's memory.")
+        if duplicate.id != memory.id:
+            db.delete(duplicate)
+
     db.commit()
     db.refresh(memory)
     return memory
