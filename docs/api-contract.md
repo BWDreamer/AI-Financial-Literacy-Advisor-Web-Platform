@@ -36,6 +36,11 @@ The former `/monthly-allocation` write route is retired.
 
 - GET /api/health
 - GET /api/auth/ping
+- POST /api/auth/register/verification-code
+- POST /api/auth/register
+- POST /api/auth/login
+- POST /api/auth/email/verification-code (authenticated user)
+- PUT /api/auth/email (authenticated user)
 - GET /api/profile/ping
 - GET /api/calculator/ping
 - GET /api/calculator/goal-monthly-saving?target_amount=10000&current_amount=1000&months=12
@@ -62,6 +67,12 @@ The former `/monthly-allocation` write route is retired.
 - GET /api/admin/advisory-settings (admin only)
 - PATCH /api/admin/advisory-settings (admin only)
 - POST /api/auth/heartbeat (authenticated user)
+
+Registration first sends a six-digit code to the requested email. The
+registration request must include that code as `verification_code`. Changing
+an authenticated user's login email follows the same pattern and also requires
+the current password. Codes are single-use, expire after the configured TTL,
+are rate-limited when resent, and are stored only as hashes.
 
 Admin user requests use `first_name`, `last_name`, `email`, and `password`
 for creation. Update requests omit `password`. User responses include `id`,
@@ -96,8 +107,13 @@ so an admin update applies to the next chat request without a service restart.
 - POST /api/chat/conversations/{conversation_id}/messages
 - DELETE /api/chat/conversations/{conversation_id}
 
-`POST /api/ai/chat` accepts optional `conversation_id` and `rule_id` fields.
+`POST /api/ai/chat` accepts optional `conversation_id`, `rule_id`, and
+`goal_id` fields.
 When `conversation_id` is supplied, the user and assistant messages are saved.
+When `goal_id` is supplied, the backend verifies that the goal belongs to the
+current user, stores an authoritative goal card in the selected conversation,
+and sends the goal values plus its code-calculated progress analysis to the AI
+for an educational review.
 For general rule questions without `rule_id`, the backend first asks the LLM
 for a structured intent classification (`knowledge_base_status`,
 `tax_brackets`, `tax_calculation`, `employer_super`,

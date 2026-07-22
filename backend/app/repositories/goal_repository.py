@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.models.goal import (
     Goal,
     GoalAllocationSettings,
+    GoalNotification,
     GoalPlanConfirmation,
     GoalProgress,
 )
@@ -13,7 +14,7 @@ from app.schemas.goal import AllocationSettingsRequest, GoalProgressRequest, Goa
 
 
 def list_goals(db: Session, user_id: int) -> list[Goal]:
-    return db.query(Goal).filter(Goal.user_id == user_id).order_by(Goal.priority, Goal.target_date, Goal.id).all()
+    return db.query(Goal).filter(Goal.user_id == user_id, Goal.archived.is_(False)).order_by(Goal.priority, Goal.target_date, Goal.id).all()
 
 
 def get_goal(db: Session, user_id: int, goal_id: int) -> Goal | None:
@@ -71,6 +72,15 @@ def save_confirmed_goal_plan(
 def delete_goal(db: Session, goal: Goal) -> None:
     db.delete(goal)
     db.commit()
+
+
+def archive_goal(db: Session, goal: Goal) -> Goal:
+    goal.status = "completed"
+    goal.archived = False
+    db.add(goal)
+    db.commit()
+    db.refresh(goal)
+    return goal
 
 
 def list_progress(db: Session, goal_id: int) -> list[GoalProgress]:
@@ -136,3 +146,36 @@ def save_allocation_settings(db: Session, user_id: int, data: AllocationSettings
     db.commit()
     db.refresh(settings)
     return settings
+
+
+def list_notifications(db: Session, user_id: int) -> list[GoalNotification]:
+    return db.query(GoalNotification).filter(
+        GoalNotification.user_id == user_id,
+        GoalNotification.archived.is_(False),
+    ).order_by(GoalNotification.created_at.desc(), GoalNotification.id.desc()).all()
+
+
+def get_notification(db: Session, user_id: int, notification_id: int) -> GoalNotification | None:
+    return db.query(GoalNotification).filter(
+        GoalNotification.id == notification_id,
+        GoalNotification.user_id == user_id,
+    ).first()
+
+
+def ensure_completion_notification(db: Session, goal: Goal) -> bool:
+    if goal.status != "pending_archive":
+        return False
+    exists = db.query(GoalNotification).filter(
+        GoalNotification.goal_id == goal.id,
+        GoalNotification.notification_type == "goal_completed",
+    ).first()
+    if exists is not None:
+        return False
+    db.add(GoalNotification(
+        user_id=goal.user_id,
+        goal_id=goal.id,
+        notification_type="goal_completed",
+        title=f"{goal.name} is ready to archive",
+        message="Your goal has reached 100%. Confirm it to move this goal into Completed.",
+    ))
+    return True

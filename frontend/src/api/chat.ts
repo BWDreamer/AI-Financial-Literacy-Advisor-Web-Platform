@@ -66,9 +66,19 @@ export const getConversation = (id: number) => apiRequest<ConversationDetail>(`/
 export const createConversation = (title?: string) => apiRequest<Conversation>("/chat/conversations", { method: "POST", authenticated: true, body: JSON.stringify({ title }) });
 export const addConversationMessage = (id: number, role: ChatMessage["role"], content: string) => apiRequest<ChatMessage>(`/chat/conversations/${id}/messages`, { method: "POST", authenticated: true, body: JSON.stringify({ role, content }) });
 export const deleteConversation = (id: number) => apiRequest<void>(`/chat/conversations/${id}`, { method: "DELETE", authenticated: true });
-export const sendAdvisorMessage = (message: string, conversationId: number, ruleId?: number) => apiRequest<{ answer: string; model: string }>("/ai/chat", {
+export const sendAdvisorMessage = (
+  message: string,
+  conversationId: number,
+  ruleId?: number,
+  goalId?: number,
+) => apiRequest<{ answer: string; model: string }>("/ai/chat", {
   method: "POST", authenticated: true,
-  body: JSON.stringify({ message, conversation_id: conversationId, rule_id: ruleId }),
+  body: JSON.stringify({
+    message,
+    conversation_id: conversationId,
+    rule_id: ruleId,
+    goal_id: goalId,
+  }),
 });
 
 export async function streamAdvisorMessage(
@@ -76,6 +86,7 @@ export async function streamAdvisorMessage(
   conversationId: number,
   onDelta: (content: string) => void,
   ruleId?: number,
+  goalId?: number,
 ): Promise<AdvisorStreamResponse> {
   const response = await apiResponse("/ai/chat/stream", {
     method: "POST",
@@ -84,6 +95,7 @@ export async function streamAdvisorMessage(
       message,
       conversation_id: conversationId,
       rule_id: ruleId,
+      goal_id: goalId,
     }),
   });
   if (!response.body) {

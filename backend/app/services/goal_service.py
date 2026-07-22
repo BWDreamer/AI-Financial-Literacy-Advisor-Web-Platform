@@ -2,14 +2,15 @@ import calendar
 import hashlib
 import json
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from types import SimpleNamespace
 from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.models.goal import Goal
+from app.models.financial import CashBucket
+from app.models.goal import Goal, GoalProgress
 from app.repositories.financial_repository import list_assets, list_cash_buckets, list_cash_flows, list_debts, list_recurring_cash_flows
 from app.repositories.goal_repository import list_progress
 from app.services.financial_service import build_financial_summary
@@ -44,6 +45,10 @@ def money(value: Decimal) -> Decimal:
     return Decimal(value).quantize(MONEY, rounding=ROUND_HALF_UP)
 
 
+def percent(value: Decimal) -> Decimal:
+    return Decimal(value).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
 def months_until(target: date, today: date | None = None) -> int:
     today = today or date.today()
     months = (target.year - today.year) * 12 + target.month - today.month
@@ -59,16 +64,22 @@ def add_months(value: date, count: int) -> date:
     return date(year, month, min(value.day, calendar.monthrange(year, month)[1]))
 
 
-def analyse_goal(goal: Goal, today: date | None = None) -> dict:
+def previous_month_end(today: date | None = None) -> date:
+    today = today or date.today()
+    first_day = today.replace(day=1)
+    return first_day - timedelta(days=1)
+
+
+def analyse_goal(goal: Goal, today: date | None = None, allocated_monthly: Decimal | None = None, cash_allocation: Decimal | None = None) -> dict:
     today = today or date.today()
     target = Decimal(goal.target_amount)
     current = Decimal(goal.current_amount)
     remaining = max(target - current, Decimal("0"))
     months = months_until(goal.target_date, today)
     required = money(remaining / months) if months else money(remaining)
-    contribution = Decimal(goal.monthly_contribution)
+    contribution = Decimal(allocated_monthly if allocated_monthly is not None else goal.monthly_contribution)
     if current >= target:
-        state = "completed"
+        state = "completed" if getattr(goal, "status", "") == "completed" else "pending_archive"
         projected = today
     elif goal.target_date <= today or contribution < required:
         state = "behind"
@@ -80,6 +91,8 @@ def analyse_goal(goal: Goal, today: date | None = None) -> dict:
         "progress_percentage": money(min(current / target * 100, Decimal("100"))),
         "required_monthly": required,
         "monthly_difference": money(contribution - required),
+        "allocated_monthly": money(contribution),
+        "cash_allocation": money(cash_allocation or Decimal("0")),
         "months_remaining": months,
         "projected_completion_date": projected,
         "status": state,
@@ -88,6 +101,39 @@ def analyse_goal(goal: Goal, today: date | None = None) -> dict:
 
 def refresh_goal_status(goal: Goal) -> None:
     goal.status = analyse_goal(goal)["status"]
+
+
+def linked_cash_allocation(db: Session, goal: Goal) -> Decimal:
+    bucket = db.query(CashBucket).filter(
+        CashBucket.user_id == goal.user_id,
+        CashBucket.goal_id == goal.id,
+        CashBucket.bucket_type == "goal_reserved",
+    ).first()
+    if bucket is not None:
+        return money(Decimal(bucket.amount))
+    if goal.status == "completed" or goal.archived:
+        return Decimal("0.00")
+    return money(Decimal(goal.current_amount))
+
+
+def sync_goal_reserved_cash(db: Session, goal: Goal) -> bool:
+    bucket = db.query(CashBucket).filter(
+        CashBucket.user_id == goal.user_id,
+        CashBucket.goal_id == goal.id,
+        CashBucket.bucket_type == "goal_reserved",
+    ).first()
+    amount = money(Decimal(goal.current_amount))
+    if amount <= 0 or goal.archived or goal.status == "completed":
+        if bucket is not None:
+            db.delete(bucket)
+            return True
+        return False
+    bucket = bucket or CashBucket(user_id=goal.user_id, goal_id=goal.id, bucket_type="goal_reserved")
+    changed = bucket.amount != amount or bucket.name != goal.name
+    bucket.name = goal.name
+    bucket.amount = amount
+    db.add(bucket)
+    return changed
 
 
 def build_goal_preview(request: GoalPreviewRequest) -> dict:
@@ -254,6 +300,106 @@ def financial_numbers(db: Session, user_id: int) -> dict:
     )
     summary["cash_buckets"] = list_cash_buckets(db, user_id)
     return summary
+
+
+def monthly_allocation_map(db: Session, user_id: int, settings) -> dict[int, Decimal]:
+    monthly = calculate_monthly_allocation(
+        financial_numbers(db, user_id),
+        Decimal(settings.monthly_allocatable_ratio),
+        active_goal_ratios(db.query(Goal).filter(
+            Goal.user_id == user_id,
+            Goal.archived.is_(False),
+        ).all(), settings.goal_monthly_ratios or []),
+    )
+    return {int(row["goal_id"]): Decimal(row["monthly_amount"]) for row in monthly["goals"]}
+
+
+def active_goal_ratios(goals: list[Goal], ratios: list) -> list:
+    active_ids = {goal.id for goal in goals if goal.status != "completed" and not goal.archived}
+    return [item for item in ratios if int(item["goal_id"] if isinstance(item, dict) else item.goal_id) in active_ids]
+
+
+def backfill_goal_ratios(goals: list[Goal], finance: dict, settings) -> bool:
+    if settings.goal_monthly_ratios:
+        return False
+    net = max(Decimal(finance["monthly_income"]) - Decimal(finance["monthly_expenses"]), Decimal("0"))
+    allocatable = money(net * Decimal(settings.monthly_allocatable_ratio) / 100)
+    if allocatable <= 0:
+        return False
+    rows = []
+    for goal in goals:
+        if goal.status == "completed" or goal.archived:
+            continue
+        ratio = money(Decimal(goal.monthly_contribution) / allocatable * 100)
+        if ratio > 0:
+            rows.append({"goal_id": goal.id, "ratio": str(percent(min(ratio, Decimal("100"))))})
+    if not rows:
+        return False
+    total = sum((Decimal(row["ratio"]) for row in rows), Decimal("0"))
+    if total > 100:
+        rows = [{"goal_id": row["goal_id"], "ratio": str(percent(Decimal(row["ratio"]) * 100 / total))} for row in rows]
+    settings.goal_monthly_ratios = rows
+    return True
+
+
+def sync_goal_monthly_ratio(db: Session, goal: Goal) -> None:
+    finance = financial_numbers(db, goal.user_id)
+    settings = db.merge(goal_settings_proxy(db, goal.user_id))
+    net = max(Decimal(finance["monthly_income"]) - Decimal(finance["monthly_expenses"]), Decimal("0"))
+    allocatable = money(net * Decimal(settings.monthly_allocatable_ratio) / 100)
+    rows = []
+    for item in settings.goal_monthly_ratios or []:
+        if int(item["goal_id"]) != goal.id:
+            rows.append({"goal_id": int(item["goal_id"]), "ratio": str(percent(Decimal(str(item["ratio"]))))})
+    if goal.status == "completed" or goal.archived:
+        settings.goal_monthly_ratios = rows
+        db.add(settings)
+        return
+    if allocatable > 0 and Decimal(goal.monthly_contribution) > 0:
+        rows.append({"goal_id": goal.id, "ratio": str(percent(Decimal(goal.monthly_contribution) / allocatable * 100))})
+    total = sum((Decimal(str(item["ratio"])) for item in rows), Decimal("0"))
+    if total > 100:
+        rows = [{"goal_id": int(item["goal_id"]), "ratio": str(percent(Decimal(str(item["ratio"])) * 100 / total))} for item in rows]
+    settings.goal_monthly_ratios = rows
+    db.add(settings)
+
+
+def goal_settings_proxy(db: Session, user_id: int):
+    from app.repositories.goal_repository import get_allocation_settings
+    return get_allocation_settings(db, user_id)
+
+
+def apply_due_monthly_progress(db: Session, goals: list[Goal], monthly_map: dict[int, Decimal], today: date | None = None) -> bool:
+    cutoff = previous_month_end(today)
+    changed = False
+    for goal in goals:
+        if goal.status == "completed" or goal.archived:
+            continue
+        amount = money(monthly_map.get(goal.id, Decimal("0")))
+        if amount <= 0:
+            continue
+        progress_date = goal.created_at.date().replace(day=1)
+        while progress_date <= cutoff and progress_date <= goal.target_date:
+            final_day = calendar.monthrange(progress_date.year, progress_date.month)[1]
+            due_date = progress_date.replace(day=final_day)
+            exists = db.query(GoalProgress).filter(
+                GoalProgress.goal_id == goal.id,
+                GoalProgress.source == "monthly_allocation",
+                GoalProgress.progress_date == due_date,
+            ).first()
+            if not exists:
+                remaining = Decimal(goal.target_amount) - Decimal(goal.current_amount)
+                contribution = money(min(amount, max(remaining, Decimal("0"))))
+                if contribution > 0:
+                    goal.current_amount = money(Decimal(goal.current_amount) + contribution)
+                    db.add(GoalProgress(
+                        goal_id=goal.id, amount=contribution, progress_date=due_date,
+                        note="Monthly goal allocation", source="monthly_allocation",
+                        new_current_amount=goal.current_amount,
+                    ))
+                    changed = True
+            progress_date = add_months(progress_date, 1)
+    return changed
 
 
 def validate_owned_ratios(goals: list[Goal], ratios: list) -> None:

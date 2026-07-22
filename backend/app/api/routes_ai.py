@@ -36,6 +36,7 @@ from app.repositories.financial_repository import (
 from app.repositories.goal_repository import save_confirmed_goal_plan
 from app.repositories.rule_repository import get_financial_rule_by_id
 from app.repositories.chat_repository import add_message, get_conversation
+from app.repositories.goal_repository import get_goal
 from app.schemas.ai import (
     AIChatRequest,
     AIChatResponse,
@@ -80,6 +81,10 @@ from app.services.goal_planning_service import (
     goal_state_payload_is_complete,
     is_goal_planning_follow_up,
     normalize_goal_planning_state,
+)
+from app.services.goal_review_service import (
+    build_goal_review_context,
+    build_goal_review_message,
 )
 from app.services.memory_service import (
     build_memory_context,
@@ -166,6 +171,7 @@ def _build_grounded_message(
     financial_context: str | None,
     goal_planning_context: str | None,
     rule_context: str | None,
+    goal_review_context: str | None = None,
 ) -> str:
     context_sections = [
         context
@@ -173,6 +179,7 @@ def _build_grounded_message(
             memory_context,
             conversation_context,
             financial_context,
+            goal_review_context,
             goal_planning_context,
             rule_context,
         )
@@ -507,11 +514,26 @@ async def _advisor_chat_events(
     conversation_context = None
     goal_conversation_context = None
     goal_planning_context = None
+    goal_review_context = None
+    goal_review = None
     confirmed_goal_plan = None
     structured_intent_remembered = False
     rule_context = None
     conversation = None
     last_assistant_message = None
+    if request.goal_id is not None:
+        goal_review = get_goal(
+            db,
+            current_user.id,
+            request.goal_id,
+        )
+        if goal_review is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Goal was not found.",
+            )
+        goal_review_context = build_goal_review_context(goal_review)
+
     if request.conversation_id is not None:
         conversation = get_conversation(
             db, current_user.id, request.conversation_id
@@ -532,19 +554,28 @@ async def _advisor_chat_events(
             and conversation.messages[-1].role == "assistant"
         ):
             last_assistant_message = conversation.messages[-1].content
-    goal_discussion = _is_goal_planning_discussion(
-        request.message,
-        conversation_context,
+    goal_discussion = (
+        request.goal_id is None
+        and _is_goal_planning_discussion(
+            request.message,
+            conversation_context,
+        )
     )
     financial_snapshot = _financial_snapshot_for_user(
         db, current_user.id
     )
     financial_context = _financial_context_from_snapshot(
         financial_snapshot,
-        include_empty=goal_discussion,
+        include_empty=goal_discussion or goal_review is not None,
     )
     memory_search_text = request.message
-    if goal_discussion and goal_conversation_context is not None:
+    if goal_review is not None:
+        memory_search_text = (
+            f"{request.message}\n"
+            f"Goal: {goal_review.name}. "
+            f"Category: {goal_review.category}."
+        )
+    elif goal_discussion and goal_conversation_context is not None:
         memory_search_text = (
             f"{request.message}\n{goal_conversation_context}"
         )
@@ -565,7 +596,14 @@ async def _advisor_chat_events(
         rule_context = _build_selected_rule_context(rule)
 
     if conversation is not None:
-        add_message(db, conversation, "user", request.message)
+        stored_user_message = request.message
+        if goal_review is not None:
+            stored_user_message = build_goal_review_message(goal_review)
+            if conversation.title == "New Conversation":
+                conversation.title = (
+                    f"Goal review: {goal_review.name}"
+                )[:255]
+        add_message(db, conversation, "user", stored_user_message)
 
     reply_json = getattr(advisor_service, "reply_json", None)
     if goal_discussion:
@@ -606,7 +644,7 @@ async def _advisor_chat_events(
             relevant_memories = retrieve_relevant_memories(
                 db,
                 current_user.id,
-                request.message,
+                memory_search_text,
             )
             memory_context = build_memory_context(
                 [confirmed_memory]
@@ -635,7 +673,11 @@ async def _advisor_chat_events(
             financial_snapshot,
             confirmed_goals_available=confirmed_goal_plan is not None,
         )
-    elif request.rule_id is None and reply_json is not None:
+    elif (
+        request.goal_id is None
+        and request.rule_id is None
+        and reply_json is not None
+    ):
         intent_payload = await reply_json(
             build_financial_rule_intent_prompt(
                 request.message,
@@ -657,6 +699,7 @@ async def _advisor_chat_events(
         financial_context=financial_context,
         goal_planning_context=goal_planning_context,
         rule_context=rule_context,
+        goal_review_context=goal_review_context,
     )
     if stream_response:
         answer_parts: list[str] = []

@@ -1,5 +1,6 @@
 from sqlalchemy import (
     JSON,
+    Boolean,
     Column,
     Date,
     DateTime,
@@ -28,6 +29,7 @@ class Goal(Base):
     target_date = Column(Date, nullable=False)
     priority = Column(Integer, nullable=False, default=1)
     status = Column(String(20), nullable=False, default="on_track")
+    archived = Column(Boolean, nullable=False, default=False)
     category_details = Column(JSON, nullable=False, default=dict)
     created_at = Column(DateTime, nullable=False, server_default=func.now())
     updated_at = Column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
@@ -78,3 +80,21 @@ class GoalPlanConfirmation(Base):
     )
     plan_fingerprint = Column(String(64), nullable=False)
     created_at = Column(DateTime, nullable=False, server_default=func.now())
+
+
+class GoalNotification(Base):
+    __tablename__ = "goal_notifications"
+    __table_args__ = (
+        UniqueConstraint("goal_id", "notification_type", name="uq_goal_notification_type"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    goal_id = Column(Integer, ForeignKey("goals.id", ondelete="CASCADE"), nullable=False, index=True)
+    notification_type = Column(String(50), nullable=False)
+    title = Column(String(150), nullable=False)
+    message = Column(Text, nullable=False)
+    read = Column(Boolean, nullable=False, default=False)
+    archived = Column(Boolean, nullable=False, default=False)
+    created_at = Column(DateTime, nullable=False, server_default=func.now())
+    updated_at = Column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())

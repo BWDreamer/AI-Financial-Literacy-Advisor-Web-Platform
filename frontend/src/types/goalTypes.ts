@@ -7,8 +7,8 @@ export type GoalCategory =
   | "Budget";
 
 export type GoalPriority = "High" | "Medium" | "Low";
-export type GoalStatus = "On Track" | "Behind" | "Completed";
-export type GoalFilter = "All" | GoalStatus;
+export type GoalStatus = "On Track" | "Behind" | "Pending Archive" | "Completed";
+export type GoalFilter = "In Progress" | GoalStatus;
 export type GoalSort = "Recent" | "Priority" | "Target Date" | "Progress";
 
 export type Goal = {
@@ -19,11 +19,14 @@ export type Goal = {
   targetAmount: number;
   currentAmount: number;
   monthlyContribution: number;
+  allocatedMonthly?: number;
+  cashAllocation?: number;
   progressPercentage: number;
   createdAt: string;
   targetDate: string;
   priority: GoalPriority;
   status?: GoalStatus;
+  archived?: boolean;
   categoryDetails?: Record<string, string | number>;
 };
 

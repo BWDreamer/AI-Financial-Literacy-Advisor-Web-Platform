@@ -6,12 +6,14 @@ from sqlalchemy.pool import StaticPool
 
 from app.core.database import Base, get_db
 from app.main import app
+from app.services import email_service
 
 # These imports register the database tables with SQLAlchemy.
 from app.models.advisory_settings import AdvisorySettings
 from app.models.financial_rule import FinancialRule
 from app.models.financial import Asset, CashBucket, CashFlow, Debt, RecurringCashFlow
 from app.models.chat import ChatConversation, ChatMessage
+from app.models.email_verification import EmailVerificationCode
 from app.models.article import Article, ArticleLike, ArticleSave
 from app.models.goal import (
     Goal,
@@ -63,8 +65,30 @@ def reset_test_database():
 
 
 @pytest.fixture
-def client():
+def sent_verification_codes(monkeypatch):
+    codes: dict[str, str] = {}
+
+    def capture_verification_code(
+        *,
+        recipient: str,
+        code: str,
+        purpose: str,
+        expires_in_seconds: int,
+    ):
+        codes[recipient] = code
+
+    monkeypatch.setattr(
+        email_service,
+        "send_verification_email",
+        capture_verification_code,
+    )
+    return codes
+
+
+@pytest.fixture
+def client(sent_verification_codes):
     with TestClient(app) as test_client:
+        test_client.sent_verification_codes = sent_verification_codes
         yield test_client
 
 

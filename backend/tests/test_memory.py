@@ -1,5 +1,6 @@
 from app.ai.dependencies import get_ai_advisor_service
 from app.main import app
+from tests.helpers import register_verified_user
 
 
 class SuccessfulTestAdvisorService:
@@ -31,9 +32,9 @@ class CapturingTestAdvisorService:
 
 
 def create_authorization_headers(client) -> dict[str, str]:
-    client.post(
-        "/api/auth/register",
-        json={
+    register_verified_user(
+        client,
+        {
             "email": "memory@example.com",
             "password": "Password123",
         },

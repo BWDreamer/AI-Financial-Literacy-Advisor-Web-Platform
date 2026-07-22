@@ -3,10 +3,14 @@ from datetime import date, timedelta
 
 from app.services.goal_planning_service import normalize_goal_planning_state
 from app.services.goal_service import build_confirmed_goal_plan
+from tests.helpers import register_verified_user
 
 
 def auth_headers(client, email: str) -> dict[str, str]:
-    client.post("/api/auth/register", json={"email": email, "password": "Password123"})
+    register_verified_user(
+        client,
+        {"email": email, "password": "Password123"},
+    )
     response = client.post("/api/auth/login", json={"email": email, "password": "Password123"})
     return {"Authorization": f"Bearer {response.json()['access_token']}"}
 
@@ -308,6 +312,67 @@ def test_goal_progress_is_private(client):
     assert client.delete(
         f"/api/goals/{goal_id}/progress/{progress_id}", headers=other,
     ).status_code == 404
+
+
+def test_completed_goal_notification_and_archive(client):
+    headers = auth_headers(client, "goal-notifications@example.com")
+    goal_id = client.post("/api/goals", headers=headers, json=payload(
+        target_amount="1000.00", current_amount="1000.00",
+    )).json()["id"]
+
+    notifications = client.get("/api/goals/notifications", headers=headers)
+    assert notifications.status_code == 200
+    assert client.get(f"/api/goals/{goal_id}", headers=headers).json()["status"] == "pending_archive"
+    assert notifications.json()[0]["goal_id"] == goal_id
+
+    archived = client.post(f"/api/goals/{goal_id}/archive", headers=headers)
+    assert archived.status_code == 200
+    assert archived.json()["status"] == "completed"
+    assert client.get("/api/goals", headers=headers).json()[0]["status"] == "completed"
+    assert client.put(f"/api/goals/{goal_id}", headers=headers, json=payload()).status_code == 422
+    assert client.post(f"/api/goals/{goal_id}/progress", headers=headers, json={
+        "amount": "1.00", "progress_date": date.today().isoformat(), "source": "manual",
+    }).status_code == 422
+
+
+def test_completed_goals_are_excluded_from_monthly_allocation(client):
+    headers = auth_headers(client, "goal-completed-allocation@example.com")
+    done = client.post("/api/goals", headers=headers, json=payload(
+        name="Done", target_amount="1000.00", current_amount="1000.00",
+    )).json()["id"]
+    active = client.post("/api/goals", headers=headers, json=payload(name="Active")).json()["id"]
+    assert client.post(f"/api/goals/{done}/archive", headers=headers).status_code == 200
+    client.post("/api/financials/recurring-cash-flows", headers=headers, json={
+        "flow_type": "income", "name": "Salary", "amount": "10000",
+        "frequency": "monthly", "start_date": date.today().isoformat(),
+    })
+    settings = client.put("/api/goals/allocation-settings", headers=headers, json={
+        "cash_allocatable_ratio": 50, "monthly_allocatable_ratio": 50,
+        "goal_monthly_ratios": [{"goal_id": done, "ratio": 50}, {"goal_id": active, "ratio": 40}],
+    })
+    assert settings.status_code == 200
+    assert [row["goal_id"] for row in settings.json()["monthly_allocation"]["goals"]] == [active]
+
+
+def test_updating_goal_syncs_monthly_ratio_as_json(client):
+    headers = auth_headers(client, "goal-edit-ratio@example.com")
+    first = client.post("/api/goals", headers=headers, json=payload(name="First")).json()["id"]
+    second_payload = payload(name="Second", monthly_contribution="800.00")
+    second = client.post("/api/goals", headers=headers, json=second_payload).json()["id"]
+
+    client.post("/api/financials/recurring-cash-flows", headers=headers, json={
+        "flow_type": "income", "name": "Salary", "amount": "20000", "frequency": "monthly",
+        "start_date": date.today().isoformat(),
+    })
+    response = client.put(f"/api/goals/{second}", headers=headers, json={
+        **second_payload, "monthly_contribution": "6400.00",
+    })
+
+    assert response.status_code == 200
+    settings = client.get("/api/goals/allocation-settings", headers=headers).json()
+    ratios = settings["goal_monthly_ratios"]
+    assert any(item["goal_id"] == second for item in ratios)
+    assert all(isinstance(item["ratio"], (int, float, str)) for item in ratios)
 
 
 def test_cash_buckets_are_private(client):

@@ -1,4 +1,3 @@
-import { useEffect, useState } from "react";
 import { Flag, PiggyBank, TrendingUp } from "lucide-react";
 import { formatGoalCurrency } from "../../utils/goalUtils";
 
@@ -11,6 +10,7 @@ type SummaryProps = {
   cashAllocatable: number;
   cashAlreadyAssigned: number;
   allocatableRatio: number;
+  minAllocatableRatio: number;
   monthlyAllocatableRatio: number;
   monthlyNetIncome: number;
   monthlyAllocatable: number;
@@ -19,6 +19,7 @@ type SummaryProps = {
   onToggle: () => void;
   onAllocatableRatioChange: (value: number) => void;
   onMonthlyAllocatableRatioChange: (value: number) => void;
+  onMonthlyAllocatableRatioCommit: () => void;
 };
 
 function SummaryCard({ icon, label, value, text, tone, expanded, onClick }: { icon: React.ReactNode; label: string; value: string; text: string; tone: string; expanded: boolean; onClick: () => void }) {
@@ -40,14 +41,7 @@ function Row({ label, value, tone = "text-slate-900" }: { label: string; value: 
   return <p className="flex justify-between gap-3 py-1 text-sm"><span className="text-slate-500">{label}</span><b className={tone}>{value}</b></p>;
 }
 
-export default function GoalSummary({ totalGoals, onTrackGoals, behindGoals, completedGoals, cashSavings, cashAllocatable, cashAlreadyAssigned, allocatableRatio, monthlyAllocatableRatio, monthlyNetIncome, monthlyAllocatable, monthlyAssigned, expanded, onToggle, onAllocatableRatioChange, onMonthlyAllocatableRatioChange }: SummaryProps) {
-  const [showWarning, setShowWarning] = useState(false);
-  const invalidAllocation = cashAlreadyAssigned > cashAllocatable || monthlyAssigned > monthlyAllocatable;
-
-  useEffect(() => {
-    if (invalidAllocation) setShowWarning(true);
-  }, [invalidAllocation]);
-
+export default function GoalSummary({ totalGoals, onTrackGoals, behindGoals, completedGoals, cashSavings, cashAllocatable, cashAlreadyAssigned, allocatableRatio, minAllocatableRatio, monthlyAllocatableRatio, monthlyNetIncome, monthlyAllocatable, monthlyAssigned, expanded, onToggle, onAllocatableRatioChange, onMonthlyAllocatableRatioChange, onMonthlyAllocatableRatioCommit }: SummaryProps) {
   return (
     <section className="space-y-4">
       <div className="grid gap-4 lg:grid-cols-3">
@@ -65,7 +59,7 @@ export default function GoalSummary({ totalGoals, onTrackGoals, behindGoals, com
           <div className="rounded-2xl bg-slate-50 p-4">
             <label className="block text-sm font-semibold text-slate-600">
               Allocatable ratio
-              <input className="mt-2 w-full accent-blue-600" type="range" min="0" max="100" value={allocatableRatio} onChange={(event) => onAllocatableRatioChange(Number(event.target.value))} />
+              <input className="mt-2 w-full accent-blue-600" type="range" min={minAllocatableRatio} max="100" value={allocatableRatio} onChange={(event) => onAllocatableRatioChange(Number(event.target.value))} />
             </label>
             <Row label="Allocatable" value={`${formatGoalCurrency(cashAllocatable)} (${allocatableRatio}%)`} tone="text-blue-600" />
             <Row label="Already assigned" value={formatGoalCurrency(cashAlreadyAssigned)} tone="text-emerald-600" />
@@ -73,23 +67,20 @@ export default function GoalSummary({ totalGoals, onTrackGoals, behindGoals, com
           <div className="rounded-2xl bg-slate-50 p-4">
             <label className="block text-sm font-semibold text-slate-600">
               Monthly allocatable ratio
-              <input className="mt-2 w-full accent-blue-600" type="range" min="0" max="100" value={monthlyAllocatableRatio} onChange={(event) => onMonthlyAllocatableRatioChange(Number(event.target.value))} />
+              <input
+                className="mt-2 w-full accent-blue-600"
+                type="range"
+                min="0"
+                max="100"
+                value={monthlyAllocatableRatio}
+                onChange={(event) => onMonthlyAllocatableRatioChange(Number(event.target.value))}
+                onMouseUp={onMonthlyAllocatableRatioCommit}
+                onTouchEnd={onMonthlyAllocatableRatioCommit}
+                onBlur={onMonthlyAllocatableRatioCommit}
+              />
             </label>
             <Row label="Allocatable" value={`${formatGoalCurrency(monthlyAllocatable)} (${monthlyAllocatableRatio}%)`} tone="text-blue-600" />
             <Row label="Already assigned" value={formatGoalCurrency(monthlyAssigned)} tone="text-amber-500" />
-          </div>
-        </div>
-      )}
-      {showWarning && invalidAllocation && (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-900/40 p-4">
-          <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl">
-            <h2 className="text-xl font-bold text-slate-900">Invalid allocation</h2>
-            <p className="mt-3 text-sm leading-6 text-slate-600">
-              Already assigned is higher than allocatable. Please adjust the allocatable ratio or reduce the assigned amount.
-            </p>
-            <button type="button" onClick={() => setShowWarning(false)} className="mt-5 w-full rounded-2xl bg-blue-600 px-4 py-3 text-sm font-bold text-white hover:bg-blue-700">
-              OK
-            </button>
           </div>
         </div>
       )}

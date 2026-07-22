@@ -3,6 +3,7 @@ import type { GoalStatus } from "../../types/goalTypes";
 const fillStyles: Record<GoalStatus, string> = {
   "On Track": "bg-emerald-500",
   Behind: "bg-amber-400",
+  "Pending Archive": "bg-violet-500",
   Completed: "bg-blue-600",
 };
 

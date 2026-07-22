@@ -12,6 +12,7 @@ class AIChatRequest(BaseModel):
     )
     rule_id: int | None = Field(default=None, gt=0)
     conversation_id: int | None = Field(default=None, gt=0)
+    goal_id: int | None = Field(default=None, gt=0)
 
     @field_validator("message")
     @classmethod
