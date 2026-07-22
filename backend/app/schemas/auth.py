@@ -23,6 +23,10 @@ class UserRegisterRequest(BaseModel):
         max_length=72,
     )
 
+    verification_code: str = Field(
+        pattern=r"^\d{6}$",
+    )
+
     @field_validator("username")
     @classmethod
     def normalize_optional_username(
@@ -87,6 +91,28 @@ class EmailUpdateRequest(BaseModel):
         max_length=72,
     )
 
+    verification_code: str = Field(
+        pattern=r"^\d{6}$",
+    )
+
+
+class RegistrationVerificationCodeRequest(BaseModel):
+    email: EmailStr
+
+
+class EmailChangeVerificationCodeRequest(BaseModel):
+    new_email: EmailStr
+
+    current_password: str = Field(
+        min_length=1,
+        max_length=72,
+    )
+
+
+class VerificationCodeSentResponse(BaseModel):
+    message: str
+    expires_in: int
+
 
 class PasswordUpdateRequest(BaseModel):
     current_password: str = Field(
@@ -125,4 +151,5 @@ class UserResponse(BaseModel):
     avatar_url: str | None
     role: str
     onboarding_completed: bool
+    email_verified_at: datetime | None
     created_at: datetime

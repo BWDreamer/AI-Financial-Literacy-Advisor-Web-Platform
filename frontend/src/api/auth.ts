@@ -7,6 +7,7 @@ export type User = {
   avatar_url: string | null;
   role: string;
   onboarding_completed: boolean;
+  email_verified_at: string | null;
   created_at: string;
 };
 
@@ -21,10 +22,22 @@ export type HeartbeatResponse = {
   is_online: boolean;
 };
 
-export function registerAccount(email: string, username: string, password: string) {
+export type VerificationCodeSentResponse = {
+  message: string;
+  expires_in: number;
+};
+
+export function sendRegistrationVerificationCode(email: string) {
+  return apiRequest<VerificationCodeSentResponse>("/auth/register/verification-code", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+}
+
+export function registerAccount(email: string, username: string, password: string, verificationCode: string) {
   return apiRequest<User>("/auth/register", {
     method: "POST",
-    body: JSON.stringify({ email, username, password }),
+    body: JSON.stringify({ email, username, password, verification_code: verificationCode }),
   });
 }
 
@@ -60,10 +73,18 @@ export function updateUsername(username: string) {
   });
 }
 
-export function updateEmail(newEmail: string, currentPassword: string) {
+export function sendEmailChangeVerificationCode(newEmail: string, currentPassword: string) {
+  return apiRequest<VerificationCodeSentResponse>("/auth/email/verification-code", {
+    method: "POST",
+    authenticated: true,
+    body: JSON.stringify({ new_email: newEmail, current_password: currentPassword }),
+  });
+}
+
+export function updateEmail(newEmail: string, currentPassword: string, verificationCode: string) {
   return apiRequest<User>("/auth/email", {
     method: "PUT", authenticated: true,
-    body: JSON.stringify({ new_email: newEmail, current_password: currentPassword }),
+    body: JSON.stringify({ new_email: newEmail, current_password: currentPassword, verification_code: verificationCode }),
   });
 }
 

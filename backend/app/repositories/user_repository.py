@@ -37,6 +37,7 @@ def create_user(
     first_name: str | None = None,
     last_name: str | None = None,
     role: str = "user",
+    email_verified_at: datetime | None = None,
 ) -> User:
     normalized_email = email.lower().strip()
 
@@ -51,6 +52,7 @@ def create_user(
         first_name=first_name.strip() if first_name else None,
         last_name=last_name.strip() if last_name else None,
         role=role,
+        email_verified_at=email_verified_at,
     )
 
     db.add(user)
@@ -77,8 +79,10 @@ def update_email(
     db: Session,
     user: User,
     new_email: str,
+    email_verified_at: datetime,
 ) -> User:
     user.email = new_email.lower().strip()
+    user.email_verified_at = email_verified_at
 
     db.commit()
     db.refresh(user)
@@ -155,6 +159,7 @@ def delete_user(db: Session, user: User) -> None:
 
 def delete_user_account(db: Session, user: User) -> None:
     from app.models.chat import ChatConversation, ChatMessage
+    from app.models.email_verification import EmailVerificationCode
     from app.models.financial import Asset, CashFlow
     from app.models.user_profile import UserProfile
 
@@ -174,6 +179,9 @@ def delete_user_account(db: Session, user: User) -> None:
     db.query(Asset).filter(Asset.user_id == user.id).delete()
     db.query(CashFlow).filter(CashFlow.user_id == user.id).delete()
     db.query(UserProfile).filter(UserProfile.user_id == user.id).delete()
+    db.query(EmailVerificationCode).filter(
+        EmailVerificationCode.user_id == user.id
+    ).delete()
     db.delete(user)
     db.commit()
 

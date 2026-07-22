@@ -3,7 +3,7 @@ import type { FormEvent, ReactNode } from "react";
 import { Camera, LockKeyhole, Mail, Trash2, UserRound, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { clearExtendedAccountSettings, ExtendedAccountSettings, getExtendedAccountSettings, saveExtendedAccountSettings } from "../api/accountSettings";
-import { avatarUrl, deleteAccount, updateEmail, updatePassword, updateUsername, uploadAvatar } from "../api/auth";
+import { avatarUrl, deleteAccount, sendEmailChangeVerificationCode, updateEmail, updatePassword, updateUsername, uploadAvatar } from "../api/auth";
 import { saveFinancialProfile } from "../api/profile";
 import { useUser } from "../store/UserProvider";
 import FormInput from "./FormInput";
@@ -127,12 +127,20 @@ function AccountDetailsForm() {
 }
 
 function EmailUpdateModal({ onClose }: { onClose: () => void }) {
-  const { user, refreshUser } = useUser(); const action = useAction();
+  const { user, refreshUser } = useUser(); const action = useAction(); const sendAction = useAction();
+  const [newEmail, setNewEmail] = useState(""); const [password, setPassword] = useState(""); const [codeSent, setCodeSent] = useState(false);
+  async function sendCode() {
+    const sent = await sendAction.run(
+      () => sendEmailChangeVerificationCode(newEmail.trim(), password),
+      "Verification code sent to the new email address.",
+    );
+    if (sent) setCodeSent(true);
+  }
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); const form = new FormData(event.currentTarget);
-    await action.run(async () => { await updateEmail(String(form.get("newEmail")), String(form.get("password"))); await refreshUser(); }, "Email updated successfully.");
+    await action.run(async () => { await updateEmail(newEmail.trim(), password, String(form.get("verificationCode"))); await refreshUser(); }, "Email updated successfully.");
   }
-  return <Modal title="Update Email" onClose={onClose}><form onSubmit={submit} className="grid gap-4"><FormInput id="current-email" name="currentEmail" type="email" label="Current Email" value={user?.email || ""} readOnly /><FormInput id="new-email" name="newEmail" type="email" label="New Email" required /><PasswordInput id="email-password" name="password" label="Current Password" autoComplete="current-password" required /><ActionMessage state={action.state} /><div className="flex justify-end gap-3"><button type="button" onClick={onClose} className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">Cancel</button><PrimaryButton className="w-auto" disabled={action.state.loading}>{action.state.loading ? "Saving..." : "Update Email"}</PrimaryButton></div></form></Modal>;
+  return <Modal title="Update Email" onClose={onClose}><form onSubmit={submit} className="grid gap-4"><FormInput id="current-email" name="currentEmail" type="email" label="Current Email" value={user?.email || ""} readOnly /><FormInput id="new-email" name="newEmail" type="email" label="New Email" value={newEmail} onChange={(event) => { setNewEmail(event.target.value); setCodeSent(false); }} required /><PasswordInput id="email-password" name="password" label="Current Password" autoComplete="current-password" value={password} onChange={(event) => { setPassword(event.target.value); setCodeSent(false); }} required /><div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end"><FormInput id="email-verification-code" name="verificationCode" label="Verification Code" inputMode="numeric" pattern="[0-9]{6}" minLength={6} maxLength={6} autoComplete="one-time-code" required /><button type="button" onClick={() => void sendCode()} disabled={sendAction.state.loading || !newEmail.trim() || !password} className="h-12 rounded-xl border border-blue-300 px-4 text-sm font-semibold text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50">{sendAction.state.loading ? "Sending..." : codeSent ? "Resend code" : "Send code"}</button></div><ActionMessage state={sendAction.state} /><ActionMessage state={action.state} /><div className="flex justify-end gap-3"><button type="button" onClick={onClose} className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">Cancel</button><PrimaryButton className="w-auto" disabled={action.state.loading || !codeSent}>{action.state.loading ? "Saving..." : "Update Email"}</PrimaryButton></div></form></Modal>;
 }
 
 function PasswordUpdateModal({ onClose }: { onClose: () => void }) {

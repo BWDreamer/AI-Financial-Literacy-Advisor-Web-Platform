@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
@@ -37,13 +38,23 @@ from app.schemas.auth import (
     AccountDeleteRequest,
     AvatarResponse,
     EmailUpdateRequest,
+    EmailChangeVerificationCodeRequest,
     OnboardingUpdateRequest,
     PasswordUpdateRequest,
+    RegistrationVerificationCodeRequest,
     TokenResponse,
     UserLoginRequest,
     UserRegisterRequest,
     UserResponse,
     UserUpdateRequest,
+    VerificationCodeSentResponse,
+)
+from app.services.email_service import EmailDeliveryError
+from app.services.email_verification_service import (
+    VerificationCodeCooldownError,
+    VerificationCodeError,
+    consume_verification_code,
+    request_verification_code,
 )
 
 
@@ -69,6 +80,60 @@ def heartbeat(
     return touch_last_seen(db, current_user)
 
 
+def _verification_code_response(
+    *,
+    db: Session,
+    email: str,
+    purpose: str,
+    user_id: int | None = None,
+) -> VerificationCodeSentResponse:
+    try:
+        expires_in = request_verification_code(
+            db,
+            email=email,
+            purpose=purpose,
+            user_id=user_id,
+        )
+    except VerificationCodeCooldownError as error:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=str(error),
+            headers={"Retry-After": str(error.retry_after_seconds)},
+        ) from error
+    except EmailDeliveryError as error:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="The verification email could not be sent.",
+        ) from error
+
+    return VerificationCodeSentResponse(
+        message="Verification code sent.",
+        expires_in=expires_in,
+    )
+
+
+@router.post(
+    "/register/verification-code",
+    response_model=VerificationCodeSentResponse,
+)
+def send_registration_verification_code(
+    request: RegistrationVerificationCodeRequest,
+    db: Session = Depends(get_db),
+):
+    email = request.email.lower().strip()
+    if get_user_by_email(db, email) is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="An account with this email already exists.",
+        )
+    return _verification_code_response(
+        db=db,
+        email=email,
+        purpose="registration",
+    )
+
+
 @router.post(
     "/register",
     response_model=UserResponse,
@@ -87,6 +152,12 @@ def register_user(
         )
 
     try:
+        consume_verification_code(
+            db,
+            email=email,
+            purpose="registration",
+            code=request.verification_code,
+        )
         return create_user(
             db=db,
             email=email,
@@ -94,11 +165,16 @@ def register_user(
             password_hash=hash_password(
                 request.password
             ),
+            email_verified_at=datetime.now(timezone.utc),
         )
-
+    except VerificationCodeError as error:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(error),
+        ) from error
     except IntegrityError as error:
         db.rollback()
-
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="An account with this email already exists.",
@@ -234,6 +310,12 @@ def change_my_email(
 
     new_email = request.new_email.lower().strip()
 
+    if new_email == current_user.email.lower():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="The new email must be different from the current email.",
+        )
+
     existing_user = get_user_by_email(
         db,
         new_email,
@@ -248,10 +330,68 @@ def change_my_email(
             detail="An account with this email already exists.",
         )
 
-    return update_email(
+    try:
+        consume_verification_code(
+            db,
+            email=new_email,
+            purpose="email_change",
+            code=request.verification_code,
+            user_id=current_user.id,
+        )
+        return update_email(
+            db=db,
+            user=current_user,
+            new_email=new_email,
+            email_verified_at=datetime.now(timezone.utc),
+        )
+    except VerificationCodeError as error:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(error),
+        ) from error
+    except IntegrityError as error:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="An account with this email already exists.",
+        ) from error
+
+
+@router.post(
+    "/email/verification-code",
+    response_model=VerificationCodeSentResponse,
+)
+def send_email_change_verification_code(
+    request: EmailChangeVerificationCodeRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not verify_password(
+        request.current_password,
+        current_user.password_hash,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Current password is incorrect.",
+        )
+
+    new_email = request.new_email.lower().strip()
+    if new_email == current_user.email.lower():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="The new email must be different from the current email.",
+        )
+    if get_user_by_email(db, new_email) is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="An account with this email already exists.",
+        )
+    return _verification_code_response(
         db=db,
-        user=current_user,
-        new_email=new_email,
+        email=new_email,
+        purpose="email_change",
+        user_id=current_user.id,
     )
 
 
