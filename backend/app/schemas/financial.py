@@ -105,6 +105,7 @@ class RecurringCashFlowResponse(RecurringCashFlowRequest):
 
 class CashBucketRequest(BaseModel):
     bucket_type: CashBucketType
+    goal_id: int | None = Field(default=None, ge=1)
     name: str | None = Field(default=None, max_length=100)
     amount: Decimal = Field(default=Decimal("0"), ge=0, max_digits=14, decimal_places=2)
 

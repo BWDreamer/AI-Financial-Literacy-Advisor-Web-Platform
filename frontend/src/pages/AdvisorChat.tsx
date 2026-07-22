@@ -51,6 +51,7 @@ function goalReviewRouteState(value: unknown): GoalReviewRouteState | null {
   }
   return candidate as GoalReviewRouteState;
 }
+const THINKING_MESSAGE = "__financeai_thinking__";
 
 function sortedConversations(items: Conversation[]) {
   return [...items].sort((a, b) => new Date(b.updated_at || b.created_at).getTime() - new Date(a.updated_at || a.created_at).getTime());
@@ -84,6 +85,10 @@ function EmptyConversationWelcome({ userName }: { userName: string }) {
   );
 }
 
+function ThinkingMessage() {
+  return <div className="flex items-center gap-2 text-sm font-semibold text-slate-500"><span>FinanceAI is thinking</span><span className="flex gap-1">{[0, 1, 2].map((item) => <span key={item} className="size-1.5 animate-pulse rounded-full bg-slate-400" />)}</span></div>;
+}
+
 function MessageList({ messages, attachments, sending, userName, pendingGoalReview, onSelectGoalCategory }: { messages: ChatMessage[]; attachments: LocalAttachmentMap; sending: boolean; userName: string; pendingGoalReview: GoalReviewCardData | null; onSelectGoalCategory: (categoryId: GoalCategoryId) => void }) {
   if (messages.length === 0 && !pendingGoalReview) {
     return <EmptyConversationWelcome userName={userName} />;
@@ -114,7 +119,7 @@ function MessageList({ messages, attachments, sending, userName, pendingGoalRevi
                   </p>
                 )}
                 {content && message.role === "assistant" && (
-                  <FormattedChatMessage content={content} />
+                  content === THINKING_MESSAGE ? <ThinkingMessage /> : <FormattedChatMessage content={content} />
                 )}
               </article>
             </div>
@@ -195,6 +200,18 @@ async function toPreview(file: File): Promise<AttachmentPreview> {
   return { id: crypto.randomUUID(), name: file.name, extension: fileExtension(file), isImage, file, dataUrl: isImage ? await readImage(file) : undefined };
 }
 
+function optimisticMessages(messages: ChatMessage[], message: string, files: AttachmentPreview[]) {
+  const now = new Date().toISOString(); const userId = -Date.now();
+  const userMessage = { id: userId, role: "user" as const, content: message || (files.length ? "Uploaded files" : ""), created_at: now };
+  const assistantMessage = { id: userId - 1, role: "assistant" as const, content: THINKING_MESSAGE, created_at: now };
+  return { userId, messages: [...messages, userMessage, assistantMessage] };
+}
+
+function removeThinkingMessage(conversation: ConversationDetail | null) {
+  if (!conversation) return conversation;
+  return { ...conversation, messages: conversation.messages.filter((item) => item.content !== THINKING_MESSAGE) };
+}
+
 export default function AdvisorChat() {
   const { user } = useUser();
   const location = useLocation();
@@ -243,6 +260,13 @@ export default function AdvisorChat() {
   }, [suggestedQuestions]);
 
   useEffect(() => {
+    setConversations([]);
+    setActive(null);
+    setLocalAttachments({});
+    setDraftConversationId(null);
+    setError("");
+    if (!user?.id) { setLoading(false); return; }
+    setLoading(true);
     loadList()
       .then(async (items) => {
         if (!initialGoalReviewRef.current && items[0]) {
@@ -255,7 +279,7 @@ export default function AdvisorChat() {
           : "Unable to load conversations.",
       ))
       .finally(() => setLoading(false));
-  }, [loadList]);
+  }, [loadList, user?.id]);
 
   useEffect(() => {
     if (
@@ -330,6 +354,12 @@ export default function AdvisorChat() {
         ...(await createConversation()),
         messages: [],
       };
+      const optimistic = optimisticMessages(conversation.messages, message, files);
+      setDraftConversationId(conversation.conversation_id);
+      setActive({ ...conversation, messages: optimistic.messages });
+      if (files.length) {
+        setLocalAttachments((current) => ({ ...current, [optimistic.userId]: files }));
+      }
       if (files.length) {
         await sendAdvisorPdfMessage(
           message || "Extract financial information from the uploaded PDF.",
@@ -346,6 +376,7 @@ export default function AdvisorChat() {
           ? caught.message
           : "Unable to send your message.",
       );
+      setActive(removeThinkingMessage);
     } finally {
       setSending(false);
     }

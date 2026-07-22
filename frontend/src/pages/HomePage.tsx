@@ -1,7 +1,13 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { getGoals } from "../api/goals";
 import MyFinancialsPanel from "../components/MyFinancialsPanel";
 import { AssetType as ApiAssetType, DebtType as ApiDebtType, Frequency as ApiFrequency, CashFlow, Financials, FinancialSummary, createAsset, createCashFlow, createDebt, createRecurringCashFlow, getFinancials, getFinancialSummary } from "../api/financials";
 import { AssetType, FinancialEntry, assetLabels, money, monthLabel, sameMonth, thisWeek } from "../utils/financials";
+import type { Goal } from "../types/goalTypes";
+import { formatGoalCurrency, goalFromApi, goalProgress, goalStatus } from "../utils/goalUtils";
+import GoalProgressBar from "../components/goals/GoalProgressBar";
+import GoalStatusBadge from "../components/goals/GoalStatusBadge";
 
 const assetColors: Record<AssetType, string> = { cash: "#3b82f6", stocks: "#10b981", bonds: "#f59e0b", property: "#f43f5e", vehicle: "#8b5cf6", others: "#64748b" };
 
@@ -81,16 +87,33 @@ function RecentCashFlow({ flows }: { flows: CashFlow[] }) {
   return <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6"><div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-lg font-bold text-slate-900">Recent Cash Flow</h2><div className="flex rounded-xl bg-slate-100 p-1">{(["month", "week"] as const).map((item) => <button key={item} type="button" onClick={() => changeUnit(item)} className={`rounded-lg px-3 py-1.5 text-xs font-bold capitalize ${unit === item ? "bg-white text-blue-600 shadow-sm" : "text-slate-500"}`}>{item}</button>)}</div></div><div className="mt-4 h-[32rem] space-y-3 sm:h-[40rem]">{visible.map((entry) => <div key={entry.id} className="flex justify-between rounded-xl bg-slate-50 px-4 py-3 text-sm"><div><p className="font-semibold">{entry.name}</p><p className="text-slate-500">{new Date(entry.date).toLocaleDateString("en-AU")}</p></div><p className={entry.flowType === "expense" ? "font-bold text-red-600" : "font-bold text-emerald-600"}>{entry.flowType === "expense" ? "-" : ""}{money(entry.amount)}</p></div>)}{!rows.length && <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">No cash flow records for this period.</p>}</div>{totalPages > 1 && <div className="mt-4 flex items-center justify-between text-sm text-slate-500"><button type="button" disabled={!page} onClick={() => setPage(page - 1)} className="rounded-lg px-3 py-2 font-bold disabled:text-slate-300">Previous</button><span>Page {page + 1} of {totalPages}</span><button type="button" disabled={page + 1 >= totalPages} onClick={() => setPage(page + 1)} className="rounded-lg px-3 py-2 font-bold disabled:text-slate-300">Next</button></div>}</section>;
 }
 
-function GoalsPlaceholder() { return <section className="min-h-72 rounded-2xl border border-dashed border-blue-200 bg-blue-50/40 p-4 sm:p-6"><h2 className="text-lg font-bold text-slate-900">My Goals</h2></section>; }
+type HomeGoalFilter = "On Track" | "Behind" | "Completed";
+
+function MyGoalsCard({ goals, onOpen }: { goals: Goal[]; onOpen: (goal: Goal) => void }) {
+  const [filter, setFilter] = useState<HomeGoalFilter>("On Track");
+  const filteredGoals = goals.filter((goal) => goalStatus(goal) === filter).slice(0, 4);
+  return <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6"><div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-lg font-bold text-slate-900">My Goals</h2><GoalMiniFilters filter={filter} onChange={setFilter} /></div><div className="mt-4 space-y-3">{filteredGoals.map((goal) => <GoalPreviewRow key={goal.id} goal={goal} onOpen={onOpen} />)}{!filteredGoals.length && <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">No goals found</p>}</div></section>;
+}
+
+function GoalMiniFilters({ filter, onChange }: { filter: HomeGoalFilter; onChange: (filter: HomeGoalFilter) => void }) {
+  return <div className="flex rounded-xl bg-slate-100 p-1">{(["On Track", "Behind", "Completed"] as HomeGoalFilter[]).map((item) => <button key={item} type="button" onClick={() => onChange(item)} className={`rounded-lg px-3 py-1.5 text-xs font-bold ${filter === item ? "bg-white text-blue-600 shadow-sm" : "text-slate-500"}`}>{item}</button>)}</div>;
+}
+
+function GoalPreviewRow({ goal, onOpen }: { goal: Goal; onOpen: (goal: Goal) => void }) {
+  const progress = Math.round(goalProgress(goal));
+  return <button type="button" onClick={() => onOpen(goal)} className="w-full rounded-xl border border-slate-100 bg-slate-50 p-4 text-left transition hover:border-blue-200 hover:bg-blue-50/40"><div className="flex flex-wrap items-center justify-between gap-3"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h3 className="truncate font-bold text-slate-900">{goal.name}</h3><GoalStatusBadge status={goalStatus(goal)} /></div><p className="mt-1 text-xs font-semibold text-slate-500">{formatGoalCurrency(goal.currentAmount)} / {formatGoalCurrency(goal.targetAmount)}</p></div><span className="text-sm font-bold text-slate-700">{progress}%</span></div><div className="mt-3"><GoalProgressBar value={progress} status={goalStatus(goal)} /></div></button>;
+}
 
 export default function HomePage() {
+  const navigate = useNavigate();
   const [summary, setSummary] = useState<FinancialSummary | null>(null); const [financials, setFinancials] = useState<Financials | null>(null);
+  const [goals, setGoals] = useState<Goal[]>([]);
   const [error, setError] = useState(""); const [loading, setLoading] = useState(true);
   const numbers = dashboardNumbers(summary);
 
   async function refreshFinancials() {
-    const [nextSummary, nextFinancials] = await Promise.all([getFinancialSummary(), getFinancials()]);
-    setSummary(nextSummary); setFinancials(nextFinancials);
+    const [nextSummary, nextFinancials, goalRows] = await Promise.all([getFinancialSummary(), getFinancials(), getGoals()]);
+    setSummary(nextSummary); setFinancials(nextFinancials); setGoals(goalRows.map(goalFromApi));
   }
 
   useEffect(() => { refreshFinancials().catch((caught) => setError(caught instanceof Error ? caught.message : "Unable to load financial data.")).finally(() => setLoading(false)); }, []);
@@ -108,6 +131,7 @@ export default function HomePage() {
 
   if (loading) return <main className="p-10 text-slate-500">Loading your financial dashboard...</main>;
   const flows = summary?.recent_cash_flows || financials?.cash_flows || [];
+  const openGoal = (goal: Goal) => navigate("/goals", { state: { goalId: goal.apiId ?? Number(goal.id) } });
   return <main className="min-h-screen space-y-6 bg-slate-50 p-4 sm:p-6 lg:p-8"><header><h1 className="text-3xl font-bold tracking-tight text-slate-900">Insights Overview</h1>{error && <p className="mt-3 rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>}</header><section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5"><StatCard title="Net Worth" value={money(numbers.netWorth)} /><StatCard title="Cash Savings" value={money(numbers.cashSavings)} /><StatCard title="Debt" value={money(numbers.debts)} /><StatCard title="Income" value={money(numbers.income)} stamp={monthLabel()} /><StatCard title="Expenses" value={money(numbers.expenses)} stamp={monthLabel()} /></section>
-    <section className="grid items-start gap-6 xl:grid-cols-[minmax(24rem,0.95fr)_minmax(0,1.35fr)]"><div className="grid self-start gap-6"><AssetAllocation summary={summary} /><RecentCashFlow flows={flows} /></div><div className="grid self-start gap-6"><CashFlowChart summary={summary} /><CashSavingsLine summary={summary} /><GoalsPlaceholder /></div></section><MyFinancialsPanel summary={summary} onAdd={(entry) => void addEntry(entry)} /></main>;
+    <section className="grid items-start gap-6 xl:grid-cols-[minmax(24rem,0.95fr)_minmax(0,1.35fr)]"><div className="grid self-start gap-6"><AssetAllocation summary={summary} /><RecentCashFlow flows={flows} /></div><div className="grid self-start gap-6"><CashFlowChart summary={summary} /><CashSavingsLine summary={summary} /><MyGoalsCard goals={goals} onOpen={openGoal} /></div></section><MyFinancialsPanel summary={summary} onAdd={(entry) => void addEntry(entry)} /></main>;
 }
