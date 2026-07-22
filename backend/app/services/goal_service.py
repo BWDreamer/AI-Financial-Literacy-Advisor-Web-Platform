@@ -3,7 +3,7 @@ import hashlib
 import json
 from dataclasses import dataclass
 from datetime import date, timedelta
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, ROUND_DOWN, ROUND_HALF_UP
 from types import SimpleNamespace
 from typing import Any
 
@@ -24,6 +24,7 @@ from app.services.goal_planning_service import (
 
 
 MONEY = Decimal("0.01")
+MAX_GOAL_RATIO = Decimal("100.00")
 MAX_EXPECTED_CHART_POINTS = 600
 GOAL_STORAGE_CATEGORIES = {
     GoalCategory.GENERAL_SAVING: "General Saving",
@@ -319,12 +320,62 @@ def active_goal_ratios(goals: list[Goal], ratios: list) -> list:
     return [item for item in ratios if int(item["goal_id"] if isinstance(item, dict) else item.goal_id) in active_ids]
 
 
+def normalize_goal_ratio_rows(ratios: list) -> list[dict[str, int | str]]:
+    """Return two-decimal goal ratios whose total never exceeds 100%."""
+    rows: list[tuple[int, Decimal]] = []
+    for item in ratios:
+        goal_id = item["goal_id"] if isinstance(item, dict) else item.goal_id
+        ratio = item["ratio"] if isinstance(item, dict) else item.ratio
+        rows.append((int(goal_id), max(percent(Decimal(str(ratio))), Decimal("0"))))
+
+    total = sum((ratio for _, ratio in rows), Decimal("0"))
+    if total > MAX_GOAL_RATIO:
+        exact_scaled = [
+            (goal_id, ratio * MAX_GOAL_RATIO / total)
+            for goal_id, ratio in rows
+        ]
+        rows = [
+            (goal_id, ratio.quantize(MONEY, rounding=ROUND_DOWN))
+            for goal_id, ratio in exact_scaled
+        ]
+        remaining_cents = int(
+            (MAX_GOAL_RATIO - sum((ratio for _, ratio in rows), Decimal("0")))
+            / MONEY
+        )
+        remainder_order = sorted(
+            range(len(rows)),
+            key=lambda index: (
+                exact_scaled[index][1] - rows[index][1],
+                -index,
+            ),
+            reverse=True,
+        )
+        for index in remainder_order[:remaining_cents]:
+            goal_id, ratio = rows[index]
+            rows[index] = (goal_id, ratio + MONEY)
+
+    return [
+        {"goal_id": goal_id, "ratio": str(percent(ratio))}
+        for goal_id, ratio in rows
+    ]
+
+
 def backfill_goal_ratios(goals: list[Goal], finance: dict, settings) -> bool:
-    if settings.goal_monthly_ratios:
-        return False
+    stored_rows = settings.goal_monthly_ratios or []
+    active_stored_rows = active_goal_ratios(goals, stored_rows)
+    if active_stored_rows:
+        normalized_rows = normalize_goal_ratio_rows(active_stored_rows)
+        if normalized_rows == stored_rows:
+            return False
+        settings.goal_monthly_ratios = normalized_rows
+        return True
+
     net = max(Decimal(finance["monthly_income"]) - Decimal(finance["monthly_expenses"]), Decimal("0"))
     allocatable = money(net * Decimal(settings.monthly_allocatable_ratio) / 100)
     if allocatable <= 0:
+        if stored_rows:
+            settings.goal_monthly_ratios = []
+            return True
         return False
     rows = []
     for goal in goals:
@@ -334,11 +385,11 @@ def backfill_goal_ratios(goals: list[Goal], finance: dict, settings) -> bool:
         if ratio > 0:
             rows.append({"goal_id": goal.id, "ratio": str(percent(min(ratio, Decimal("100"))))})
     if not rows:
+        if stored_rows:
+            settings.goal_monthly_ratios = []
+            return True
         return False
-    total = sum((Decimal(row["ratio"]) for row in rows), Decimal("0"))
-    if total > 100:
-        rows = [{"goal_id": row["goal_id"], "ratio": str(percent(Decimal(row["ratio"]) * 100 / total))} for row in rows]
-    settings.goal_monthly_ratios = rows
+    settings.goal_monthly_ratios = normalize_goal_ratio_rows(rows)
     return True
 
 
@@ -352,15 +403,12 @@ def sync_goal_monthly_ratio(db: Session, goal: Goal) -> None:
         if int(item["goal_id"]) != goal.id:
             rows.append({"goal_id": int(item["goal_id"]), "ratio": str(percent(Decimal(str(item["ratio"]))))})
     if goal.status == "completed" or goal.archived:
-        settings.goal_monthly_ratios = rows
+        settings.goal_monthly_ratios = normalize_goal_ratio_rows(rows)
         db.add(settings)
         return
     if allocatable > 0 and Decimal(goal.monthly_contribution) > 0:
         rows.append({"goal_id": goal.id, "ratio": str(percent(Decimal(goal.monthly_contribution) / allocatable * 100))})
-    total = sum((Decimal(str(item["ratio"])) for item in rows), Decimal("0"))
-    if total > 100:
-        rows = [{"goal_id": int(item["goal_id"]), "ratio": str(percent(Decimal(str(item["ratio"])) * 100 / total))} for item in rows]
-    settings.goal_monthly_ratios = rows
+    settings.goal_monthly_ratios = normalize_goal_ratio_rows(rows)
     db.add(settings)
 
 
@@ -413,7 +461,7 @@ def calculate_monthly_allocation(finance: dict, ratio: Decimal, goal_ratios: lis
     net = money(max(Decimal(finance["monthly_income"]) - Decimal(finance["monthly_expenses"]), Decimal("0")))
     allocatable = money(net * ratio / 100)
     rows = []
-    for item in goal_ratios:
+    for item in normalize_goal_ratio_rows(goal_ratios):
         goal_id = item["goal_id"] if isinstance(item, dict) else item.goal_id
         goal_ratio = item["ratio"] if isinstance(item, dict) else item.ratio
         goal_ratio = Decimal(str(goal_ratio))

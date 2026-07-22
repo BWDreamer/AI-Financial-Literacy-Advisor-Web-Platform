@@ -1,6 +1,9 @@
 import json
 from datetime import date, timedelta
+from decimal import Decimal
 
+from app.models.goal import GoalAllocationSettings
+from app.models.user import User
 from app.services.goal_planning_service import normalize_goal_planning_state
 from app.services.goal_service import build_confirmed_goal_plan
 from tests.helpers import register_verified_user
@@ -373,6 +376,53 @@ def test_updating_goal_syncs_monthly_ratio_as_json(client):
     ratios = settings["goal_monthly_ratios"]
     assert any(item["goal_id"] == second for item in ratios)
     assert all(isinstance(item["ratio"], (int, float, str)) for item in ratios)
+
+
+def test_allocation_settings_repairs_rounding_overflow_for_my_goals(
+    client,
+    db_session,
+):
+    email = "goal-rounding@example.com"
+    headers = auth_headers(client, email)
+    client.post("/api/financials/recurring-cash-flows", headers=headers, json={
+        "flow_type": "income", "name": "Salary", "amount": "1000",
+        "frequency": "monthly", "start_date": date.today().isoformat(),
+    })
+    goal_ids = [
+        client.post(
+            "/api/goals",
+            headers=headers,
+            json=payload(name=name, monthly_contribution=contribution),
+        ).json()["id"]
+        for name, contribution in [
+            ("Computer", "500.01"),
+            ("Graphics card", "333.33"),
+            ("Car", "166.66"),
+        ]
+    ]
+
+    user = db_session.query(User).filter(User.email == email).one()
+    settings = db_session.query(GoalAllocationSettings).filter(
+        GoalAllocationSettings.user_id == user.id,
+    ).one()
+    settings.goal_monthly_ratios = [
+        {"goal_id": goal_ids[0], "ratio": "50.00"},
+        {"goal_id": goal_ids[1], "ratio": "33.34"},
+        {"goal_id": goal_ids[2], "ratio": "16.67"},
+    ]
+    db_session.add(settings)
+    db_session.commit()
+
+    allocation = client.get("/api/goals/allocation-settings", headers=headers)
+
+    assert allocation.status_code == 200
+    repaired_ratios = allocation.json()["goal_monthly_ratios"]
+    assert sum(
+        (Decimal(str(item["ratio"])) for item in repaired_ratios),
+        Decimal("0"),
+    ) <= Decimal("100")
+    assert client.get("/api/goals", headers=headers).status_code == 200
+    assert client.get("/api/goals/summary", headers=headers).status_code == 200
 
 
 def test_cash_buckets_are_private(client):
