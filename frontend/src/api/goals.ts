@@ -59,6 +59,20 @@ export type GoalAnalysis = {
   allocated_monthly: number; cash_allocation: number;
   months_remaining: number; projected_completion_date: string | null; status: "on_track" | "behind" | "pending_archive" | "completed";
 };
+type GoalAnalysisRecord = Omit<
+  GoalAnalysis,
+  | "progress_percentage"
+  | "required_monthly"
+  | "monthly_difference"
+  | "allocated_monthly"
+  | "cash_allocation"
+> & {
+  progress_percentage: number | string;
+  required_monthly: number | string;
+  monthly_difference: number | string;
+  allocated_monthly: number | string;
+  cash_allocation: number | string;
+};
 export type GoalNotification = {
   id: number; goal_id: number; notification_type: string; title: string; message: string;
   read: boolean; archived: boolean; created_at: string; updated_at: string;
@@ -72,7 +86,20 @@ export type GoalPreviewInput = { category: string; target_date: string; priority
 export const getGoals = () => apiRequest<GoalRecord[]>("/goals", { authenticated: true });
 export const previewGoal = (input: GoalPreviewInput) => apiRequest<GoalPreview>("/goals/preview", { method: "POST", authenticated: true, body: JSON.stringify(input) });
 export const getGoalSummary = () => apiRequest<GoalSummaryRecord>("/goals/summary", { authenticated: true });
-export const getGoalAnalysis = (id: number) => apiRequest<GoalAnalysis>(`/goals/${id}/analysis`, { authenticated: true });
+export async function getGoalAnalysis(id: number): Promise<GoalAnalysis> {
+  const record = await apiRequest<GoalAnalysisRecord>(
+    `/goals/${id}/analysis`,
+    { authenticated: true },
+  );
+  return {
+    ...record,
+    progress_percentage: Number(record.progress_percentage),
+    required_monthly: Number(record.required_monthly),
+    monthly_difference: Number(record.monthly_difference),
+    allocated_monthly: Number(record.allocated_monthly),
+    cash_allocation: Number(record.cash_allocation),
+  };
+}
 export const getGoalChart = (id: number) => apiRequest<GoalChart>(`/goals/${id}/chart`, { authenticated: true });
 export const getGoalProgress = (id: number) => apiRequest<GoalProgress[]>(`/goals/${id}/progress`, { authenticated: true });
 export const createGoalProgress = (id: number, input: GoalProgressPayload) => apiRequest<GoalProgress>(`/goals/${id}/progress`, { method: "POST", authenticated: true, body: JSON.stringify(input) });

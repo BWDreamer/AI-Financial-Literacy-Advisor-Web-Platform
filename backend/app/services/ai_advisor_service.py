@@ -1,3 +1,4 @@
+from collections.abc import AsyncIterator
 from typing import Any, Protocol
 
 
@@ -10,6 +11,13 @@ class LLMProvider(Protocol):
         system_instruction: str | None = None,
     ) -> str:
         """Generate one assistant reply for a user message."""
+
+    def generate_reply_stream(
+        self,
+        message: str,
+        system_instruction: str | None = None,
+    ) -> AsyncIterator[str]:
+        """Stream one assistant reply for a user message."""
 
     async def generate_json(
         self,
@@ -38,6 +46,16 @@ class AIAdvisorService:
         system_instruction: str | None = None,
     ) -> str:
         return await self._provider.generate_reply(
+            message,
+            system_instruction=system_instruction,
+        )
+
+    def stream_reply(
+        self,
+        message: str,
+        system_instruction: str | None = None,
+    ) -> AsyncIterator[str]:
+        return self._provider.generate_reply_stream(
             message,
             system_instruction=system_instruction,
         )

@@ -11,10 +11,20 @@ export default function GoalProgressBar({ value, status, added = 0 }: { value: n
   const safeValue = Math.min(Math.max(value, 0), 100);
   const safeAdded = Math.min(Math.max(added, 0), safeValue);
   return (
-    <div className="relative h-2 overflow-hidden rounded-full bg-slate-100">
+    <div
+      role="progressbar"
+      aria-label="Goal progress"
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={safeValue}
+      className="relative h-2 overflow-hidden rounded-full bg-slate-100"
+    >
       <div
         className={`h-full rounded-full transition-all duration-700 ease-out ${fillStyles[status]}`}
-        style={{ width: `${safeValue}%` }}
+        style={{
+          width: `${safeValue}%`,
+          minWidth: safeValue > 0 ? "0.25rem" : undefined,
+        }}
       />
       {safeAdded > 0 && (
         <div

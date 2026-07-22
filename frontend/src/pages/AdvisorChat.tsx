@@ -1,7 +1,7 @@
 import { ChangeEvent, DragEvent, FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FileText, LoaderCircle, PanelLeft, Plus, Send, Trash2, X } from "lucide-react";
+import { FileText, PanelLeft, Plus, Send, Trash2, X } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { ChatMessage, Conversation, ConversationDetail, addConversationMessage, createConversation, deleteConversation, getConversation, getConversations, sendAdvisorMessage, sendAdvisorPdfMessage } from "../api/chat";
+import { ChatMessage, Conversation, ConversationDetail, addConversationMessage, createConversation, deleteConversation, getConversation, getConversations, sendAdvisorPdfMessage, streamAdvisorMessage } from "../api/chat";
 import {
   GOAL_PLANNING_START_MESSAGE,
   GoalCategoryGrid,
@@ -21,6 +21,13 @@ import { useUser } from "../store/UserProvider";
 
 type AttachmentPreview = { id: string; name: string; extension: string; isImage: boolean; file: File; dataUrl?: string };
 type LocalAttachmentMap = Record<number, AttachmentPreview[]>;
+type PendingExchange = {
+  conversationId: number | null;
+  userContent: string;
+  files: AttachmentPreview[];
+  assistantContent: string;
+  thinking: boolean;
+};
 type GoalReviewRouteState = {
   mode: "goal-review";
   requestId: string;
@@ -51,7 +58,6 @@ function goalReviewRouteState(value: unknown): GoalReviewRouteState | null {
   }
   return candidate as GoalReviewRouteState;
 }
-const THINKING_MESSAGE = "__financeai_thinking__";
 
 function sortedConversations(items: Conversation[]) {
   return [...items].sort((a, b) => new Date(b.updated_at || b.created_at).getTime() - new Date(a.updated_at || a.created_at).getTime());
@@ -85,12 +91,13 @@ function EmptyConversationWelcome({ userName }: { userName: string }) {
   );
 }
 
-function ThinkingMessage() {
-  return <div className="flex items-center gap-2 text-sm font-semibold text-slate-500"><span>FinanceAI is thinking</span><span className="flex gap-1">{[0, 1, 2].map((item) => <span key={item} className="size-1.5 animate-pulse rounded-full bg-slate-400" />)}</span></div>;
-}
+function MessageList({ messages, attachments, pending, sending, userName, pendingGoalReview, onSelectGoalCategory }: { messages: ChatMessage[]; attachments: LocalAttachmentMap; pending: PendingExchange | null; sending: boolean; userName: string; pendingGoalReview: GoalReviewCardData | null; onSelectGoalCategory: (categoryId: GoalCategoryId) => void }) {
+  const messageEndRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    messageEndRef.current?.scrollIntoView({ block: "end" });
+  }, [messages.length, pending?.assistantContent, pending?.thinking, pendingGoalReview]);
 
-function MessageList({ messages, attachments, sending, userName, pendingGoalReview, onSelectGoalCategory }: { messages: ChatMessage[]; attachments: LocalAttachmentMap; sending: boolean; userName: string; pendingGoalReview: GoalReviewCardData | null; onSelectGoalCategory: (categoryId: GoalCategoryId) => void }) {
-  if (messages.length === 0 && !pendingGoalReview) {
+  if (messages.length === 0 && !pending && !pendingGoalReview) {
     return <EmptyConversationWelcome userName={userName} />;
   }
 
@@ -119,7 +126,7 @@ function MessageList({ messages, attachments, sending, userName, pendingGoalRevi
                   </p>
                 )}
                 {content && message.role === "assistant" && (
-                  content === THINKING_MESSAGE ? <ThinkingMessage /> : <FormattedChatMessage content={content} />
+                  <FormattedChatMessage content={content} />
                 )}
               </article>
             </div>
@@ -141,14 +148,40 @@ function MessageList({ messages, attachments, sending, userName, pendingGoalRevi
           </div>
         </div>
       )}
-      {sending && (
-        <div className="flex justify-start">
-          <div className="inline-flex items-center gap-2 rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-slate-600 shadow-sm">
-            <LoaderCircle size={17} className="animate-spin text-blue-600" />
-            {pendingGoalReview ? "Reviewing your goal..." : "Thinking..."}
+      {pending && (
+        <div className="space-y-4" aria-live="polite">
+          {!pendingGoalReview && (
+            <div className="flex justify-end">
+              <article
+                style={{ maxWidth: "61.8%" }}
+                className="inline-block w-fit rounded-2xl bg-blue-600 p-4 text-white"
+              >
+                <MessageAttachments files={pending.files} inBubble />
+                {pending.userContent && (
+                  <p className="max-w-full whitespace-pre-wrap break-words text-sm leading-6">
+                    {pending.userContent}
+                  </p>
+                )}
+              </article>
+            </div>
+          )}
+          <div className="flex justify-start">
+            <article
+              style={{ maxWidth: "61.8%" }}
+              className="inline-block min-w-28 w-fit rounded-2xl bg-white p-4 shadow-sm"
+            >
+              {pending.thinking ? (
+                <p role="status" aria-label="AI is thinking" className="text-sm font-bold leading-6">
+                  <span className="thinking-shimmer">Thinking</span>
+                </p>
+              ) : (
+                <FormattedChatMessage content={pending.assistantContent} />
+              )}
+            </article>
           </div>
         </div>
       )}
+      <div ref={messageEndRef} aria-hidden="true" />
     </div>
   );
 }
@@ -183,7 +216,9 @@ function ChatComposer({ sending, onSubmit }: { sending: boolean; onSubmit: (mess
   useEffect(() => { if (textRef.current) { textRef.current.style.height = "auto"; textRef.current.style.height = `${Math.min(textRef.current.scrollHeight, 220)}px`; } }, [message]);
   async function submit(event: FormEvent) {
     event.preventDefault(); if (!canSend) return;
-    await onSubmit(message.trim(), files); setMessage(""); setFiles([]); if (inputRef.current) inputRef.current.value = "";
+    const submittedMessage = message.trim(); const submittedFiles = files;
+    setMessage(""); setFiles([]); if (inputRef.current) inputRef.current.value = "";
+    await onSubmit(submittedMessage, submittedFiles);
   }
   function removeLastOnEmpty(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (message || !files.length || (event.key !== "Delete" && event.key !== "Backspace")) return;
@@ -200,18 +235,6 @@ async function toPreview(file: File): Promise<AttachmentPreview> {
   return { id: crypto.randomUUID(), name: file.name, extension: fileExtension(file), isImage, file, dataUrl: isImage ? await readImage(file) : undefined };
 }
 
-function optimisticMessages(messages: ChatMessage[], message: string, files: AttachmentPreview[]) {
-  const now = new Date().toISOString(); const userId = -Date.now();
-  const userMessage = { id: userId, role: "user" as const, content: message || (files.length ? "Uploaded files" : ""), created_at: now };
-  const assistantMessage = { id: userId - 1, role: "assistant" as const, content: THINKING_MESSAGE, created_at: now };
-  return { userId, messages: [...messages, userMessage, assistantMessage] };
-}
-
-function removeThinkingMessage(conversation: ConversationDetail | null) {
-  if (!conversation) return conversation;
-  return { ...conversation, messages: conversation.messages.filter((item) => item.content !== THINKING_MESSAGE) };
-}
-
 export default function AdvisorChat() {
   const { user } = useUser();
   const location = useLocation();
@@ -226,6 +249,7 @@ export default function AdvisorChat() {
   const [draftConversationId, setDraftConversationId] = useState<number | null>(null);
   const [suggestedQuestions] = useState(selectSuggestedQuestions);
   const [goalPlanningPending, setGoalPlanningPending] = useState(false);
+  const [pendingExchange, setPendingExchange] = useState<PendingExchange | null>(null);
   const [pendingGoalReview, setPendingGoalReview] = useState<GoalReviewCardData | null>(null);
   const requestedGoalReview = useMemo(
     () => goalReviewRouteState(location.state),
@@ -349,25 +373,54 @@ export default function AdvisorChat() {
   async function sendMessage(message: string, files: AttachmentPreview[]) {
     setSending(true);
     setError("");
+    setPendingExchange({
+      conversationId: active?.conversation_id ?? null,
+      userContent: message || "Extract financial information from the uploaded PDF.",
+      files,
+      assistantContent: "",
+      thinking: true,
+    });
+    let conversationId = active?.conversation_id;
     try {
       const conversation = active || {
         ...(await createConversation()),
         messages: [],
       };
-      const optimistic = optimisticMessages(conversation.messages, message, files);
-      setDraftConversationId(conversation.conversation_id);
-      setActive({ ...conversation, messages: optimistic.messages });
-      if (files.length) {
-        setLocalAttachments((current) => ({ ...current, [optimistic.userId]: files }));
+      conversationId = conversation.conversation_id;
+      setPendingExchange((current) => current && ({
+        ...current,
+        conversationId: conversation.conversation_id,
+      }));
+      if (!active) {
+        setDraftConversationId(conversation.conversation_id);
+        setActive(conversation);
       }
       if (files.length) {
-        await sendAdvisorPdfMessage(
+        const response = await sendAdvisorPdfMessage(
           message || "Extract financial information from the uploaded PDF.",
           conversation.conversation_id,
           files.map((item) => item.file),
         );
+        setPendingExchange((current) => current && ({
+          ...current,
+          assistantContent: response.answer,
+          thinking: false,
+        }));
       } else {
-        await sendAdvisorMessage(message, conversation.conversation_id);
+        const response = await streamAdvisorMessage(
+          message,
+          conversation.conversation_id,
+          (content) => setPendingExchange((current) => current && ({
+            ...current,
+            assistantContent: current.assistantContent + content,
+            thinking: false,
+          })),
+        );
+        setPendingExchange((current) => current && ({
+          ...current,
+          assistantContent: response.answer,
+          thinking: false,
+        }));
       }
       await refreshActiveConversation(conversation.conversation_id, files);
     } catch (caught) {
@@ -376,8 +429,11 @@ export default function AdvisorChat() {
           ? caught.message
           : "Unable to send your message.",
       );
-      setActive(removeThinkingMessage);
+      if (conversationId !== undefined) {
+        await refreshActiveConversation(conversationId, files).catch(() => undefined);
+      }
     } finally {
+      setPendingExchange(null);
       setSending(false);
     }
   }
@@ -388,6 +444,13 @@ export default function AdvisorChat() {
     setActive(null);
     setDraftConversationId(null);
     setPendingGoalReview(request.goal);
+    setPendingExchange({
+      conversationId: null,
+      userContent: "",
+      files: [],
+      assistantContent: "",
+      thinking: true,
+    });
     let conversationId: number | null = null;
     try {
       const created = await createConversation(
@@ -396,15 +459,30 @@ export default function AdvisorChat() {
       conversationId = created.conversation_id;
       setActive({ ...created, messages: [] });
       setDraftConversationId(conversationId);
-      await sendAdvisorMessage(
-        (
-          "Please review this existing financial goal and suggest "
-          + "practical, prioritised improvements."
-        ),
+      setPendingExchange((current) => current && ({
+        ...current,
         conversationId,
+      }));
+      const prompt = (
+        "Please review this existing financial goal and suggest "
+        + "practical, prioritised improvements."
+      );
+      const response = await streamAdvisorMessage(
+        prompt,
+        conversationId,
+        (content) => setPendingExchange((current) => current && ({
+          ...current,
+          assistantContent: current.assistantContent + content,
+          thinking: false,
+        })),
         undefined,
         request.goal.goal_id,
       );
+      setPendingExchange((current) => current && ({
+        ...current,
+        assistantContent: response.answer,
+        thinking: false,
+      }));
       await refreshActiveConversation(conversationId);
     } catch (caught) {
       if (conversationId !== null) {
@@ -421,6 +499,7 @@ export default function AdvisorChat() {
       );
     } finally {
       setPendingGoalReview(null);
+      setPendingExchange(null);
       setSending(false);
     }
   }
@@ -504,6 +583,12 @@ export default function AdvisorChat() {
         <MessageList
           messages={active?.messages || []}
           attachments={localAttachments}
+          pending={
+            pendingExchange?.conversationId
+              === (active?.conversation_id ?? null)
+              ? pendingExchange
+              : null
+          }
           sending={sending}
           userName={userName}
           pendingGoalReview={pendingGoalReview}

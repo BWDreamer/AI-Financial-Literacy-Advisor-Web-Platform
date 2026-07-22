@@ -15,7 +15,12 @@ from app.models.financial import Asset, CashBucket, CashFlow, Debt, RecurringCas
 from app.models.chat import ChatConversation, ChatMessage
 from app.models.email_verification import EmailVerificationCode
 from app.models.article import Article, ArticleLike, ArticleSave
-from app.models.goal import Goal, GoalAllocationSettings, GoalProgress
+from app.models.goal import (
+    Goal,
+    GoalAllocationSettings,
+    GoalPlanConfirmation,
+    GoalProgress,
+)
 from app.models.user import User
 from app.models.user_profile import UserProfile
 

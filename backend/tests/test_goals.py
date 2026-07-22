@@ -1,5 +1,11 @@
+import json
 from datetime import date, timedelta
+from decimal import Decimal
 
+from app.models.goal import GoalAllocationSettings
+from app.models.user import User
+from app.services.goal_planning_service import normalize_goal_planning_state
+from app.services.goal_service import build_confirmed_goal_plan
 from tests.helpers import register_verified_user
 
 
@@ -16,6 +22,105 @@ def payload(**overrides):
     data = {"name": "Emergency fund", "category": "savings", "target_amount": "10000.00", "current_amount": "1000.00", "monthly_contribution": "500.00", "target_date": (date.today() + timedelta(days=365)).isoformat(), "priority": 1}
     data.update(overrides)
     return data
+
+
+def test_confirmed_ai_plan_maps_all_supported_goal_categories():
+    deadline = (date.today() + timedelta(days=730)).isoformat()
+    planned_goals = [
+        {
+            "category": "general_saving",
+            "goal_title": "Reliable used car",
+            "target_amount": 15000,
+            "current_amount": 1000,
+            "monthly_contribution": 500,
+            "deadline": deadline,
+            "priority": "High",
+        },
+        {
+            "category": "emergency_fund",
+            "essential_monthly_expenses": 2000,
+            "coverage_months": 3,
+            "current_amount": 1000,
+            "monthly_contribution": 500,
+            "deadline": deadline,
+            "priority": "Medium",
+        },
+        {
+            "category": "debt_repayment",
+            "debt_name": "Credit card",
+            "debt_balance": 4000,
+            "minimum_repayment": 100,
+            "extra_repayment": 50,
+            "deadline": deadline,
+            "priority": "High",
+        },
+        {
+            "category": "home_deposit",
+            "deposit_target": 50000,
+            "cost_buffer": 5000,
+            "current_amount": 10000,
+            "monthly_contribution": 1000,
+            "deadline": deadline,
+            "priority": "Medium",
+        },
+        {
+            "category": "retirement",
+            "target_age": 65,
+            "current_super": 100000,
+            "target_amount": 1000000,
+            "regular_contribution": 1000,
+            "deadline": deadline,
+            "priority": "Low",
+        },
+        {
+            "category": "budget",
+            "monthly_income": 5000,
+            "fixed_expenses": 2500,
+            "variable_expenses": 1000,
+            "target_monthly_surplus": 1500,
+            "deadline": deadline,
+            "priority": "Medium",
+        },
+    ]
+    state = normalize_goal_planning_state(
+        {
+            "goal_count": len(planned_goals),
+            "goals": planned_goals,
+            "recommendation_status": "accepted",
+        }
+    )
+
+    confirmed_plan = build_confirmed_goal_plan(state, user_id=42)
+    goals = confirmed_plan.goals
+
+    assert len(confirmed_plan.fingerprint) == 64
+    assert [goal.category for goal in goals] == [
+        "General Saving",
+        "Emergency Fund",
+        "Debt Repayment",
+        "Home Deposit",
+        "Retirement",
+        "Budget",
+    ]
+    assert [goal.name for goal in goals] == [
+        "Reliable used car",
+        "Emergency Fund",
+        "Credit card",
+        "Home Deposit",
+        "Retirement Plan",
+        "Improve Monthly Cash Flow",
+    ]
+    assert [float(goal.target_amount) for goal in goals] == [
+        15000,
+        6000,
+        4000,
+        55000,
+        1000000,
+        18000,
+    ]
+    assert [goal.priority for goal in goals] == [1, 3, 1, 3, 5, 3]
+    for goal in goals:
+        json.dumps(goal.category_details)
 
 
 def test_goal_crud_progress_and_summary(client):
@@ -57,6 +162,17 @@ def test_goal_preview_calculates_category_values_on_backend(client):
     assert data["goal"]["priority"] == 1
     assert data["analysis"]["progress_percentage"] == "16.67"
     assert data["analysis"]["required_monthly"] != "0.00"
+
+    direct_preview = client.post("/api/goals/preview", headers=headers, json={
+        "category": "Emergency Fund", "target_date": (date.today() + timedelta(days=365)).isoformat(),
+        "priority": "High", "category_details": {
+            "target_amount": 1000,
+            "essential_monthly_expenses": 1000, "coverage_months": 3,
+            "current_amount": 0, "monthly_contribution": 200,
+        },
+    })
+    assert direct_preview.status_code == 200
+    assert float(direct_preview.json()["goal"]["target_amount"]) == 1000
 
 
 def test_goals_are_private_and_validate_amounts(client):
@@ -260,6 +376,53 @@ def test_updating_goal_syncs_monthly_ratio_as_json(client):
     ratios = settings["goal_monthly_ratios"]
     assert any(item["goal_id"] == second for item in ratios)
     assert all(isinstance(item["ratio"], (int, float, str)) for item in ratios)
+
+
+def test_allocation_settings_repairs_rounding_overflow_for_my_goals(
+    client,
+    db_session,
+):
+    email = "goal-rounding@example.com"
+    headers = auth_headers(client, email)
+    client.post("/api/financials/recurring-cash-flows", headers=headers, json={
+        "flow_type": "income", "name": "Salary", "amount": "1000",
+        "frequency": "monthly", "start_date": date.today().isoformat(),
+    })
+    goal_ids = [
+        client.post(
+            "/api/goals",
+            headers=headers,
+            json=payload(name=name, monthly_contribution=contribution),
+        ).json()["id"]
+        for name, contribution in [
+            ("Computer", "500.01"),
+            ("Graphics card", "333.33"),
+            ("Car", "166.66"),
+        ]
+    ]
+
+    user = db_session.query(User).filter(User.email == email).one()
+    settings = db_session.query(GoalAllocationSettings).filter(
+        GoalAllocationSettings.user_id == user.id,
+    ).one()
+    settings.goal_monthly_ratios = [
+        {"goal_id": goal_ids[0], "ratio": "50.00"},
+        {"goal_id": goal_ids[1], "ratio": "33.34"},
+        {"goal_id": goal_ids[2], "ratio": "16.67"},
+    ]
+    db_session.add(settings)
+    db_session.commit()
+
+    allocation = client.get("/api/goals/allocation-settings", headers=headers)
+
+    assert allocation.status_code == 200
+    repaired_ratios = allocation.json()["goal_monthly_ratios"]
+    assert sum(
+        (Decimal(str(item["ratio"])) for item in repaired_ratios),
+        Decimal("0"),
+    ) <= Decimal("100")
+    assert client.get("/api/goals", headers=headers).status_code == 200
+    assert client.get("/api/goals/summary", headers=headers).status_code == 200
 
 
 def test_cash_buckets_are_private(client):

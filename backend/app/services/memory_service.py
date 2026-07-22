@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.models.memory import UserMemory
 from app.repositories.memory_repository import (
     add_memory_if_new,
+    find_existing_memory,
     list_memories_by_categories,
     mark_memories_used,
     search_memories,
@@ -20,6 +21,7 @@ FINANCIAL_KEYWORDS = {
     "cash",
     "credit card",
     "debt",
+    "emergency fund",
     "expense",
     "expenses",
     "goal",
@@ -32,6 +34,7 @@ FINANCIAL_KEYWORDS = {
     "saving",
     "savings",
     "super",
+    "target",
 }
 STOPWORDS = {
     "about",
@@ -125,6 +128,28 @@ def remember_from_message(db: Session, user_id: int, message: str) -> list[UserM
         if memory is not None:
             stored.append(memory)
     return stored
+
+
+def remember_confirmed_intent(
+    db: Session,
+    user_id: int,
+    fact: str,
+    category: str,
+) -> UserMemory:
+    """Store a fact only after the user has resolved an explicit ambiguity."""
+    existing = find_existing_memory(db, user_id, fact)
+    if existing is not None:
+        return existing
+    memory = add_memory_if_new(
+        db,
+        user_id,
+        fact,
+        category,
+        source="chat",
+    )
+    if memory is None:
+        raise RuntimeError("Confirmed intent memory could not be stored.")
+    return memory
 
 
 def _keywords_from_message(message: str) -> list[str]:

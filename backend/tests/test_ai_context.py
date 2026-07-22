@@ -110,6 +110,33 @@ class SequencedGoalPlanningAdvisorService(CapturingAdvisorService):
         return await super().reply_json(message, {})
 
 
+class IntentClarificationAdvisorService(GoalPlanningAdvisorService):
+    def __init__(
+        self,
+        planned_state: dict,
+        clarification_payloads: list[dict],
+    ) -> None:
+        super().__init__(planned_state)
+        self.clarification_payloads = clarification_payloads
+        self.clarification_messages: list[str] = []
+
+    async def reply_json(
+        self,
+        message: str,
+        response_schema: dict,
+    ) -> dict:
+        if message.startswith(
+            "Classify whether the user's goal-planning intent is semantically ambiguous"
+        ):
+            del response_schema
+            index = len(self.clarification_messages)
+            self.clarification_messages.append(message)
+            return self.clarification_payloads[
+                min(index, len(self.clarification_payloads) - 1)
+            ]
+        return await super().reply_json(message, response_schema)
+
+
 def authorization_headers(client, email: str) -> dict[str, str]:
     register_verified_user(
         client,
@@ -282,6 +309,10 @@ def test_user_acceptance_completes_the_goal_plan(client):
                 "conversation_id": conversation_id,
             },
         )
+        goals_before_confirmation = client.get(
+            "/api/goals",
+            headers=headers,
+        ).json()
         second_response = client.post(
             "/api/ai/chat",
             headers=headers,
@@ -290,15 +321,37 @@ def test_user_acceptance_completes_the_goal_plan(client):
                 "conversation_id": conversation_id,
             },
         )
+        repeated_confirmation = client.post(
+            "/api/ai/chat",
+            headers=headers,
+            json={
+                "message": "Yes, I confirm the same plan.",
+                "conversation_id": conversation_id,
+            },
+        )
+        saved_goals = client.get(
+            "/api/goals",
+            headers=headers,
+        ).json()
     finally:
         app.dependency_overrides.pop(get_ai_advisor_service, None)
 
     assert first_response.status_code == 200
     assert second_response.status_code == 200
+    assert repeated_confirmation.status_code == 200
+    assert goals_before_confirmation == []
+    assert len(saved_goals) == 1
+    assert saved_goals[0]["name"] == "Reliable used car"
+    assert saved_goals[0]["category"] == "General Saving"
+    assert saved_goals[0]["target_amount"] == "15000.00"
+    assert saved_goals[0]["current_amount"] == "0.00"
+    assert saved_goals[0]["monthly_contribution"] == "500.00"
+    assert saved_goals[0]["priority"] == 3
     final_prompt = service.messages[1]
     assert "Earlier messages in this same conversation" in final_prompt
     assert "Stage: confirmed goal plan" in final_prompt
     assert "planning is complete" in final_prompt
+    assert "every agreed goal is now available in MyGoals" in final_prompt
     assert "Does this overall plan work for you?" not in final_prompt
     assert "Do not ask another question" in final_prompt
 
@@ -427,3 +480,227 @@ def test_goal_count_correction_preserves_all_goals_in_recommendation(client):
     assert prompt.count("Recommended ongoing monthly allocation:") == 4
     for title in ["Computer", "RTX 5090", "Mercedes", "House"]:
         assert f"Goal: {title}" in prompt
+
+
+def emergency_fund_state(
+    recommendation_status: str = "needs_recommendation",
+) -> dict:
+    return {
+        "goal_count": 1,
+        "goals": [
+            {
+                "category": "emergency_fund",
+                "target_amount": 1000,
+                "essential_monthly_expenses": None,
+                "coverage_months": None,
+                "deadline": (date.today() + timedelta(days=180)).isoformat(),
+                "current_amount": 0,
+                "monthly_contribution": 200,
+                "priority": "High",
+            }
+        ],
+        "recommendation_status": recommendation_status,
+    }
+
+
+def add_emergency_fund_category_prompt(
+    client,
+    headers: dict[str, str],
+    conversation_id: int,
+) -> None:
+    response = client.post(
+        f"/api/chat/conversations/{conversation_id}/messages",
+        headers=headers,
+        json={
+            "role": "assistant",
+            "content": (
+                "What Emergency Fund goal would you like to set?\n\n"
+                "[Financial goal planning mode: category=emergency_fund]"
+            ),
+        },
+    )
+    assert response.status_code == 201
+
+
+def test_bare_emergency_amount_is_confirmed_remembered_and_never_multiplied(client):
+    headers = authorization_headers(client, "emergency-intent@example.com")
+    add_goal_planning_cash_flow(client, headers)
+    conversation_id = create_conversation(client, headers)
+    add_emergency_fund_category_prompt(client, headers, conversation_id)
+    service = SequencedGoalPlanningAdvisorService(
+        [
+            emergency_fund_state(),
+            emergency_fund_state("accepted"),
+        ]
+    )
+    app.dependency_overrides[get_ai_advisor_service] = lambda: service
+    try:
+        ambiguous_response = client.post(
+            "/api/ai/chat",
+            headers=headers,
+            json={"message": "$1000", "conversation_id": conversation_id},
+        )
+        assert client.get("/api/memory", headers=headers).json() == []
+
+        resolved_response = client.post(
+            "/api/ai/chat",
+            headers=headers,
+            json={
+                "message": "That is my target amount.",
+                "conversation_id": conversation_id,
+            },
+        )
+        confirmation_response = client.post(
+            "/api/ai/chat",
+            headers=headers,
+            json={"message": "Yes, keep that plan.", "conversation_id": conversation_id},
+        )
+        saved_goals = client.get("/api/goals", headers=headers).json()
+
+        new_conversation_id = create_conversation(client, headers)
+        recall_response = client.post(
+            "/api/ai/chat",
+            headers=headers,
+            json={
+                "message": "What is my Emergency Fund target amount?",
+                "conversation_id": new_conversation_id,
+            },
+        )
+    finally:
+        app.dependency_overrides.pop(get_ai_advisor_service, None)
+
+    assert ambiguous_response.status_code == 200
+    assert ambiguous_response.json()["answer"] == (
+        "Is $1,000 your Emergency Fund target amount, or your essential monthly "
+        "expenses?"
+    )
+    assert resolved_response.status_code == 200
+    assert confirmation_response.status_code == 200
+    assert recall_response.status_code == 200
+    assert len(service.extraction_messages) == 2
+    assert "The user's Emergency Fund target amount is $1,000.00" in (
+        service.extraction_messages[0]
+    )
+    assert "The user's Emergency Fund target amount is $1,000.00" in (
+        service.extraction_messages[1]
+    )
+    assert "Target amount: $1,000.00" in service.messages[0]
+    assert "Target amount: $3,000.00" not in service.messages[0]
+    assert len(saved_goals) == 1
+    assert saved_goals[0]["target_amount"] == "1000.00"
+    memories = client.get("/api/memory", headers=headers).json()
+    assert len(memories) == 1
+    assert memories[0]["category"] == "goal"
+    assert memories[0]["fact"] == (
+        "The user's Emergency Fund target amount is $1,000.00."
+    )
+    assert "The user's Emergency Fund target amount is $1,000.00" in (
+        service.messages[-1]
+    )
+
+
+def test_ambiguous_goal_sentence_is_queried_then_confirmed_into_memory(client):
+    headers = authorization_headers(client, "sentence-intent@example.com")
+    conversation_id = create_conversation(client, headers)
+    add_emergency_fund_category_prompt(client, headers, conversation_id)
+    service = IntentClarificationAdvisorService(
+        emergency_fund_state(),
+        [
+            {
+                "status": "needs_clarification",
+                "clarifying_question": (
+                    "Does $1,000 mean your total Emergency Fund target or one "
+                    "month of essential expenses?"
+                ),
+                "confirmed_fact": None,
+                "memory_category": None,
+            },
+            {
+                "status": "resolved",
+                "clarifying_question": None,
+                "confirmed_fact": (
+                    "The user's Emergency Fund target amount is $1,000.00."
+                ),
+                "memory_category": "goal",
+            },
+        ],
+    )
+    app.dependency_overrides[get_ai_advisor_service] = lambda: service
+    try:
+        first_response = client.post(
+            "/api/ai/chat",
+            headers=headers,
+            json={
+                "message": "I want my Emergency Fund based on $1,000.",
+                "conversation_id": conversation_id,
+            },
+        )
+        memories_before_confirmation = client.get(
+            "/api/memory",
+            headers=headers,
+        ).json()
+        second_response = client.post(
+            "/api/ai/chat",
+            headers=headers,
+            json={
+                "message": "I mean the total buffer I want.",
+                "conversation_id": conversation_id,
+            },
+        )
+        memories_after_confirmation = client.get(
+            "/api/memory",
+            headers=headers,
+        ).json()
+    finally:
+        app.dependency_overrides.pop(get_ai_advisor_service, None)
+
+    assert first_response.status_code == 200
+    assert first_response.json()["answer"].startswith("Does $1,000 mean")
+    assert memories_before_confirmation == []
+    assert service.extraction_messages
+    assert second_response.status_code == 200
+    assert len(memories_after_confirmation) == 1
+    assert memories_after_confirmation[0]["fact"] == (
+        "The user's Emergency Fund target amount is $1,000.00."
+    )
+
+
+def test_clear_goal_intent_is_automatically_written_to_memory(client):
+    headers = authorization_headers(client, "clear-intent@example.com")
+    conversation_id = create_conversation(client, headers)
+    add_emergency_fund_category_prompt(client, headers, conversation_id)
+    service = IntentClarificationAdvisorService(
+        emergency_fund_state(),
+        [
+            {
+                "status": "resolved",
+                "clarifying_question": None,
+                "confirmed_fact": (
+                    "The user's Emergency Fund target amount is $1,000.00."
+                ),
+                "memory_category": "goal",
+            }
+        ],
+    )
+    app.dependency_overrides[get_ai_advisor_service] = lambda: service
+    try:
+        response = client.post(
+            "/api/ai/chat",
+            headers=headers,
+            json={
+                "message": "My Emergency Fund target amount is $1,000.",
+                "conversation_id": conversation_id,
+            },
+        )
+        memories = client.get("/api/memory", headers=headers).json()
+    finally:
+        app.dependency_overrides.pop(get_ai_advisor_service, None)
+
+    assert response.status_code == 200
+    assert len(service.clarification_messages) == 1
+    assert len(service.extraction_messages) == 1
+    assert len(memories) == 1
+    assert memories[0]["source"] == "chat"
+    assert memories[0]["fact"] == (
+        "The user's Emergency Fund target amount is $1,000.00."
+    )

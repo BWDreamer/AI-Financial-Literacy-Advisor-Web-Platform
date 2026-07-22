@@ -1,6 +1,6 @@
 import { ChevronRight, CreditCard, Flag, Home, PiggyBank, Shield, TrendingUp, Umbrella } from "lucide-react";
 import type { Goal, GoalCategory } from "../../types/goalTypes";
-import { formatGoalCurrency, formatGoalDate, goalProgress, goalStatus } from "../../utils/goalUtils";
+import { formatGoalCurrency, formatGoalDate, formatGoalProgressPercentage, goalProgress, goalStatus } from "../../utils/goalUtils";
 import GoalProgressBar from "./GoalProgressBar";
 import GoalStatusBadge from "./GoalStatusBadge";
 
@@ -23,7 +23,7 @@ type Props = {
 
 export default function GoalCard({ goal, monthlyAmount, onOpen, onDragStart, onDragOver }: Props) {
   const status = goalStatus(goal);
-  const progress = Math.round(goalProgress(goal));
+  const progress = goalProgress(goal);
   const Icon = icons[goal.category] || Flag;
 
   return (
@@ -50,7 +50,7 @@ export default function GoalCard({ goal, monthlyAmount, onOpen, onDragStart, onD
         <div>
           <div className="mb-2 flex items-center justify-between text-sm">
             <span className="font-bold text-slate-900">{formatGoalCurrency(goal.currentAmount)} / {formatGoalCurrency(goal.targetAmount)}</span>
-            <span className="font-bold text-slate-700">{progress}%</span>
+            <span className="font-bold text-slate-700">{formatGoalProgressPercentage(progress)}%</span>
           </div>
           <GoalProgressBar value={progress} status={status} />
         </div>

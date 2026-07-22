@@ -9,13 +9,27 @@ export const goalSortOptions: GoalSort[] = ["Recent", "Priority", "Target Date",
 const priorityRank: Record<GoalPriority, number> = { High: 0, Medium: 1, Low: 2 };
 const priorityLabels: Record<number, GoalPriority> = { 1: "High", 2: "High", 3: "Medium", 4: "Low", 5: "Low" };
 const priorityValues: Record<GoalPriority, number> = { High: 1, Medium: 3, Low: 5 };
+const goalProgressFormatter = new Intl.NumberFormat("en-AU", {
+  maximumFractionDigits: 2,
+});
 
 export function formatGoalCurrency(value: number) {
   return new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(value || 0);
 }
 
 export function goalProgress(goal: Goal) {
-  return goal.progressPercentage;
+  const progress = Number.isFinite(goal.progressPercentage)
+    ? goal.progressPercentage
+    : 0;
+  return Math.min(Math.max(progress, 0), 100);
+}
+
+export function formatGoalProgressPercentage(value: number) {
+  const numericValue = Number(value);
+  const progress = Number.isFinite(numericValue) ? numericValue : 0;
+  return goalProgressFormatter.format(
+    Math.min(Math.max(progress, 0), 100),
+  );
 }
 
 export function goalStatus(goal: Goal): GoalStatus {

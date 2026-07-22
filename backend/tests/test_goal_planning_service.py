@@ -7,6 +7,7 @@ from app.services.goal_planning_service import (
     build_goal_dialogue_context,
     build_goal_state_correction_prompt,
     build_goal_state_extraction_prompt,
+    emergency_fund_target_amount,
     goal_state_payload_is_complete,
     normalize_goal_planning_state,
 )
@@ -93,6 +94,40 @@ def test_complete_goal_plan_payload_requires_ai_selected_details():
     )
     assert "monthly_contribution" in correction
     assert "Preference/Profile and financial context" in correction
+
+
+def test_emergency_fund_accepts_direct_target_without_reinterpreting_it():
+    direct_target_goal = {
+        "category": "emergency_fund",
+        "target_amount": 1000,
+        "essential_monthly_expenses": None,
+        "coverage_months": None,
+        "deadline": (date.today() + timedelta(days=180)).isoformat(),
+        "current_amount": 0,
+        "monthly_contribution": 200,
+        "priority": "High",
+    }
+    payload = {
+        "goal_count": 1,
+        "goals": [direct_target_goal],
+        "recommendation_status": "needs_recommendation",
+    }
+
+    assert goal_state_payload_is_complete(payload) is True
+    assert emergency_fund_target_amount(direct_target_goal) == Decimal("1000.00")
+
+    direct_target_goal["essential_monthly_expenses"] = 1000
+    direct_target_goal["coverage_months"] = 3
+    assert emergency_fund_target_amount(direct_target_goal) == Decimal("1000.00")
+
+
+def test_emergency_fund_expense_model_remains_available_without_direct_target():
+    assert emergency_fund_target_amount(
+        {
+            "essential_monthly_expenses": 1000,
+            "coverage_months": 3,
+        }
+    ) == Decimal("3000.00")
 
 
 def test_relative_deadline_and_recommendation_status_are_normalized():

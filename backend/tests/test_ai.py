@@ -355,6 +355,30 @@ class FailingTestAdvisorService:
         )
 
 
+class StreamingTestAdvisorService(SuccessfulTestAdvisorService):
+    async def stream_reply(
+        self,
+        message: str,
+        system_instruction: str | None = None,
+    ):
+        self.messages.append(message)
+        self.system_instructions.append(system_instruction)
+        yield "Streamed **financial "
+        yield "guidance**."
+
+
+class FailingStreamingTestAdvisorService(SuccessfulTestAdvisorService):
+    async def stream_reply(
+        self,
+        message: str,
+        system_instruction: str | None = None,
+    ):
+        self.messages.append(message)
+        self.system_instructions.append(system_instruction)
+        yield "Partial response."
+        raise LLMServiceError("Test streaming provider failure.")
+
+
 class FakeGeminiResponse:
     def __init__(self, text: str) -> None:
         self.text = text
@@ -387,6 +411,20 @@ class FakeGeminiClient:
         self.aio = FakeGeminiAioClient(models)
 
 
+class StreamingGeminiModels:
+    def __init__(self) -> None:
+        self.requests: list[dict] = []
+
+    async def generate_content_stream(self, **kwargs):
+        self.requests.append(kwargs)
+
+        async def responses():
+            yield FakeGeminiResponse("Gemini ")
+            yield FakeGeminiResponse("stream.")
+
+        return responses()
+
+
 class FakeOpenRouterResponse:
     def __init__(self, payload: dict) -> None:
         self._payload = payload
@@ -416,6 +454,34 @@ class RecordingOpenRouterClient:
         return FakeOpenRouterResponse(
             self.response_payloads[response_index]
         )
+
+
+class FakeOpenRouterStreamResponse:
+    def __init__(self, lines: list[str]) -> None:
+        self.lines = lines
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc_value, traceback):
+        return False
+
+    def raise_for_status(self) -> None:
+        return None
+
+    async def aiter_lines(self):
+        for line in self.lines:
+            yield line
+
+
+class RecordingStreamingOpenRouterClient:
+    def __init__(self, lines: list[str]) -> None:
+        self.lines = lines
+        self.requests: list[tuple[str, str, dict]] = []
+
+    def stream(self, method: str, path: str, *, json: dict):
+        self.requests.append((method, path, json))
+        return FakeOpenRouterStreamResponse(self.lines)
 
 
 def create_test_openrouter_provider(
@@ -691,6 +757,82 @@ def test_gemini_provider_retries_transient_transport_error():
     assert "Enabled topics: Budgeting." in str(
         models.requests[-1]["config"].system_instruction
     )
+
+
+def test_gemini_provider_streams_generated_chunks():
+    models = StreamingGeminiModels()
+    provider = GeminiProvider(
+        api_key="test-api-key",
+        model="test-model",
+        timeout_seconds=5,
+        temperature=0.65,
+        structured_temperature=0,
+        retry_attempts=1,
+        retry_delay_seconds=0,
+    )
+    provider._client = FakeGeminiClient(models)
+
+    async def collect_chunks():
+        return [
+            chunk
+            async for chunk in provider.generate_reply_stream(
+                "What is budgeting?",
+                system_instruction="Enabled topics: Budgeting.",
+            )
+        ]
+
+    chunks = asyncio.run(collect_chunks())
+
+    assert chunks == ["Gemini ", "stream."]
+    assert len(models.requests) == 1
+    assert models.requests[0]["config"].temperature == 0.65
+    assert "Enabled topics: Budgeting." in str(
+        models.requests[0]["config"].system_instruction
+    )
+
+
+def test_openrouter_provider_streams_sse_chunks():
+    client = RecordingStreamingOpenRouterClient(
+        [
+            ": OPENROUTER PROCESSING",
+            (
+                'data: {"choices":[{"delta":'
+                '{"content":"OpenRouter "},"finish_reason":null}]}'
+            ),
+            (
+                'data: {"choices":[{"delta":'
+                '{"content":"stream."},"finish_reason":"stop"}]}'
+            ),
+            "data: [DONE]",
+        ]
+    )
+    provider = OpenRouterProvider(
+        api_key="test-api-key",
+        model="google/gemini-2.5-flash",
+        timeout_seconds=5,
+        temperature=0.65,
+        structured_temperature=0.05,
+        retry_attempts=1,
+        retry_delay_seconds=0,
+    )
+    provider._client = client
+
+    async def collect_chunks():
+        return [
+            chunk
+            async for chunk in provider.generate_reply_stream(
+                "What is budgeting?"
+            )
+        ]
+
+    chunks = asyncio.run(collect_chunks())
+
+    assert chunks == ["OpenRouter ", "stream."]
+    assert len(client.requests) == 1
+    method, path, payload = client.requests[0]
+    assert method == "POST"
+    assert path == "/chat/completions"
+    assert payload["stream"] is True
 
 
 def test_openrouter_provider_requests_structured_json():
@@ -1085,6 +1227,112 @@ def test_chat_returns_advisor_response(client):
         ),
         "model": "test-model",
     }
+
+
+def test_chat_stream_returns_incremental_events_and_persists_answer(client):
+    headers = create_authorization_headers(client)
+    conversation_id = client.post(
+        "/api/chat/conversations",
+        headers=headers,
+        json={},
+    ).json()["conversation_id"]
+    service = StreamingTestAdvisorService()
+    app.dependency_overrides[get_ai_advisor_service] = lambda: service
+
+    try:
+        with client.stream(
+            "POST",
+            "/api/ai/chat/stream",
+            headers=headers,
+            json={
+                "message": "How should I start saving?",
+                "conversation_id": conversation_id,
+            },
+        ) as response:
+            events = [
+                json.loads(line)
+                for line in response.iter_lines()
+                if line
+            ]
+    finally:
+        app.dependency_overrides.pop(get_ai_advisor_service, None)
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith(
+        "application/x-ndjson"
+    )
+    assert response.headers["cache-control"] == "no-cache"
+    assert events == [
+        {"type": "delta", "content": "Streamed **financial "},
+        {"type": "delta", "content": "guidance**."},
+        {
+            "type": "done",
+            "answer": "Streamed **financial guidance**.",
+            "model": "test-model",
+        },
+    ]
+
+    detail = client.get(
+        f"/api/chat/conversations/{conversation_id}",
+        headers=headers,
+    ).json()
+    assert [message["role"] for message in detail["messages"]] == [
+        "user",
+        "assistant",
+    ]
+    assert detail["messages"][-1]["content"] == (
+        "Streamed **financial guidance**."
+    )
+
+
+def test_chat_stream_returns_in_band_error_after_partial_output(client):
+    headers = create_authorization_headers(client)
+    conversation_id = client.post(
+        "/api/chat/conversations",
+        headers=headers,
+        json={},
+    ).json()["conversation_id"]
+    app.dependency_overrides[
+        get_ai_advisor_service
+    ] = lambda: FailingStreamingTestAdvisorService()
+
+    try:
+        response = client.post(
+            "/api/ai/chat/stream",
+            headers=headers,
+            json={
+                "message": "Explain emergency savings.",
+                "conversation_id": conversation_id,
+            },
+        )
+    finally:
+        app.dependency_overrides.pop(get_ai_advisor_service, None)
+
+    events = [
+        json.loads(line)
+        for line in response.text.splitlines()
+        if line
+    ]
+    assert response.status_code == 200
+    assert events == [
+        {"type": "delta", "content": "Partial response."},
+        {
+            "type": "error",
+            "message": (
+                "The AI service could not generate a response. "
+                "Please try again."
+            ),
+            "status": 502,
+        },
+    ]
+
+    detail = client.get(
+        f"/api/chat/conversations/{conversation_id}",
+        headers=headers,
+    ).json()
+    assert [message["role"] for message in detail["messages"]] == [
+        "user",
+    ]
 
 
 def test_chat_reads_latest_advisory_settings_for_every_request(

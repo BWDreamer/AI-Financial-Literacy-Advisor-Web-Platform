@@ -1,7 +1,7 @@
 import asyncio
 import json
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any, TypeVar
 
 import httpx
@@ -113,35 +113,25 @@ async def _run_with_retries(
         except (
             TimeoutError,
             httpx.TransportError,
-        ) as error:
-            can_retry = attempt_index < retry_attempts
-            logger.warning(
-                "%s transport failure on attempt %s/%s "
-                "(retry=%s): %s",
-                provider_name,
-                attempt_index + 1,
-                max_attempts,
-                can_retry,
-                _safe_error_message(error, api_key),
-            )
-
-            if not can_retry:
-                raise LLMServiceError(
-                    "The AI provider is temporarily unavailable."
-                ) from error
-        except (
             errors.APIError,
             httpx.HTTPStatusError,
             _ProviderResponseError,
         ) as error:
             status = _api_error_status(error)
             error_type = _api_error_type(error)
+            transport_failure = isinstance(
+                error,
+                (TimeoutError, httpx.TransportError),
+            )
             can_retry = (
-                status in TRANSIENT_PROVIDER_STATUS_CODES
+                (
+                    transport_failure
+                    or status in TRANSIENT_PROVIDER_STATUS_CODES
+                )
                 and attempt_index < retry_attempts
             )
             logger.warning(
-                "%s API failure on attempt %s/%s "
+                "%s provider failure on attempt %s/%s "
                 "(status=%s, error_type=%s, retry=%s): %s",
                 provider_name,
                 attempt_index + 1,
@@ -156,6 +146,88 @@ async def _run_with_retries(
                 if status == 429:
                     raise LLMRateLimitError(
                         "The AI provider rate limit was reached."
+                    ) from error
+
+                if transport_failure:
+                    raise LLMServiceError(
+                        "The AI provider is temporarily unavailable."
+                    ) from error
+
+                raise LLMServiceError(
+                    "The AI provider rejected the request."
+                ) from error
+
+        if retry_delay_seconds:
+            await asyncio.sleep(
+                retry_delay_seconds * (2 ** attempt_index)
+            )
+
+    raise LLMServiceError(
+        "The AI provider is temporarily unavailable."
+    )
+
+
+async def _stream_with_retries(
+    operation: Callable[[], AsyncIterator[str]],
+    *,
+    provider_name: str,
+    api_key: str,
+    retry_attempts: int,
+    retry_delay_seconds: float,
+) -> AsyncIterator[str]:
+    """Stream provider chunks, retrying only before output is emitted."""
+    max_attempts = retry_attempts + 1
+
+    for attempt_index in range(max_attempts):
+        emitted_output = False
+        try:
+            async for chunk in operation():
+                emitted_output = True
+                yield chunk
+            return
+        except (
+            TimeoutError,
+            httpx.TransportError,
+            errors.APIError,
+            httpx.HTTPStatusError,
+            _ProviderResponseError,
+        ) as error:
+            status = _api_error_status(error)
+            error_type = _api_error_type(error)
+            transport_failure = isinstance(
+                error,
+                (TimeoutError, httpx.TransportError),
+            )
+            can_retry = (
+                not emitted_output
+                and (
+                    transport_failure
+                    or status in TRANSIENT_PROVIDER_STATUS_CODES
+                )
+                and attempt_index < retry_attempts
+            )
+            logger.warning(
+                "%s streaming failure on attempt %s/%s "
+                "(status=%s, error_type=%s, emitted=%s, retry=%s): %s",
+                provider_name,
+                attempt_index + 1,
+                max_attempts,
+                status,
+                error_type,
+                emitted_output,
+                can_retry,
+                _safe_error_message(error, api_key),
+            )
+
+            if not can_retry:
+                if status == 429:
+                    raise LLMRateLimitError(
+                        "The AI provider rate limit was reached."
+                    ) from error
+
+                if transport_failure:
+                    raise LLMServiceError(
+                        "The AI provider is temporarily unavailable."
                     ) from error
 
                 raise LLMServiceError(
@@ -199,13 +271,12 @@ class GeminiProvider:
             api_key=self._api_key or "missing-api-key",
         )
 
-    async def _generate_once(
+    def _build_generate_config(
         self,
-        message: str,
         *,
         response_schema: dict[str, Any] | None = None,
         system_instruction: str | None = None,
-    ):
+    ) -> types.GenerateContentConfig:
         config_kwargs: dict[str, Any] = {
             "system_instruction": build_financial_advisor_instructions(
                 system_instruction
@@ -222,14 +293,46 @@ class GeminiProvider:
                 }
             )
 
+        return types.GenerateContentConfig(**config_kwargs)
+
+    async def _generate_once(
+        self,
+        message: str,
+        *,
+        response_schema: dict[str, Any] | None = None,
+        system_instruction: str | None = None,
+    ):
         async with asyncio.timeout(
             self._timeout_seconds
         ):
             return await self._client.aio.models.generate_content(
                 model=self.model,
                 contents=message,
-                config=types.GenerateContentConfig(**config_kwargs),
+                config=self._build_generate_config(
+                    response_schema=response_schema,
+                    system_instruction=system_instruction,
+                ),
             )
+
+    async def _generate_stream_once(
+        self,
+        message: str,
+        system_instruction: str | None,
+    ) -> AsyncIterator[str]:
+        async with asyncio.timeout(self._timeout_seconds):
+            responses = await (
+                self._client.aio.models.generate_content_stream(
+                    model=self.model,
+                    contents=message,
+                    config=self._build_generate_config(
+                        system_instruction=system_instruction,
+                    ),
+                )
+            )
+            async for response in responses:
+                chunk = response.text or ""
+                if chunk:
+                    yield chunk
 
     async def _generate_with_retries(
         self,
@@ -272,6 +375,35 @@ class GeminiProvider:
             )
 
         return answer
+
+    async def generate_reply_stream(
+        self,
+        message: str,
+        system_instruction: str | None = None,
+    ) -> AsyncIterator[str]:
+        if not self._api_key:
+            raise LLMConfigurationError(
+                "The Gemini API key is not configured."
+            )
+
+        answer_parts: list[str] = []
+        async for chunk in _stream_with_retries(
+            lambda: self._generate_stream_once(
+                message,
+                system_instruction,
+            ),
+            provider_name="Gemini",
+            api_key=self._api_key,
+            retry_attempts=self._retry_attempts,
+            retry_delay_seconds=self._retry_delay_seconds,
+        ):
+            answer_parts.append(chunk)
+            yield chunk
+
+        if not "".join(answer_parts).strip():
+            raise LLMServiceError(
+                "The AI provider returned an empty response."
+            )
 
     async def generate_json(
         self,
@@ -508,6 +640,96 @@ class OpenRouterProvider:
 
         return content.strip()
 
+    async def _generate_stream_once(
+        self,
+        message: str,
+        system_instruction: str | None,
+    ) -> AsyncIterator[str]:
+        request_payload = self._build_request_payload(
+            message,
+            response_schema=None,
+            system_instruction=system_instruction,
+        )
+        request_payload["stream"] = True
+
+        async with asyncio.timeout(self._timeout_seconds):
+            async with self._client.stream(
+                "POST",
+                "/chat/completions",
+                json=request_payload,
+            ) as response:
+                response.raise_for_status()
+
+                async for line in response.aiter_lines():
+                    if not line.startswith("data:"):
+                        continue
+
+                    event_data = line.removeprefix("data:").strip()
+                    if not event_data or event_data == "[DONE]":
+                        if event_data == "[DONE]":
+                            return
+                        continue
+
+                    try:
+                        payload = json.loads(event_data)
+                    except json.JSONDecodeError as error:
+                        raise _ProviderResponseError(
+                            "OpenRouter returned invalid streaming JSON.",
+                            status_code=502,
+                            error_type="invalid_response",
+                        ) from error
+
+                    if not isinstance(payload, dict):
+                        raise _ProviderResponseError(
+                            "OpenRouter returned an invalid streaming event.",
+                            status_code=502,
+                            error_type="invalid_response",
+                        )
+
+                    embedded_error = _openrouter_embedded_error(payload)
+                    if embedded_error is not None:
+                        status_code, error_type = (
+                            _openrouter_error_status_and_type(
+                                embedded_error
+                            )
+                        )
+                        raise _ProviderResponseError(
+                            "OpenRouter returned a streaming provider error.",
+                            status_code=status_code,
+                            error_type=error_type,
+                        )
+
+                    choices = payload.get("choices")
+                    if not isinstance(choices, list):
+                        raise _ProviderResponseError(
+                            "OpenRouter returned an invalid streaming response.",
+                            status_code=502,
+                            error_type="invalid_response",
+                        )
+                    if not choices:
+                        continue
+
+                    choice = choices[0]
+                    if not isinstance(choice, dict):
+                        raise _ProviderResponseError(
+                            "OpenRouter returned an invalid streaming choice.",
+                            status_code=502,
+                            error_type="invalid_response",
+                        )
+                    if choice.get("finish_reason") == "error":
+                        raise _ProviderResponseError(
+                            "OpenRouter ended streaming with an error.",
+                            status_code=502,
+                            error_type="provider_unavailable",
+                        )
+
+                    delta = choice.get("delta")
+                    if not isinstance(delta, dict):
+                        continue
+                    content = delta.get("content")
+                    if isinstance(content, str) and content:
+                        yield content
+
     async def _generate_json_once(
         self,
         message: str,
@@ -567,6 +789,35 @@ class OpenRouterProvider:
             message,
             system_instruction=system_instruction,
         )
+
+    async def generate_reply_stream(
+        self,
+        message: str,
+        system_instruction: str | None = None,
+    ) -> AsyncIterator[str]:
+        if not self._api_key:
+            raise LLMConfigurationError(
+                "The OpenRouter API key is not configured."
+            )
+
+        answer_parts: list[str] = []
+        async for chunk in _stream_with_retries(
+            lambda: self._generate_stream_once(
+                message,
+                system_instruction,
+            ),
+            provider_name="OpenRouter",
+            api_key=self._api_key,
+            retry_attempts=self._retry_attempts,
+            retry_delay_seconds=self._retry_delay_seconds,
+        ):
+            answer_parts.append(chunk)
+            yield chunk
+
+        if not "".join(answer_parts).strip():
+            raise LLMServiceError(
+                "The AI provider returned an empty response."
+            )
 
     async def generate_json(
         self,
