@@ -95,8 +95,13 @@ so an admin update applies to the next chat request without a service restart.
 - POST /api/chat/conversations/{conversation_id}/messages
 - DELETE /api/chat/conversations/{conversation_id}
 
-`POST /api/ai/chat` accepts optional `conversation_id` and `rule_id` fields.
+`POST /api/ai/chat` accepts optional `conversation_id`, `rule_id`, and
+`goal_id` fields.
 When `conversation_id` is supplied, the user and assistant messages are saved.
+When `goal_id` is supplied, the backend verifies that the goal belongs to the
+current user, stores an authoritative goal card in the selected conversation,
+and sends the goal values plus its code-calculated progress analysis to the AI
+for an educational review.
 For general rule questions without `rule_id`, the backend first asks the LLM
 for a structured intent classification (`knowledge_base_status`,
 `tax_brackets`, `tax_calculation`, `employer_super`,
