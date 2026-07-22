@@ -5,7 +5,7 @@ import MyFinancialsPanel from "../components/MyFinancialsPanel";
 import { AssetType as ApiAssetType, DebtType as ApiDebtType, Frequency as ApiFrequency, CashFlow, Financials, FinancialSummary, createAsset, createCashFlow, createDebt, createRecurringCashFlow, getFinancials, getFinancialSummary } from "../api/financials";
 import { AssetType, FinancialEntry, assetLabels, money, monthLabel, sameMonth, thisWeek } from "../utils/financials";
 import type { Goal } from "../types/goalTypes";
-import { formatGoalCurrency, goalFromApi, goalProgress, goalStatus } from "../utils/goalUtils";
+import { formatGoalCurrency, formatGoalProgressPercentage, goalFromApi, goalProgress, goalStatus } from "../utils/goalUtils";
 import GoalProgressBar from "../components/goals/GoalProgressBar";
 import GoalStatusBadge from "../components/goals/GoalStatusBadge";
 
@@ -100,8 +100,8 @@ function GoalMiniFilters({ filter, onChange }: { filter: HomeGoalFilter; onChang
 }
 
 function GoalPreviewRow({ goal, onOpen }: { goal: Goal; onOpen: (goal: Goal) => void }) {
-  const progress = Math.round(goalProgress(goal));
-  return <button type="button" onClick={() => onOpen(goal)} className="w-full rounded-xl border border-slate-100 bg-slate-50 p-4 text-left transition hover:border-blue-200 hover:bg-blue-50/40"><div className="flex flex-wrap items-center justify-between gap-3"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h3 className="truncate font-bold text-slate-900">{goal.name}</h3><GoalStatusBadge status={goalStatus(goal)} /></div><p className="mt-1 text-xs font-semibold text-slate-500">{formatGoalCurrency(goal.currentAmount)} / {formatGoalCurrency(goal.targetAmount)}</p></div><span className="text-sm font-bold text-slate-700">{progress}%</span></div><div className="mt-3"><GoalProgressBar value={progress} status={goalStatus(goal)} /></div></button>;
+  const progress = goalProgress(goal);
+  return <button type="button" onClick={() => onOpen(goal)} className="w-full rounded-xl border border-slate-100 bg-slate-50 p-4 text-left transition hover:border-blue-200 hover:bg-blue-50/40"><div className="flex flex-wrap items-center justify-between gap-3"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h3 className="truncate font-bold text-slate-900">{goal.name}</h3><GoalStatusBadge status={goalStatus(goal)} /></div><p className="mt-1 text-xs font-semibold text-slate-500">{formatGoalCurrency(goal.currentAmount)} / {formatGoalCurrency(goal.targetAmount)}</p></div><span className="text-sm font-bold text-slate-700">{formatGoalProgressPercentage(progress)}%</span></div><div className="mt-3"><GoalProgressBar value={progress} status={goalStatus(goal)} /></div></button>;
 }
 
 export default function HomePage() {

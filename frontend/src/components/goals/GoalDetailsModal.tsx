@@ -5,7 +5,7 @@ import DatePicker from "../DatePicker";
 import Modal from "../Modal";
 import PrimaryButton from "../PrimaryButton";
 import type { Goal, GoalCategory } from "../../types/goalTypes";
-import { formatGoalCurrency, formatGoalDate, goalFromApi, goalStatus, goalToPayload } from "../../utils/goalUtils";
+import { formatGoalCurrency, formatGoalDate, formatGoalProgressPercentage, goalFromApi, goalStatus, goalToPayload } from "../../utils/goalUtils";
 import GoalProgressBar from "./GoalProgressBar";
 import GoalStatusBadge from "./GoalStatusBadge";
 
@@ -56,7 +56,7 @@ function GoalHero({ goal, onEdit, onDelete }: { goal: Goal; onEdit: () => void; 
 }
 
 function ProgressOverview({ goal, analysis }: { goal: Goal; analysis: GoalAnalysis | null }) {
-  const progress = Math.round(analysis?.progress_percentage ?? goal.progressPercentage);
+  const progress = analysis?.progress_percentage ?? goal.progressPercentage;
   const required = analysis?.required_monthly ?? 0;
   const difference = analysis?.monthly_difference ?? 0;
   const status = analysis?.status === "completed" ? "Completed" : analysis?.status === "pending_archive" ? "Pending Archive" : analysis?.status === "behind" ? "Behind" : goalStatus(goal);
@@ -66,7 +66,7 @@ function ProgressOverview({ goal, analysis }: { goal: Goal; analysis: GoalAnalys
         <h3 className="font-bold text-slate-900">Progress overview</h3>
         <div className="mt-5 flex items-end justify-between gap-4">
           <p className="text-3xl font-bold text-slate-900">{formatGoalCurrency(goal.currentAmount)} <span className="text-base text-slate-500">/ {formatGoalCurrency(goal.targetAmount)}</span></p>
-          <p className={status === "Behind" ? "text-2xl font-bold text-amber-600" : "text-2xl font-bold text-emerald-600"}>{progress}%</p>
+          <p className={status === "Behind" ? "text-2xl font-bold text-amber-600" : "text-2xl font-bold text-emerald-600"}>{formatGoalProgressPercentage(progress)}%</p>
         </div>
         <div className="mt-4"><GoalProgressBar value={progress} status={status} /></div>
         <p className="mt-5 text-sm text-slate-600">{status === "Pending Archive" ? "This goal is complete and waiting for your confirmation." : status === "Behind" ? "You may need to increase your monthly contribution." : "You're on track to reach your goal."}</p>
