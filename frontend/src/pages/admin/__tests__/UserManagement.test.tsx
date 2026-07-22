@@ -217,3 +217,75 @@ test("deletes a normal user after confirmation", async () => {
   });
   await waitFor(() => expect(screen.queryByText("jane@example.com")).not.toBeInTheDocument());
 });
+
+test("shows a loading error and retries the user list request", async () => {
+  mockedGetAdminUsers
+    .mockRejectedValueOnce(new Error("Unable to load users."))
+    .mockResolvedValueOnce([adminUser, ...regularUsers]);
+  const user = userEvent.setup();
+  render(<UserManagement />);
+
+  expect(await screen.findByRole("alert")).toHaveTextContent("Unable to load users.");
+  expect(screen.queryByText("mike@example.com")).not.toBeInTheDocument();
+
+  await user.click(screen.getByRole("button", { name: /try again/i }));
+
+  expect(await screen.findByText("mike@example.com")).toBeInTheDocument();
+  expect(mockedGetAdminUsers).toHaveBeenCalledTimes(2);
+});
+
+test("keeps the invite dialog open and reports an error when inviting fails", async () => {
+  mockedInviteAdminUser.mockRejectedValueOnce(new Error("Email already exists."));
+  const user = userEvent.setup();
+  render(<UserManagement />);
+
+  await screen.findByText("mike@example.com");
+  await user.click(screen.getByRole("button", { name: /invite user/i }));
+  await user.type(screen.getByLabelText(/first name/i), "Test");
+  await user.type(screen.getByLabelText(/last name/i), "User");
+  await user.type(screen.getByLabelText(/email address/i), "test@example.com");
+  await user.click(screen.getByRole("button", { name: /add user/i }));
+
+  expect(await screen.findByRole("alert")).toHaveTextContent("Email already exists.");
+  expect(screen.getByRole("dialog", { name: /invite user/i })).toBeInTheDocument();
+});
+
+test("keeps the edit dialog open and reports an error when updating fails", async () => {
+  mockedUpdateAdminUser.mockRejectedValueOnce(new Error("Update failed."));
+  const user = userEvent.setup();
+  render(<UserManagement />);
+
+  await screen.findByText("mike@example.com");
+  await user.click(screen.getAllByRole("button", { name: /edit/i })[0]);
+  await user.click(screen.getByRole("button", { name: /save changes/i }));
+
+  expect(await screen.findByRole("alert")).toHaveTextContent("Update failed.");
+  expect(screen.getByRole("dialog", { name: /edit user/i })).toBeInTheDocument();
+});
+
+test("keeps the delete dialog open and reports an error when deletion fails", async () => {
+  mockedDeleteAdminUser.mockRejectedValueOnce(new Error("Delete failed."));
+  const user = userEvent.setup();
+  render(<UserManagement />);
+
+  await screen.findByText("jane@example.com");
+  await user.click(screen.getAllByRole("button", { name: /delete/i })[1]);
+  await user.click(screen.getByRole("button", { name: /delete user/i }));
+
+  expect(await screen.findByRole("alert")).toHaveTextContent("Delete failed.");
+  expect(screen.getByRole("dialog", { name: /delete user/i })).toBeInTheDocument();
+});
+
+test("closes the delete dialog without deleting when cancelled", async () => {
+  const user = userEvent.setup();
+  render(<UserManagement />);
+
+  await screen.findByText("jane@example.com");
+  await user.click(screen.getAllByRole("button", { name: /delete/i })[1]);
+
+  expect(screen.getByRole("dialog", { name: /delete user/i })).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: /^cancel$/i }));
+
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: /delete user/i })).not.toBeInTheDocument());
+  expect(mockedDeleteAdminUser).not.toHaveBeenCalled();
+});

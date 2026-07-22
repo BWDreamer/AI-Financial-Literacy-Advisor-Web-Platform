@@ -66,7 +66,7 @@ function createEditorMock(
     run: jest.fn(() => true),
   };
 
-  Object.values(chainObject).forEach((method) => {
+  Object.values(chainObject).forEach((method: jest.Mock) => {
     if (method !== chainObject.run) {
       method.mockReturnValue(chainObject);
     }
@@ -212,7 +212,7 @@ test("deletes an article after confirmation", async () => {
 });
 
 test("shows validation when publishing an incomplete article", async () => {
-  mockTipTapEditor = createEditorMock({ type: "doc", content: [{ type: "paragraph" }] });
+  mockTipTapEditor = createEditorMock({ type: "doc", content: [{ type: "paragraph", content: [] }] });
   const user = userEvent.setup();
   render(<AdminKnowledgeHub />);
 

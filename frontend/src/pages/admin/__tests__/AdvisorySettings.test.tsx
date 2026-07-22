@@ -86,3 +86,42 @@ test("resets advisory settings to the default topic configuration", async () => 
     );
   });
 });
+
+test("shows a loading error and retries successfully", async () => {
+  mockedGetAdvisorySettings
+    .mockRejectedValueOnce(new Error("Unable to load advisory settings."))
+    .mockResolvedValueOnce(apiSettings);
+  const user = userEvent.setup();
+  render(<AdvisorySettings />);
+
+  expect(await screen.findByRole("alert")).toHaveTextContent("Unable to load advisory settings.");
+  await user.click(screen.getByRole("button", { name: /try again/i }));
+
+  await waitFor(() => expect(screen.queryByText("Loading")).not.toBeInTheDocument());
+  expect(screen.getAllByText("Budgeting").length).toBeGreaterThan(0);
+  expect(mockedGetAdvisorySettings).toHaveBeenCalledTimes(2);
+});
+
+test("shows an error when saving advisory settings fails", async () => {
+  mockedUpdateAdvisorySettings.mockRejectedValueOnce(new Error("Save failed."));
+  const user = userEvent.setup();
+  render(<AdvisorySettings />);
+
+  await waitFor(() => expect(screen.queryByText("Loading")).not.toBeInTheDocument());
+  await user.click(screen.getByRole("button", { name: /save settings/i }));
+
+  expect(await screen.findByRole("alert")).toHaveTextContent("Save failed.");
+  expect(screen.getByRole("button", { name: /save settings/i })).toBeEnabled();
+});
+
+test("shows an error when resetting advisory settings fails", async () => {
+  mockedUpdateAdvisorySettings.mockRejectedValueOnce(new Error("Reset failed."));
+  const user = userEvent.setup();
+  render(<AdvisorySettings />);
+
+  await waitFor(() => expect(screen.queryByText("Loading")).not.toBeInTheDocument());
+  await user.click(screen.getByRole("button", { name: /reset defaults/i }));
+
+  expect(await screen.findByRole("alert")).toHaveTextContent("Reset failed.");
+  expect(screen.getByRole("button", { name: /reset defaults/i })).toBeEnabled();
+});
