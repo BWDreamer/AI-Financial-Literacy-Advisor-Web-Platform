@@ -84,3 +84,51 @@
     transform: translateY(0) scale(1);
   }
 }
+
+@keyframes thinkingShimmer {
+  from {
+    background-position: 200% center;
+  }
+
+  to {
+    background-position: -200% center;
+  }
+}
+
+@keyframes thinkingOpacityPulse {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
+
+@layer components {
+  .thinking-shimmer {
+    color: transparent;
+    background-image: linear-gradient(
+      100deg,
+      theme("colors.slate.400") 20%,
+      theme("colors.blue.600") 48%,
+      theme("colors.sky.400") 55%,
+      theme("colors.slate.400") 80%
+    );
+    background-size: 220% 100%;
+    background-clip: text;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation:
+      thinkingShimmer 1.8s linear infinite,
+      thinkingOpacityPulse 1.35s ease-in-out infinite;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thinking-shimmer {
+    animation: none;
+    opacity: 1;
+  }
+}

@@ -20,7 +20,7 @@ function resolveApiBaseUrl() {
 export const API_BASE_URL = resolveApiBaseUrl();
 export const API_ORIGIN = new URL(API_BASE_URL).origin;
 
-type ApiOptions = RequestInit & { authenticated?: boolean };
+export type ApiOptions = RequestInit & { authenticated?: boolean };
 
 export class ApiError extends Error {
   constructor(message: string, public status: number) {
@@ -37,7 +37,7 @@ function errorMessage(detail: unknown) {
   return "Something went wrong. Please try again.";
 }
 
-export async function apiRequest<T>(path: string, options: ApiOptions = {}): Promise<T> {
+export async function apiResponse(path: string, options: ApiOptions = {}) {
   const headers = new Headers(options.headers);
   if (options.body && !(options.body instanceof FormData)) headers.set("Content-Type", "application/json");
   if (options.authenticated) {
@@ -51,9 +51,17 @@ export async function apiRequest<T>(path: string, options: ApiOptions = {}): Pro
   } catch {
     throw new ApiError("Unable to reach the server. Please try again.", 0);
   }
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new ApiError(errorMessage(data.detail), response.status);
+  }
+  return response;
+}
+
+export async function apiRequest<T>(path: string, options: ApiOptions = {}): Promise<T> {
+  const response = await apiResponse(path, options);
   if (response.status === 204) return undefined as T;
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new ApiError(errorMessage(data.detail), response.status);
   return data as T;
 }
 
