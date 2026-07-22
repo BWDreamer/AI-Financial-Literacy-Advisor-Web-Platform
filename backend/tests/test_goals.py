@@ -1,4 +1,8 @@
+import json
 from datetime import date, timedelta
+
+from app.services.goal_planning_service import normalize_goal_planning_state
+from app.services.goal_service import build_confirmed_goal_plan
 
 
 def auth_headers(client, email: str) -> dict[str, str]:
@@ -11,6 +15,105 @@ def payload(**overrides):
     data = {"name": "Emergency fund", "category": "savings", "target_amount": "10000.00", "current_amount": "1000.00", "monthly_contribution": "500.00", "target_date": (date.today() + timedelta(days=365)).isoformat(), "priority": 1}
     data.update(overrides)
     return data
+
+
+def test_confirmed_ai_plan_maps_all_supported_goal_categories():
+    deadline = (date.today() + timedelta(days=730)).isoformat()
+    planned_goals = [
+        {
+            "category": "general_saving",
+            "goal_title": "Reliable used car",
+            "target_amount": 15000,
+            "current_amount": 1000,
+            "monthly_contribution": 500,
+            "deadline": deadline,
+            "priority": "High",
+        },
+        {
+            "category": "emergency_fund",
+            "essential_monthly_expenses": 2000,
+            "coverage_months": 3,
+            "current_amount": 1000,
+            "monthly_contribution": 500,
+            "deadline": deadline,
+            "priority": "Medium",
+        },
+        {
+            "category": "debt_repayment",
+            "debt_name": "Credit card",
+            "debt_balance": 4000,
+            "minimum_repayment": 100,
+            "extra_repayment": 50,
+            "deadline": deadline,
+            "priority": "High",
+        },
+        {
+            "category": "home_deposit",
+            "deposit_target": 50000,
+            "cost_buffer": 5000,
+            "current_amount": 10000,
+            "monthly_contribution": 1000,
+            "deadline": deadline,
+            "priority": "Medium",
+        },
+        {
+            "category": "retirement",
+            "target_age": 65,
+            "current_super": 100000,
+            "target_amount": 1000000,
+            "regular_contribution": 1000,
+            "deadline": deadline,
+            "priority": "Low",
+        },
+        {
+            "category": "budget",
+            "monthly_income": 5000,
+            "fixed_expenses": 2500,
+            "variable_expenses": 1000,
+            "target_monthly_surplus": 1500,
+            "deadline": deadline,
+            "priority": "Medium",
+        },
+    ]
+    state = normalize_goal_planning_state(
+        {
+            "goal_count": len(planned_goals),
+            "goals": planned_goals,
+            "recommendation_status": "accepted",
+        }
+    )
+
+    confirmed_plan = build_confirmed_goal_plan(state, user_id=42)
+    goals = confirmed_plan.goals
+
+    assert len(confirmed_plan.fingerprint) == 64
+    assert [goal.category for goal in goals] == [
+        "General Saving",
+        "Emergency Fund",
+        "Debt Repayment",
+        "Home Deposit",
+        "Retirement",
+        "Budget",
+    ]
+    assert [goal.name for goal in goals] == [
+        "Reliable used car",
+        "Emergency Fund",
+        "Credit card",
+        "Home Deposit",
+        "Retirement Plan",
+        "Improve Monthly Cash Flow",
+    ]
+    assert [float(goal.target_amount) for goal in goals] == [
+        15000,
+        6000,
+        4000,
+        55000,
+        1000000,
+        18000,
+    ]
+    assert [goal.priority for goal in goals] == [1, 3, 1, 3, 5, 3]
+    for goal in goals:
+        json.dumps(goal.category_details)
 
 
 def test_goal_crud_progress_and_summary(client):

@@ -260,6 +260,7 @@ def build_goal_allocation_context(
     snapshot: FinancialPlanningSnapshot,
     as_of: date | None = None,
     awaiting_approval: bool = False,
+    confirmed_goals_available: bool = False,
 ) -> str:
     effective_date = as_of or date.today()
     priority_weights = _priority_weights()
@@ -285,6 +286,10 @@ def build_goal_allocation_context(
                 "that planning is complete."
             ),
         ]
+        if confirmed_goals_available:
+            stage_lines.append(
+                "Confirm that every agreed goal is now available in MyGoals."
+            )
 
     lines = [
         "Goal planning workflow directive:",

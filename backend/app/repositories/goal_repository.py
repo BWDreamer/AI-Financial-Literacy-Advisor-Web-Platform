@@ -1,8 +1,14 @@
 from decimal import Decimal
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.models.goal import Goal, GoalAllocationSettings, GoalProgress
+from app.models.goal import (
+    Goal,
+    GoalAllocationSettings,
+    GoalPlanConfirmation,
+    GoalProgress,
+)
 from app.schemas.goal import AllocationSettingsRequest, GoalProgressRequest, GoalRequest
 
 
@@ -22,6 +28,44 @@ def save_goal(db: Session, user_id: int, data: GoalRequest, goal: Goal | None = 
     db.commit()
     db.refresh(goal)
     return goal
+
+
+def goal_plan_confirmation_exists(
+    db: Session,
+    conversation_id: int,
+    plan_fingerprint: str,
+) -> bool:
+    return db.query(GoalPlanConfirmation.id).filter(
+        GoalPlanConfirmation.conversation_id == conversation_id,
+        GoalPlanConfirmation.plan_fingerprint == plan_fingerprint,
+    ).first() is not None
+
+
+def save_confirmed_goal_plan(
+    db: Session,
+    conversation_id: int,
+    plan_fingerprint: str,
+    goals: tuple[Goal, ...],
+) -> bool:
+    """Persist one confirmed plan once for its originating conversation."""
+    if goal_plan_confirmation_exists(db, conversation_id, plan_fingerprint):
+        return False
+
+    confirmation = GoalPlanConfirmation(
+        conversation_id=conversation_id,
+        plan_fingerprint=plan_fingerprint,
+    )
+    try:
+        db.add(confirmation)
+        db.flush()
+        db.add_all(goals)
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        if goal_plan_confirmation_exists(db, conversation_id, plan_fingerprint):
+            return False
+        raise
+    return True
 
 
 def delete_goal(db: Session, goal: Goal) -> None:

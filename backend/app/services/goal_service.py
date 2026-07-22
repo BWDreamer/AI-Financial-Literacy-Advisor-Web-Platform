@@ -1,7 +1,11 @@
 import calendar
+import hashlib
+import json
+from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
 from types import SimpleNamespace
+from typing import Any
 
 from sqlalchemy.orm import Session
 
@@ -10,10 +14,29 @@ from app.repositories.financial_repository import list_assets, list_cash_buckets
 from app.repositories.goal_repository import list_progress
 from app.services.financial_service import build_financial_summary
 from app.schemas.goal import GoalPreviewRequest, GoalRequest
+from app.services.goal_planning_service import (
+    GoalCategory,
+    GoalPlanningState,
+    GoalRecommendationStatus,
+)
 
 
 MONEY = Decimal("0.01")
 MAX_EXPECTED_CHART_POINTS = 600
+GOAL_STORAGE_CATEGORIES = {
+    GoalCategory.GENERAL_SAVING: "General Saving",
+    GoalCategory.EMERGENCY_FUND: "Emergency Fund",
+    GoalCategory.DEBT_REPAYMENT: "Debt Repayment",
+    GoalCategory.HOME_DEPOSIT: "Home Deposit",
+    GoalCategory.RETIREMENT: "Retirement",
+    GoalCategory.BUDGET: "Budget",
+}
+
+
+@dataclass(frozen=True)
+class ConfirmedGoalPlan:
+    fingerprint: str
+    goals: tuple[Goal, ...]
 
 
 def money(value: Decimal) -> Decimal:
@@ -127,6 +150,67 @@ def build_goal_preview(request: GoalPreviewRequest) -> dict:
     goal = GoalRequest(**common, **values)
     analysis = analyse_goal(SimpleNamespace(**goal.model_dump()))
     return {"goal": goal, "analysis": analysis}
+
+
+def _json_safe_category_details(
+    answers: dict[str, Any],
+) -> dict[str, Any]:
+    details: dict[str, Any] = {}
+    for field, value in answers.items():
+        if isinstance(value, date):
+            details[field] = value.isoformat()
+        elif isinstance(value, Decimal):
+            details[field] = format(value, "f")
+        else:
+            details[field] = value
+    return details
+
+
+def build_confirmed_goal_plan(
+    state: GoalPlanningState,
+    user_id: int,
+) -> ConfirmedGoalPlan:
+    """Convert an accepted AI plan into validated MyGoals records."""
+    if state.recommendation_status != GoalRecommendationStatus.ACCEPTED:
+        raise ValueError("Only an accepted goal plan can be saved.")
+    if not state.goals:
+        raise ValueError("An accepted goal plan must contain at least one goal.")
+
+    requests: list[GoalRequest] = []
+    goals: list[Goal] = []
+    for planned_goal in state.goals:
+        if planned_goal.priority is None:
+            raise ValueError("Every confirmed goal must have a priority.")
+        details = _json_safe_category_details(planned_goal.answers)
+        preview = build_goal_preview(
+            GoalPreviewRequest(
+                category=GOAL_STORAGE_CATEGORIES[planned_goal.category],
+                target_date=planned_goal.answers["deadline"],
+                priority=planned_goal.priority.value,
+                category_details=details,
+            )
+        )
+        request = preview["goal"]
+        goal = Goal(user_id=user_id, **request.model_dump())
+        refresh_goal_status(goal)
+        requests.append(request)
+        goals.append(goal)
+
+    fingerprint_payload = [
+        request.model_dump(mode="json")
+        for request in requests
+    ]
+    fingerprint = hashlib.sha256(
+        json.dumps(
+            fingerprint_payload,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+    return ConfirmedGoalPlan(
+        fingerprint=fingerprint,
+        goals=tuple(goals),
+    )
 
 
 def build_goal_chart(db: Session, goal: Goal) -> dict:

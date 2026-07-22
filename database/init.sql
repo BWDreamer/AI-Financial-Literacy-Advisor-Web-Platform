@@ -220,6 +220,18 @@ CREATE TABLE IF NOT EXISTS goal_contributions (
 CREATE INDEX IF NOT EXISTS ix_goals_user_id ON goals(user_id);
 CREATE INDEX IF NOT EXISTS ix_goal_contributions_goal_id ON goal_contributions(goal_id);
 
+CREATE TABLE IF NOT EXISTS goal_plan_confirmations (
+    id SERIAL PRIMARY KEY,
+    conversation_id INTEGER NOT NULL REFERENCES ai_conversations(id) ON DELETE CASCADE,
+    plan_fingerprint VARCHAR(64) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_goal_plan_confirmations_conversation_plan
+        UNIQUE (conversation_id, plan_fingerprint)
+);
+
+CREATE INDEX IF NOT EXISTS ix_goal_plan_confirmations_conversation_id
+    ON goal_plan_confirmations(conversation_id);
+
 CREATE TABLE IF NOT EXISTS debts (
     id SERIAL PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,

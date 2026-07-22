@@ -281,6 +281,10 @@ def test_user_acceptance_completes_the_goal_plan(client):
                 "conversation_id": conversation_id,
             },
         )
+        goals_before_confirmation = client.get(
+            "/api/goals",
+            headers=headers,
+        ).json()
         second_response = client.post(
             "/api/ai/chat",
             headers=headers,
@@ -289,15 +293,37 @@ def test_user_acceptance_completes_the_goal_plan(client):
                 "conversation_id": conversation_id,
             },
         )
+        repeated_confirmation = client.post(
+            "/api/ai/chat",
+            headers=headers,
+            json={
+                "message": "Yes, I confirm the same plan.",
+                "conversation_id": conversation_id,
+            },
+        )
+        saved_goals = client.get(
+            "/api/goals",
+            headers=headers,
+        ).json()
     finally:
         app.dependency_overrides.pop(get_ai_advisor_service, None)
 
     assert first_response.status_code == 200
     assert second_response.status_code == 200
+    assert repeated_confirmation.status_code == 200
+    assert goals_before_confirmation == []
+    assert len(saved_goals) == 1
+    assert saved_goals[0]["name"] == "Reliable used car"
+    assert saved_goals[0]["category"] == "General Saving"
+    assert saved_goals[0]["target_amount"] == "15000.00"
+    assert saved_goals[0]["current_amount"] == "0.00"
+    assert saved_goals[0]["monthly_contribution"] == "500.00"
+    assert saved_goals[0]["priority"] == 3
     final_prompt = service.messages[1]
     assert "Earlier messages in this same conversation" in final_prompt
     assert "Stage: confirmed goal plan" in final_prompt
     assert "planning is complete" in final_prompt
+    assert "every agreed goal is now available in MyGoals" in final_prompt
     assert "Does this overall plan work for you?" not in final_prompt
     assert "Do not ask another question" in final_prompt
 

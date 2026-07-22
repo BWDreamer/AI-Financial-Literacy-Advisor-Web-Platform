@@ -1,4 +1,16 @@
-from sqlalchemy import JSON, Column, Date, DateTime, ForeignKey, Integer, Numeric, String, Text, func
+from sqlalchemy import (
+    JSON,
+    Column,
+    Date,
+    DateTime,
+    ForeignKey,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 
 from app.core.database import Base
 
@@ -45,3 +57,24 @@ class GoalAllocationSettings(Base):
     goal_monthly_ratios = Column(JSON, nullable=False, default=list)
     created_at = Column(DateTime, nullable=False, server_default=func.now())
     updated_at = Column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
+
+
+class GoalPlanConfirmation(Base):
+    __tablename__ = "goal_plan_confirmations"
+    __table_args__ = (
+        UniqueConstraint(
+            "conversation_id",
+            "plan_fingerprint",
+            name="uq_goal_plan_confirmations_conversation_plan",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    conversation_id = Column(
+        Integer,
+        ForeignKey("ai_conversations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    plan_fingerprint = Column(String(64), nullable=False)
+    created_at = Column(DateTime, nullable=False, server_default=func.now())
