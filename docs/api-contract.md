@@ -46,6 +46,7 @@ The former `/monthly-allocation` write route is retired.
 - GET /api/rules/superannuation/employer-contribution?region=Australia&rule_year=2026-2027
 - GET /api/ai/ping
 - POST /api/ai/chat
+- POST /api/ai/chat/stream
 - POST /api/ai/chat/pdf
 - GET /api/memory
 - POST /api/memory
@@ -104,6 +105,14 @@ for a structured intent classification (`knowledge_base_status`,
 database retrieval and tax calculations from verified rules before sending
 grounded context back to the LLM for the final plain-English answer.
 Relevant long-term memories are retrieved before the AI drafts a response.
+
+`POST /api/ai/chat/stream` accepts the same JSON body and runs the same
+grounding, memory, goal-planning, persistence, and advisory-settings workflow.
+It returns `application/x-ndjson`: each line is a `delta` event containing a
+provider-generated text chunk, followed by one `done` event containing the
+formatted persisted answer and model. Failures that occur after streaming has
+started are returned as an in-band `error` event with a safe message and status.
+The stream is marked as non-cacheable and disables reverse-proxy buffering.
 
 `POST /api/ai/chat/pdf` accepts multipart form data with `message`,
 `conversation_id`, and one or more `files`. It supports text-based PDFs,

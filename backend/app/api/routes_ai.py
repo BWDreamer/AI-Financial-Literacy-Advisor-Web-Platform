@@ -1,4 +1,7 @@
+import json
+import logging
 import re
+from collections.abc import AsyncIterator
 
 from fastapi import (
     APIRouter,
@@ -9,6 +12,7 @@ from fastapi import (
     status,
     UploadFile,
 )
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.ai.dependencies import get_ai_advisor_service
@@ -108,6 +112,7 @@ from app.services.rule_lookup_service import (
 )
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 PDF_MODEL_CONTEXT = "pdf-financial-parser"
 GOAL_PLANNING_PATTERN = re.compile(
     r"\b(?:my|our|financial|money)\s+goals?\b|"
@@ -336,33 +341,36 @@ def _prepare_confirmed_goal_plan(
         ) from error
 
 
-def _raise_llm_http_error(error: Exception) -> None:
+def _llm_http_error(error: Exception) -> HTTPException:
     if isinstance(error, LLMConfigurationError):
-        raise HTTPException(
+        return HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=(
                 "The AI service is not configured. "
                 "Set the configured provider API key on the backend."
             ),
-        ) from error
+        )
 
     if isinstance(error, LLMRateLimitError):
-        raise HTTPException(
+        return HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail=(
                 "The AI provider rate limit was reached. "
                 "Please wait a moment and try again."
             ),
-        ) from error
+        )
 
-    if isinstance(error, LLMServiceError):
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=(
-                "The AI service could not generate a response. "
-                "Please try again."
-            ),
-        ) from error
+    return HTTPException(
+        status_code=status.HTTP_502_BAD_GATEWAY,
+        detail=(
+            "The AI service could not generate a response. "
+            "Please try again."
+        ),
+    )
+
+
+def _raise_llm_http_error(error: Exception) -> None:
+    raise _llm_http_error(error) from error
 
 
 def _formatted_answer(answer: str) -> str:
@@ -483,176 +491,183 @@ async def _classify_pdf_assets(
     return classifications
 
 
-@router.post(
-    "/chat",
-    response_model=AIChatResponse,
-)
-async def chat_with_advisor(
+async def _advisor_chat_events(
     request: AIChatRequest,
-    current_user: User = Depends(
-        get_current_user
-    ),
-    advisor_service: AIAdvisorService = Depends(
-        get_ai_advisor_service
-    ),
-    db: Session = Depends(get_db),
-):
-    """Return an educational reply from the configured LLM."""
-    try:
-        advisory_topic_instructions = build_advisory_topic_instructions(
-            get_advisory_settings(db)["topics"]
+    current_user: User,
+    advisor_service: AIAdvisorService,
+    db: Session,
+    *,
+    stream_response: bool,
+) -> AsyncIterator[dict[str, str]]:
+    """Run one chat turn and emit response events from a shared workflow."""
+    advisory_topic_instructions = build_advisory_topic_instructions(
+        get_advisory_settings(db)["topics"]
+    )
+    memory_context = None
+    conversation_context = None
+    goal_conversation_context = None
+    goal_planning_context = None
+    confirmed_goal_plan = None
+    structured_intent_remembered = False
+    rule_context = None
+    conversation = None
+    last_assistant_message = None
+    if request.conversation_id is not None:
+        conversation = get_conversation(
+            db, current_user.id, request.conversation_id
         )
-        memory_context = None
-        conversation_context = None
-        goal_conversation_context = None
-        goal_planning_context = None
-        confirmed_goal_plan = None
-        structured_intent_remembered = False
-        rule_context = None
-        conversation = None
-        last_assistant_message = None
-        if request.conversation_id is not None:
-            conversation = get_conversation(
-                db, current_user.id, request.conversation_id
+        if conversation is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Conversation was not found.",
             )
-            if conversation is None:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Conversation was not found.",
-                )
-            conversation_context = build_conversation_context(
-                conversation.messages
+        conversation_context = build_conversation_context(
+            conversation.messages
+        )
+        goal_conversation_context = build_goal_conversation_context(
+            conversation.messages
+        )
+        if (
+            conversation.messages
+            and conversation.messages[-1].role == "assistant"
+        ):
+            last_assistant_message = conversation.messages[-1].content
+    goal_discussion = _is_goal_planning_discussion(
+        request.message,
+        conversation_context,
+    )
+    financial_snapshot = _financial_snapshot_for_user(
+        db, current_user.id
+    )
+    financial_context = _financial_context_from_snapshot(
+        financial_snapshot,
+        include_empty=goal_discussion,
+    )
+    memory_search_text = request.message
+    if goal_discussion and goal_conversation_context is not None:
+        memory_search_text = (
+            f"{request.message}\n{goal_conversation_context}"
+        )
+    memory_context = build_memory_context(
+        retrieve_relevant_memories(
+            db,
+            current_user.id,
+            memory_search_text,
+        )
+    )
+    if request.rule_id is not None:
+        rule = get_financial_rule_by_id(db, request.rule_id)
+        if rule is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Financial rule was not found.",
             )
-            goal_conversation_context = build_goal_conversation_context(
-                conversation.messages
-            )
-            if (
-                conversation.messages
-                and conversation.messages[-1].role == "assistant"
-            ):
-                last_assistant_message = conversation.messages[-1].content
-        goal_discussion = _is_goal_planning_discussion(
+        rule_context = _build_selected_rule_context(rule)
+
+    if conversation is not None:
+        add_message(db, conversation, "user", request.message)
+
+    reply_json = getattr(advisor_service, "reply_json", None)
+    if goal_discussion:
+        clarification = await _clarify_goal_intent(
+            advisor_service,
+            goal_conversation_context,
+            last_assistant_message,
             request.message,
-            conversation_context,
         )
-        financial_snapshot = _financial_snapshot_for_user(
-            db, current_user.id
-        )
-        financial_context = _financial_context_from_snapshot(
-            financial_snapshot,
-            include_empty=goal_discussion,
-        )
-        memory_search_text = request.message
-        if goal_discussion and goal_conversation_context is not None:
-            memory_search_text = (
-                f"{request.message}\n{goal_conversation_context}"
-            )
-        memory_context = build_memory_context(
-            retrieve_relevant_memories(
+        if (
+            clarification.status
+            == GoalIntentClarificationStatus.NEEDS_CLARIFICATION
+            and clarification.clarifying_question is not None
+        ):
+            answer = clarification.clarifying_question
+            if conversation is not None:
+                add_message(db, conversation, "assistant", answer)
+            if stream_response:
+                yield {"type": "delta", "content": answer}
+            yield {
+                "type": "done",
+                "answer": answer,
+                "model": advisor_service.model,
+            }
+            return
+        if (
+            clarification.status == GoalIntentClarificationStatus.RESOLVED
+            and clarification.confirmed_fact is not None
+            and clarification.memory_category is not None
+        ):
+            confirmed_memory = remember_confirmed_intent(
                 db,
                 current_user.id,
-                memory_search_text,
+                clarification.confirmed_fact,
+                clarification.memory_category,
             )
-        )
-        if request.rule_id is not None:
-            rule = get_financial_rule_by_id(db, request.rule_id)
-            if rule is None:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Financial rule was not found.",
-                )
-            rule_context = _build_selected_rule_context(rule)
-
-        if conversation is not None:
-            add_message(db, conversation, "user", request.message)
-
-        reply_json = getattr(advisor_service, "reply_json", None)
-        if goal_discussion:
-            clarification = await _clarify_goal_intent(
-                advisor_service,
-                goal_conversation_context,
-                last_assistant_message,
+            structured_intent_remembered = True
+            relevant_memories = retrieve_relevant_memories(
+                db,
+                current_user.id,
                 request.message,
             )
-            if (
-                clarification.status
-                == GoalIntentClarificationStatus.NEEDS_CLARIFICATION
-                and clarification.clarifying_question is not None
-            ):
-                answer = clarification.clarifying_question
-                if conversation is not None:
-                    add_message(db, conversation, "assistant", answer)
-                return AIChatResponse(
-                    answer=answer,
-                    model=advisor_service.model,
-                )
-            if (
-                clarification.status == GoalIntentClarificationStatus.RESOLVED
-                and clarification.confirmed_fact is not None
-                and clarification.memory_category is not None
-            ):
-                confirmed_memory = remember_confirmed_intent(
-                    db,
-                    current_user.id,
-                    clarification.confirmed_fact,
-                    clarification.memory_category,
-                )
-                structured_intent_remembered = True
-                relevant_memories = retrieve_relevant_memories(
-                    db,
-                    current_user.id,
-                    request.message,
-                )
-                memory_context = build_memory_context(
-                    [confirmed_memory]
-                    + [
-                        memory
-                        for memory in relevant_memories
-                        if memory.id != confirmed_memory.id
-                    ]
-                )
-            goal_state = None
-            if reply_json is not None:
-                goal_state = await _extract_goal_planning_state(
-                    advisor_service,
-                    goal_conversation_context,
-                    request.message,
-                    memory_context,
-                    financial_context,
-                )
-            confirmed_goal_plan = _prepare_confirmed_goal_plan(
-                goal_state,
-                current_user.id,
-                conversation.id if conversation is not None else None,
+            memory_context = build_memory_context(
+                [confirmed_memory]
+                + [
+                    memory
+                    for memory in relevant_memories
+                    if memory.id != confirmed_memory.id
+                ]
             )
-            goal_planning_context = _build_goal_workflow_context(
-                goal_state,
-                financial_snapshot,
-                confirmed_goals_available=confirmed_goal_plan is not None,
+        goal_state = None
+        if reply_json is not None:
+            goal_state = await _extract_goal_planning_state(
+                advisor_service,
+                goal_conversation_context,
+                request.message,
+                memory_context,
+                financial_context,
             )
-        elif request.rule_id is None and reply_json is not None:
-            intent_payload = await reply_json(
-                build_financial_rule_intent_prompt(
-                    request.message,
-                ),
-                FINANCIAL_RULE_INTENT_RESPONSE_SCHEMA,
-            )
-            rule_intent = normalize_financial_rule_intent_payload(
-                intent_payload,
-            )
-            rule_context = build_financial_rule_context_from_intent(
-                db=db,
-                intent=rule_intent,
-            )
-
-        message = _build_grounded_message(
-            user_message=request.message,
-            memory_context=memory_context,
-            conversation_context=conversation_context,
-            financial_context=financial_context,
-            goal_planning_context=goal_planning_context,
-            rule_context=rule_context,
+        confirmed_goal_plan = _prepare_confirmed_goal_plan(
+            goal_state,
+            current_user.id,
+            conversation.id if conversation is not None else None,
         )
+        goal_planning_context = _build_goal_workflow_context(
+            goal_state,
+            financial_snapshot,
+            confirmed_goals_available=confirmed_goal_plan is not None,
+        )
+    elif request.rule_id is None and reply_json is not None:
+        intent_payload = await reply_json(
+            build_financial_rule_intent_prompt(
+                request.message,
+            ),
+            FINANCIAL_RULE_INTENT_RESPONSE_SCHEMA,
+        )
+        rule_intent = normalize_financial_rule_intent_payload(
+            intent_payload,
+        )
+        rule_context = build_financial_rule_context_from_intent(
+            db=db,
+            intent=rule_intent,
+        )
+
+    message = _build_grounded_message(
+        user_message=request.message,
+        memory_context=memory_context,
+        conversation_context=conversation_context,
+        financial_context=financial_context,
+        goal_planning_context=goal_planning_context,
+        rule_context=rule_context,
+    )
+    if stream_response:
+        answer_parts: list[str] = []
+        async for chunk in advisor_service.stream_reply(
+            message,
+            system_instruction=advisory_topic_instructions,
+        ):
+            answer_parts.append(chunk)
+            yield {"type": "delta", "content": chunk}
+        answer = _formatted_answer("".join(answer_parts))
+    else:
         answer = _formatted_answer(
             await advisor_service.reply(
                 message,
@@ -660,19 +675,51 @@ async def chat_with_advisor(
             )
         )
 
-        if confirmed_goal_plan is not None and conversation is not None:
-            save_confirmed_goal_plan(
-                db,
-                conversation.id,
-                confirmed_goal_plan.fingerprint,
-                confirmed_goal_plan.goals,
-            )
+    if confirmed_goal_plan is not None and conversation is not None:
+        save_confirmed_goal_plan(
+            db,
+            conversation.id,
+            confirmed_goal_plan.fingerprint,
+            confirmed_goal_plan.goals,
+        )
 
-        if not structured_intent_remembered:
-            remember_from_message(db, current_user.id, request.message)
+    if not structured_intent_remembered:
+        remember_from_message(db, current_user.id, request.message)
 
-        if conversation is not None:
-            add_message(db, conversation, "assistant", answer)
+    if conversation is not None:
+        add_message(db, conversation, "assistant", answer)
+
+    yield {
+        "type": "done",
+        "answer": answer,
+        "model": advisor_service.model,
+    }
+
+
+@router.post(
+    "/chat",
+    response_model=AIChatResponse,
+)
+async def chat_with_advisor(
+    request: AIChatRequest,
+    current_user: User = Depends(get_current_user),
+    advisor_service: AIAdvisorService = Depends(get_ai_advisor_service),
+    db: Session = Depends(get_db),
+):
+    """Return an educational reply from the configured LLM."""
+    try:
+        async for event in _advisor_chat_events(
+            request,
+            current_user,
+            advisor_service,
+            db,
+            stream_response=False,
+        ):
+            if event["type"] == "done":
+                return AIChatResponse(
+                    answer=event["answer"],
+                    model=event["model"],
+                )
     except (
         LLMConfigurationError,
         LLMRateLimitError,
@@ -680,9 +727,76 @@ async def chat_with_advisor(
     ) as error:
         _raise_llm_http_error(error)
 
-    return AIChatResponse(
-        answer=answer,
-        model=advisor_service.model,
+    raise LLMServiceError("The AI service returned no response.")
+
+
+async def _stream_advisor_chat(
+    request: AIChatRequest,
+    current_user: User,
+    advisor_service: AIAdvisorService,
+    db: Session,
+) -> AsyncIterator[str]:
+    try:
+        async for event in _advisor_chat_events(
+            request,
+            current_user,
+            advisor_service,
+            db,
+            stream_response=True,
+        ):
+            yield json.dumps(event, ensure_ascii=False) + "\n"
+    except (
+        LLMConfigurationError,
+        LLMRateLimitError,
+        LLMServiceError,
+    ) as error:
+        http_error = _llm_http_error(error)
+        yield json.dumps(
+            {
+                "type": "error",
+                "message": http_error.detail,
+                "status": http_error.status_code,
+            }
+        ) + "\n"
+    except HTTPException as error:
+        yield json.dumps(
+            {
+                "type": "error",
+                "message": error.detail,
+                "status": error.status_code,
+            }
+        ) + "\n"
+    except Exception:
+        logger.exception("Unexpected advisor streaming failure.")
+        yield json.dumps(
+            {
+                "type": "error",
+                "message": "Unable to stream the AI response. Please try again.",
+                "status": status.HTTP_500_INTERNAL_SERVER_ERROR,
+            }
+        ) + "\n"
+
+
+@router.post("/chat/stream")
+async def stream_chat_with_advisor(
+    request: AIChatRequest,
+    current_user: User = Depends(get_current_user),
+    advisor_service: AIAdvisorService = Depends(get_ai_advisor_service),
+    db: Session = Depends(get_db),
+):
+    """Stream an educational LLM reply as newline-delimited JSON events."""
+    return StreamingResponse(
+        _stream_advisor_chat(
+            request,
+            current_user,
+            advisor_service,
+            db,
+        ),
+        media_type="application/x-ndjson",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
     )
 
 
