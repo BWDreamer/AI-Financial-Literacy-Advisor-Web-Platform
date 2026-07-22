@@ -8,9 +8,10 @@ import GoalDetailsModal from "../components/goals/GoalDetailsModal";
 import GoalFilters from "../components/goals/GoalFilters";
 import GoalList from "../components/goals/GoalList";
 import GoalSummary from "../components/goals/GoalSummary";
+import type { GoalReviewCardData } from "../components/chat/GoalReviewCard";
 import PrimaryButton from "../components/PrimaryButton";
 import type { Goal, GoalAllocation, GoalFilter } from "../types/goalTypes";
-import { filterGoals, goalFromApi, goalToPayload } from "../utils/goalUtils";
+import { filterGoals, goalFromApi, goalStatus, goalToPayload } from "../utils/goalUtils";
 
 const emptyGoalSummary: GoalSummaryRecord = {
   total_goals: 0, on_track_goals: 0, behind_goals: 0, completed_goals: 0,
@@ -115,8 +116,39 @@ export default function MyGoals() {
   }
 
   function askAdvisor(goal: Goal) {
+    const goalId = Number(goal.apiId ?? goal.id);
+    if (!Number.isInteger(goalId) || goalId < 1) {
+      setError("Unable to open this goal in Advisor Chat.");
+      return;
+    }
+    const status = goalStatus(goal);
+    const reviewGoal: GoalReviewCardData = {
+      kind: "goal_review",
+      version: 1,
+      goal_id: goalId,
+      name: goal.name,
+      category: goal.category,
+      target_amount: goal.targetAmount,
+      current_amount: goal.currentAmount,
+      monthly_contribution: goal.monthlyContribution,
+      target_date: goal.targetDate,
+      priority: goal.priority,
+      status: status === "Completed"
+        ? "completed"
+        : status === "Behind"
+          ? "behind"
+          : "on_track",
+      progress_percentage: goal.progressPercentage,
+      category_details: goal.categoryDetails,
+    };
     setSelected(null);
-    navigate("/advisor-chat", { state: { goalId: goal.id, goalName: goal.name, mode: "goal-review" } });
+    navigate("/advisor-chat", {
+      state: {
+        mode: "goal-review",
+        requestId: crypto.randomUUID(),
+        goal: reviewGoal,
+      },
+    });
   }
 
   return (

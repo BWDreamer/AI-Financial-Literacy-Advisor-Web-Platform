@@ -1,5 +1,6 @@
 import { ChangeEvent, DragEvent, FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FileText, PanelLeft, Plus, Send, Trash2, X } from "lucide-react";
+import { FileText, LoaderCircle, PanelLeft, Plus, Send, Trash2, X } from "lucide-react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { ChatMessage, Conversation, ConversationDetail, addConversationMessage, createConversation, deleteConversation, getConversation, getConversations, sendAdvisorMessage, sendAdvisorPdfMessage } from "../api/chat";
 import {
   GOAL_PLANNING_START_MESSAGE,
@@ -10,12 +11,46 @@ import {
   visibleChatMessage,
   type GoalCategoryId,
 } from "../components/chat/GoalPlanningControls";
+import GoalReviewCard, {
+  parseGoalReviewMessage,
+  type GoalReviewCardData,
+} from "../components/chat/GoalReviewCard";
 import FormattedChatMessage from "../components/chat/FormattedChatMessage";
 import SuggestedQuestions, { rememberSuggestedQuestions, selectSuggestedQuestions } from "../components/chat/SuggestedQuestions";
 import { useUser } from "../store/UserProvider";
 
 type AttachmentPreview = { id: string; name: string; extension: string; isImage: boolean; file: File; dataUrl?: string };
 type LocalAttachmentMap = Record<number, AttachmentPreview[]>;
+type GoalReviewRouteState = {
+  mode: "goal-review";
+  requestId: string;
+  goal: GoalReviewCardData;
+};
+
+const handledGoalReviewRequests = new Set<string>();
+
+function goalReviewRouteState(value: unknown): GoalReviewRouteState | null {
+  if (!value || typeof value !== "object") return null;
+  const candidate = value as Record<string, unknown>;
+  if (
+    candidate.mode !== "goal-review"
+    || typeof candidate.requestId !== "string"
+    || !candidate.goal
+    || typeof candidate.goal !== "object"
+  ) {
+    return null;
+  }
+  const goal = candidate.goal as Partial<GoalReviewCardData>;
+  if (
+    goal.kind !== "goal_review"
+    || goal.version !== 1
+    || typeof goal.goal_id !== "number"
+    || typeof goal.name !== "string"
+  ) {
+    return null;
+  }
+  return candidate as GoalReviewRouteState;
+}
 
 function sortedConversations(items: Conversation[]) {
   return [...items].sort((a, b) => new Date(b.updated_at || b.created_at).getTime() - new Date(a.updated_at || a.created_at).getTime());
@@ -49,8 +84,8 @@ function EmptyConversationWelcome({ userName }: { userName: string }) {
   );
 }
 
-function MessageList({ messages, attachments, sending, userName, onSelectGoalCategory }: { messages: ChatMessage[]; attachments: LocalAttachmentMap; sending: boolean; userName: string; onSelectGoalCategory: (categoryId: GoalCategoryId) => void }) {
-  if (messages.length === 0) {
+function MessageList({ messages, attachments, sending, userName, pendingGoalReview, onSelectGoalCategory }: { messages: ChatMessage[]; attachments: LocalAttachmentMap; sending: boolean; userName: string; pendingGoalReview: GoalReviewCardData | null; onSelectGoalCategory: (categoryId: GoalCategoryId) => void }) {
+  if (messages.length === 0 && !pendingGoalReview) {
     return <EmptyConversationWelcome userName={userName} />;
   }
 
@@ -58,15 +93,21 @@ function MessageList({ messages, attachments, sending, userName, onSelectGoalCat
   return (
     <div className="mt-8 flex-1 space-y-4 overflow-y-auto pr-1">
       {messages.map((message) => {
-        const content = visibleChatMessage(message.content);
+        const goalReview = message.role === "user"
+          ? parseGoalReviewMessage(message.content)
+          : null;
+        const content = goalReview ? "" : visibleChatMessage(message.content);
         return (
           <div key={message.id}>
             <div className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
               <article
-                style={{ maxWidth: "61.8%" }}
-                className={`inline-block w-fit rounded-2xl p-4 ${message.role === "user" ? "bg-blue-600 text-white" : "bg-white shadow-sm"}`}
+                style={goalReview ? undefined : { maxWidth: "61.8%" }}
+                className={goalReview
+                  ? "w-full max-w-2xl"
+                  : `inline-block w-fit rounded-2xl p-4 ${message.role === "user" ? "bg-blue-600 text-white" : "bg-white shadow-sm"}`}
               >
-                <MessageAttachments files={attachments[message.id] || []} inBubble />
+                {goalReview && <GoalReviewCard goal={goalReview} />}
+                {!goalReview && <MessageAttachments files={attachments[message.id] || []} inBubble />}
                 {content && message.role === "user" && (
                   <p className="max-w-full whitespace-pre-wrap break-words text-sm leading-6">
                     {content}
@@ -88,6 +129,21 @@ function MessageList({ messages, attachments, sending, userName, onSelectGoalCat
           </div>
         );
       })}
+      {pendingGoalReview && (
+        <div className="flex justify-end">
+          <div className="w-full max-w-2xl">
+            <GoalReviewCard goal={pendingGoalReview} pending />
+          </div>
+        </div>
+      )}
+      {sending && (
+        <div className="flex justify-start">
+          <div className="inline-flex items-center gap-2 rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-slate-600 shadow-sm">
+            <LoaderCircle size={17} className="animate-spin text-blue-600" />
+            {pendingGoalReview ? "Reviewing your goal..." : "Thinking..."}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -141,6 +197,8 @@ async function toPreview(file: File): Promise<AttachmentPreview> {
 
 export default function AdvisorChat() {
   const { user } = useUser();
+  const location = useLocation();
+  const navigate = useNavigate();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [active, setActive] = useState<ConversationDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -151,11 +209,22 @@ export default function AdvisorChat() {
   const [draftConversationId, setDraftConversationId] = useState<number | null>(null);
   const [suggestedQuestions] = useState(selectSuggestedQuestions);
   const [goalPlanningPending, setGoalPlanningPending] = useState(false);
+  const [pendingGoalReview, setPendingGoalReview] = useState<GoalReviewCardData | null>(null);
+  const requestedGoalReview = useMemo(
+    () => goalReviewRouteState(location.state),
+    [location.state],
+  );
+  const initialGoalReviewRef = useRef(requestedGoalReview);
   const userName = user?.username?.trim()
     || user?.email.split("@")[0]
     || "there";
   const goalPlanningMode = goalPlanningPending || (
     getGoalPlanningUiState(active?.messages || []).startMessageId !== null
+  );
+  const goalReviewMode = pendingGoalReview !== null || (
+    active?.messages.some(
+      (message) => parseGoalReviewMessage(message.content) !== null,
+    ) ?? false
   );
   const orderedConversations = useMemo(
     () => sortedConversations(conversations).filter(
@@ -176,7 +245,7 @@ export default function AdvisorChat() {
   useEffect(() => {
     loadList()
       .then(async (items) => {
-        if (items[0]) {
+        if (!initialGoalReviewRef.current && items[0]) {
           setActive(await getConversation(items[0].conversation_id));
         }
       })
@@ -187,6 +256,24 @@ export default function AdvisorChat() {
       ))
       .finally(() => setLoading(false));
   }, [loadList]);
+
+  useEffect(() => {
+    if (
+      loading
+      || !requestedGoalReview
+      || handledGoalReviewRequests.has(requestedGoalReview.requestId)
+    ) {
+      return;
+    }
+    handledGoalReviewRequests.add(requestedGoalReview.requestId);
+    navigate(location.pathname, { replace: true, state: null });
+    void startGoalReview(requestedGoalReview);
+  }, [
+    loading,
+    location.pathname,
+    navigate,
+    requestedGoalReview,
+  ]);
 
   async function selectConversation(id: number) {
     setError("");
@@ -260,6 +347,49 @@ export default function AdvisorChat() {
           : "Unable to send your message.",
       );
     } finally {
+      setSending(false);
+    }
+  }
+
+  async function startGoalReview(request: GoalReviewRouteState) {
+    setSending(true);
+    setError("");
+    setActive(null);
+    setDraftConversationId(null);
+    setPendingGoalReview(request.goal);
+    let conversationId: number | null = null;
+    try {
+      const created = await createConversation(
+        `Goal review: ${request.goal.name}`.slice(0, 255),
+      );
+      conversationId = created.conversation_id;
+      setActive({ ...created, messages: [] });
+      setDraftConversationId(conversationId);
+      await sendAdvisorMessage(
+        (
+          "Please review this existing financial goal and suggest "
+          + "practical, prioritised improvements."
+        ),
+        conversationId,
+        undefined,
+        request.goal.goal_id,
+      );
+      await refreshActiveConversation(conversationId);
+    } catch (caught) {
+      if (conversationId !== null) {
+        try {
+          await refreshActiveConversation(conversationId);
+        } catch {
+          // Keep the original review error visible.
+        }
+      }
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "Unable to review this goal.",
+      );
+    } finally {
+      setPendingGoalReview(null);
       setSending(false);
     }
   }
@@ -345,10 +475,11 @@ export default function AdvisorChat() {
           attachments={localAttachments}
           sending={sending}
           userName={userName}
+          pendingGoalReview={pendingGoalReview}
           onSelectGoalCategory={selectGoalCategory}
         />
         <div className="mt-6">
-          {!goalPlanningMode && (
+          {!goalPlanningMode && !goalReviewMode && (
             <SuggestedQuestions
               disabled={sending}
               questions={suggestedQuestions}
