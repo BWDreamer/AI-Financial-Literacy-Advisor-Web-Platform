@@ -1,7 +1,7 @@
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -16,6 +16,17 @@ class Settings(BaseSettings):
     jwt_secret_key: str = "replace_with_a_secure_secret"
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 60
+
+    smtp_host: str = ""
+    smtp_port: int = Field(default=587, ge=1, le=65535)
+    smtp_username: str = ""
+    smtp_password: SecretStr = SecretStr("")
+    smtp_from_email: str = ""
+    smtp_starttls: bool = True
+    smtp_timeout_seconds: float = Field(default=10, gt=0)
+    email_verification_ttl_seconds: int = Field(default=600, ge=60)
+    email_verification_resend_seconds: int = Field(default=60, ge=1)
+    email_verification_max_attempts: int = Field(default=5, ge=1, le=20)
 
     llm_provider: Literal["gemini", "openrouter", "mock"] = "gemini"
     gemini_api_key: str = ""

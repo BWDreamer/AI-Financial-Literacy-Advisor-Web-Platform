@@ -18,6 +18,7 @@ from app.ai.prompts import (
 )
 from app.ai.provider import GeminiProvider, OpenRouterProvider
 from app.main import app
+from tests.helpers import register_verified_user
 from app.models.advisory_settings import AdvisorySettings
 from app.models.financial_rule import FinancialRule
 from app.services import pdf_asset_classifier, pdf_financial_service
@@ -1000,9 +1001,9 @@ def test_advisory_topic_instructions_define_enabled_and_disabled_behaviour():
 
 
 def create_authorization_headers(client) -> dict[str, str]:
-    client.post(
-        "/api/auth/register",
-        json={
+    register_verified_user(
+        client,
+        {
             "email": "advisor@example.com",
             "password": "Password123",
         },

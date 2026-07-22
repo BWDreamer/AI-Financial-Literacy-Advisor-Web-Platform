@@ -1,5 +1,6 @@
 from app.models.advisory_settings import AdvisorySettings
 from app.models.chat import ChatConversation, ChatMessage
+from app.models.email_verification import EmailVerificationCode
 from app.models.financial_rule import FinancialRule
 from app.models.financial import Asset, CashBucket, CashFlow, Debt, RecurringCashFlow
 from app.models.article import Article, ArticleLike, ArticleSave
@@ -16,6 +17,7 @@ __all__ = [
     "CashFlow",
     "CashBucket",
     "Debt",
+    "EmailVerificationCode",
     "ChatConversation",
     "ChatMessage",
     "FinancialRule",

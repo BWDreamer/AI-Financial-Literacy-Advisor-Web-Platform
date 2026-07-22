@@ -1,7 +1,10 @@
+from tests.helpers import register_verified_user
+
+
 def auth_headers(client, email: str) -> dict[str, str]:
-    client.post(
-        "/api/auth/register",
-        json={"email": email, "password": "Password123"},
+    register_verified_user(
+        client,
+        {"email": email, "password": "Password123"},
     )
     response = client.post(
         "/api/auth/login",

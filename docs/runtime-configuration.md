@@ -55,3 +55,24 @@ LLM_MODEL=google/gemini-2.5-flash
 ```
 
 Do not add the real key to `.env.example`, documentation, tests, or source code.
+
+## Email verification
+
+Registration and login-email changes use SMTP to deliver one-time codes.
+Configure these values in the untracked local `.env`:
+
+| Environment variable | Default | Purpose |
+| --- | ---: | --- |
+| `SMTP_HOST` | empty | SMTP server host. Email delivery is unavailable when empty. |
+| `SMTP_PORT` | `587` | SMTP server port. |
+| `SMTP_USERNAME` | empty | Optional SMTP login username. |
+| `SMTP_PASSWORD` | empty | Optional SMTP login password or app password. |
+| `SMTP_FROM_EMAIL` | empty | Verified sender address placed in the From header. |
+| `SMTP_STARTTLS` | `true` | Upgrade the SMTP connection with STARTTLS. |
+| `SMTP_TIMEOUT_SECONDS` | `10` | SMTP connection and send timeout. |
+| `EMAIL_VERIFICATION_TTL_SECONDS` | `600` | Verification code lifetime. |
+| `EMAIL_VERIFICATION_RESEND_SECONDS` | `60` | Minimum delay before another code can be requested. |
+| `EMAIL_VERIFICATION_MAX_ATTEMPTS` | `5` | Incorrect attempts allowed before a code is invalidated. |
+
+SMTP credentials must never be committed. The API never returns or logs the
+verification code.

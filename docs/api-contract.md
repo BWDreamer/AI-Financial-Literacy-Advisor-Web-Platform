@@ -36,6 +36,11 @@ The former `/monthly-allocation` write route is retired.
 
 - GET /api/health
 - GET /api/auth/ping
+- POST /api/auth/register/verification-code
+- POST /api/auth/register
+- POST /api/auth/login
+- POST /api/auth/email/verification-code (authenticated user)
+- PUT /api/auth/email (authenticated user)
 - GET /api/profile/ping
 - GET /api/calculator/ping
 - GET /api/calculator/goal-monthly-saving?target_amount=10000&current_amount=1000&months=12
@@ -61,6 +66,12 @@ The former `/monthly-allocation` write route is retired.
 - GET /api/admin/advisory-settings (admin only)
 - PATCH /api/admin/advisory-settings (admin only)
 - POST /api/auth/heartbeat (authenticated user)
+
+Registration first sends a six-digit code to the requested email. The
+registration request must include that code as `verification_code`. Changing
+an authenticated user's login email follows the same pattern and also requires
+the current password. Codes are single-use, expire after the configured TTL,
+are rate-limited when resent, and are stored only as hashes.
 
 Admin user requests use `first_name`, `last_name`, `email`, and `password`
 for creation. Update requests omit `password`. User responses include `id`,

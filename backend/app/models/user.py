@@ -50,6 +50,8 @@ class User(Base):
 
     last_seen_at = Column(DateTime(timezone=True), nullable=True)
 
+    email_verified_at = Column(DateTime(timezone=True), nullable=True)
+
     created_at = Column(
         DateTime,
         nullable=False,
