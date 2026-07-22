@@ -83,6 +83,7 @@ class CashBucket(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    goal_id = Column(Integer, ForeignKey("goals.id", ondelete="CASCADE"), nullable=True, index=True)
     bucket_type = Column(String(30), nullable=False)
     name = Column(String(100), nullable=True)
     amount = Column(Numeric(14, 2), nullable=False, default=0)

@@ -164,11 +164,26 @@ def delete_recurring_cash_flow(db: Session, recurring: RecurringCashFlow) -> Non
 
 
 def list_cash_buckets(db: Session, user_id: int) -> list[CashBucket]:
-    return db.query(CashBucket).filter(CashBucket.user_id == user_id).order_by(CashBucket.id).all()
+    return db.query(CashBucket).filter(
+        CashBucket.user_id == user_id,
+        CashBucket.goal_id.is_(None),
+    ).order_by(CashBucket.id).all()
 
 
 def get_cash_bucket(db: Session, user_id: int, bucket_id: int) -> CashBucket | None:
-    return db.query(CashBucket).filter(CashBucket.id == bucket_id, CashBucket.user_id == user_id).first()
+    return db.query(CashBucket).filter(
+        CashBucket.id == bucket_id,
+        CashBucket.user_id == user_id,
+        CashBucket.goal_id.is_(None),
+    ).first()
+
+
+def get_goal_cash_bucket(db: Session, user_id: int, goal_id: int) -> CashBucket | None:
+    return db.query(CashBucket).filter(
+        CashBucket.user_id == user_id,
+        CashBucket.goal_id == goal_id,
+        CashBucket.bucket_type == "goal_reserved",
+    ).first()
 
 
 def save_cash_bucket(db: Session, user_id: int, data: CashBucketRequest, bucket: CashBucket | None = None) -> CashBucket:
