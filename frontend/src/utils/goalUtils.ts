@@ -3,7 +3,7 @@ import type { GoalPayload, GoalRecord } from "../api/goals";
 
 export const goalCategories: GoalCategory[] = ["General Saving", "Emergency Fund", "Debt Repayment", "Home Deposit", "Retirement", "Budget"];
 export const goalPriorities: GoalPriority[] = ["High", "Medium", "Low"];
-export const goalFilters: GoalFilter[] = ["All", "On Track", "Behind", "Completed"];
+export const goalFilters: GoalFilter[] = ["In Progress", "On Track", "Behind", "Completed"];
 export const goalSortOptions: GoalSort[] = ["Recent", "Priority", "Target Date", "Progress"];
 
 const priorityRank: Record<GoalPriority, number> = { High: 0, Medium: 1, Low: 2 };
@@ -26,7 +26,7 @@ export function goalStatus(goal: Goal): GoalStatus {
 }
 
 export function filterGoals(goals: Goal[], filter: GoalFilter) {
-  return filter === "All" ? goals : goals.filter((goal) => goalStatus(goal) === filter);
+  return filter === "In Progress" ? goals.filter((goal) => goalStatus(goal) !== "Completed") : goals.filter((goal) => goalStatus(goal) === filter);
 }
 
 export function sortGoals(goals: Goal[], sort: GoalSort) {
@@ -59,11 +59,14 @@ export function goalFromApi(record: GoalRecord): Goal {
     targetAmount: Number(record.target_amount),
     currentAmount: Number(record.current_amount),
     monthlyContribution: Number(record.monthly_contribution),
+    allocatedMonthly: Number(record.allocated_monthly ?? 0),
+    cashAllocation: Number(record.cash_allocation ?? 0),
     progressPercentage: Number(record.progress_percentage),
     targetDate: record.target_date,
     createdAt: record.created_at.slice(0, 10),
     priority: priorityLabels[record.priority] || "Medium",
-    status: record.status === "completed" ? "Completed" : record.status === "behind" ? "Behind" : "On Track",
+    status: record.status === "completed" ? "Completed" : record.status === "pending_archive" ? "Pending Archive" : record.status === "behind" ? "Behind" : "On Track",
+    archived: record.archived,
     categoryDetails: record.category_details as Record<string, string | number> | undefined,
   };
 }

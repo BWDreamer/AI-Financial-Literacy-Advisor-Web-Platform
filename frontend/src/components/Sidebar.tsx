@@ -7,6 +7,7 @@ import type { NavigationItem, NavigationSection, NavigationTone } from "../confi
 export type SidebarProfile = { avatarUrl: string | null; name: string; email: string };
 export type SidebarProps = {
   brand: { name: string; subtitle: string; mark: ReactNode };
+  brandAction?: ReactNode;
   sections: NavigationSection[];
   profile: SidebarProfile;
   onAction: (action: string) => void;
@@ -52,13 +53,13 @@ function ProfileMenu({ onSettings, onSignOut }: { onSettings: () => void; onSign
   </div>;
 }
 
-export default function Sidebar({ brand, sections, profile, onAction, onProfileClick, onSignOut, mobileOpen = false, onMobileClose }: SidebarProps) {
+export default function Sidebar({ brand, brandAction, sections, profile, onAction, onProfileClick, onSignOut, mobileOpen = false, onMobileClose }: SidebarProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   function openSettings() { setMenuOpen(false); onProfileClick(); onMobileClose?.(); }
   function signOut() { setMenuOpen(false); onSignOut(); onMobileClose?.(); }
   const mobileClass = mobileOpen ? "translate-x-0" : "-translate-x-full";
   return <aside className={`fixed inset-y-0 left-0 z-50 flex w-[min(20rem,85vw)] shrink-0 flex-col border-r border-slate-700 bg-slate-900 text-white shadow-xl shadow-slate-950/10 transition-transform duration-300 lg:static lg:z-auto lg:w-80 lg:translate-x-0 ${mobileClass}`}>
-    <header className="flex items-center gap-3 px-6 py-6">{brand.mark}<div className="min-w-0 flex-1"><p className="truncate text-lg font-bold tracking-tight">{brand.name}</p><p className="truncate text-sm text-slate-400">{brand.subtitle}</p></div><button type="button" onClick={onMobileClose} className="grid size-9 place-items-center rounded-lg text-slate-300 hover:bg-slate-800 lg:hidden" aria-label="Close menu"><X size={20} /></button></header>
+    <header className="flex items-center gap-3 px-6 py-6">{brand.mark}<div className="min-w-0 flex-1"><p className="truncate text-lg font-bold tracking-tight">{brand.name}</p><p className="truncate text-sm text-slate-400">{brand.subtitle}</p></div>{brandAction}<button type="button" onClick={onMobileClose} className="grid size-9 place-items-center rounded-lg text-slate-300 hover:bg-slate-800 lg:hidden" aria-label="Close menu"><X size={20} /></button></header>
     <nav className="flex-1 overflow-y-auto" aria-label="Portal navigation">{sections.map((section) => <section key={section.label} className="border-t border-slate-700/80 px-4 py-6">
       <h2 className="mb-3 px-3 text-xs font-bold uppercase tracking-[0.16em] text-slate-500">{section.label}</h2>
       <div className="space-y-1.5">{section.items.map((item) => <SidebarItem key={item.id} item={item} onAction={onAction} onClose={onMobileClose} />)}</div>

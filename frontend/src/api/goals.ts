@@ -15,8 +15,11 @@ export type GoalRecord = GoalPayload & {
   id: number;
   created_at: string;
   updated_at: string;
-  status: "on_track" | "behind" | "completed";
+  status: "on_track" | "behind" | "pending_archive" | "completed";
   progress_percentage: number;
+  allocated_monthly: number;
+  cash_allocation: number;
+  archived: boolean;
 };
 
 export type GoalSummaryRecord = {
@@ -27,9 +30,11 @@ export type GoalSummaryRecord = {
   cash_savings: number;
   cash_allocatable: number;
   cash_already_assigned: number;
+  cash_unassigned: number;
   monthly_net_income: number;
   monthly_allocatable: number;
   monthly_already_assigned: number;
+  monthly_unassigned: number;
   total_target_amount: number;
   total_current_amount: number;
   total_monthly_contribution: number;
@@ -51,7 +56,12 @@ export type MonthlyAllocation = {
 };
 export type GoalAnalysis = {
   progress_percentage: number; required_monthly: number; monthly_difference: number;
-  months_remaining: number; projected_completion_date: string | null; status: "on_track" | "behind" | "completed";
+  allocated_monthly: number; cash_allocation: number;
+  months_remaining: number; projected_completion_date: string | null; status: "on_track" | "behind" | "pending_archive" | "completed";
+};
+export type GoalNotification = {
+  id: number; goal_id: number; notification_type: string; title: string; message: string;
+  read: boolean; archived: boolean; created_at: string; updated_at: string;
 };
 export type GoalProgressPayload = { amount: number; progress_date: string; note?: string; source?: string };
 export type GoalProgress = GoalProgressPayload & { id: number; goal_id: number; new_current_amount: number; created_at: string; updated_at: string };
@@ -74,3 +84,6 @@ export const updateGoalAllocationSettings = (input: GoalAllocationSettingsInput)
 export const createGoal = (input: GoalPayload) => apiRequest<GoalRecord>("/goals", { method: "POST", authenticated: true, body: JSON.stringify(input) });
 export const updateGoal = (id: number, input: GoalPayload) => apiRequest<GoalRecord>(`/goals/${id}`, { method: "PUT", authenticated: true, body: JSON.stringify(input) });
 export const deleteGoal = (id: number) => apiRequest<void>(`/goals/${id}`, { method: "DELETE", authenticated: true });
+export const getGoalNotifications = () => apiRequest<GoalNotification[]>("/goals/notifications", { authenticated: true });
+export const readGoalNotification = (id: number) => apiRequest<GoalNotification>(`/goals/notifications/${id}/read`, { method: "POST", authenticated: true });
+export const archiveGoal = (id: number) => apiRequest<GoalRecord>(`/goals/${id}/archive`, { method: "POST", authenticated: true });

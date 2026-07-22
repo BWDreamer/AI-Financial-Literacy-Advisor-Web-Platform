@@ -5,7 +5,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-GoalStatus = Literal["on_track", "behind", "completed"]
+GoalStatus = Literal["on_track", "behind", "pending_archive", "completed"]
 
 
 class GoalRequest(BaseModel):
@@ -47,6 +47,9 @@ class GoalResponse(GoalRequest):
     updated_at: datetime
     status: GoalStatus
     progress_percentage: Decimal
+    allocated_monthly: Decimal = Decimal("0")
+    cash_allocation: Decimal = Decimal("0")
+    archived: bool = False
 
 
 class GoalSummaryResponse(BaseModel):
@@ -57,9 +60,11 @@ class GoalSummaryResponse(BaseModel):
     cash_savings: Decimal
     cash_allocatable: Decimal
     cash_already_assigned: Decimal
+    cash_unassigned: Decimal
     monthly_net_income: Decimal
     monthly_allocatable: Decimal
     monthly_already_assigned: Decimal
+    monthly_unassigned: Decimal
     total_target_amount: Decimal
     total_current_amount: Decimal
     total_monthly_contribution: Decimal
@@ -69,6 +74,8 @@ class GoalAnalysisResponse(BaseModel):
     progress_percentage: Decimal
     required_monthly: Decimal
     monthly_difference: Decimal
+    allocated_monthly: Decimal
+    cash_allocation: Decimal
     months_remaining: int
     projected_completion_date: date | None
     status: GoalStatus
@@ -130,6 +137,19 @@ class GoalMonthlyAmount(BaseModel):
     goal_id: int
     ratio: Decimal
     monthly_amount: Decimal
+
+
+class GoalNotificationResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    goal_id: int
+    notification_type: str
+    title: str
+    message: str
+    read: bool
+    archived: bool
+    created_at: datetime
+    updated_at: datetime
 
 
 class MonthlyAllocationResponse(BaseModel):
