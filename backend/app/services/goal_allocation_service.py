@@ -10,6 +10,7 @@ from app.services.goal_planning_service import (
     GoalPlanningGoal,
     GoalPlanningState,
     GoalPriority,
+    emergency_fund_target_amount,
 )
 
 
@@ -76,9 +77,7 @@ def _funding_goal(goal: GoalPlanningGoal) -> FundingGoal | None:
             f"Planning priority is missing for {_goal_name(goal)}."
         )
     if goal.category == GoalCategory.EMERGENCY_FUND:
-        target_amount = (
-            answers["essential_monthly_expenses"] * answers["coverage_months"]
-        )
+        target_amount = emergency_fund_target_amount(answers)
         current_amount = answers["current_amount"]
         proposed_monthly_amount = answers["monthly_contribution"]
     elif goal.category == GoalCategory.DEBT_REPAYMENT:

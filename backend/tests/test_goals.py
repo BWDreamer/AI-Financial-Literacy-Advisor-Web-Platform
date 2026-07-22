@@ -156,6 +156,17 @@ def test_goal_preview_calculates_category_values_on_backend(client):
     assert data["analysis"]["progress_percentage"] == "16.67"
     assert data["analysis"]["required_monthly"] != "0.00"
 
+    direct_preview = client.post("/api/goals/preview", headers=headers, json={
+        "category": "Emergency Fund", "target_date": (date.today() + timedelta(days=365)).isoformat(),
+        "priority": "High", "category_details": {
+            "target_amount": 1000,
+            "essential_monthly_expenses": 1000, "coverage_months": 3,
+            "current_amount": 0, "monthly_contribution": 200,
+        },
+    })
+    assert direct_preview.status_code == 200
+    assert float(direct_preview.json()["goal"]["target_amount"]) == 1000
+
 
 def test_goals_are_private_and_validate_amounts(client):
     first = auth_headers(client, "goal-first@example.com")

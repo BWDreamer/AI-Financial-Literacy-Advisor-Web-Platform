@@ -18,6 +18,7 @@ from app.services.goal_planning_service import (
     GoalCategory,
     GoalPlanningState,
     GoalRecommendationStatus,
+    emergency_fund_target_amount,
 )
 
 
@@ -106,7 +107,7 @@ def build_goal_preview(request: GoalPreviewRequest) -> dict:
     if request.category == "Emergency Fund":
         values = {
             "name": "Emergency Fund",
-            "target_amount": amount("essential_monthly_expenses") * amount("coverage_months"),
+            "target_amount": emergency_fund_target_amount(details),
             "current_amount": amount("current_amount"),
             "monthly_contribution": amount("monthly_contribution"),
         }

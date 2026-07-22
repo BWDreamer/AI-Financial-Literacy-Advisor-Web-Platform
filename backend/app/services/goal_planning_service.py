@@ -4,7 +4,7 @@ from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from enum import Enum
 import re
-from typing import Any
+from typing import Any, Mapping
 
 from app.services.financial_service import FinancialPlanningSnapshot
 
@@ -122,8 +122,6 @@ REQUIRED_FIELDS = {
         "monthly_contribution",
     ),
     GoalCategory.EMERGENCY_FUND: (
-        "essential_monthly_expenses",
-        "coverage_months",
         "deadline",
         "current_amount",
         "monthly_contribution",
@@ -256,6 +254,14 @@ def build_goal_state_extraction_prompt(
             "Use these categories and decision-ready fields:",
             *category_fields,
             (
+                "An emergency_fund goal needs either a positive direct "
+                "target_amount or both positive essential_monthly_expenses and "
+                "coverage_months. If confirmed memory identifies an amount as "
+                "the direct Emergency Fund target, put it in target_amount and "
+                "do not reinterpret or multiply it. A direct target takes "
+                "precedence if both representations are available."
+            ),
+            (
                 "A home_deposit goal additionally needs either a positive direct "
                 "deposit_target or both a positive property_price and a positive "
                 "deposit_percent. Optional fields may be null."
@@ -347,6 +353,23 @@ def _missing_goal_fields(raw_goal: Any) -> list[str]:
                 missing.append(field)
         elif _text_value(value) is None:
             missing.append(field)
+
+    if category == GoalCategory.EMERGENCY_FUND:
+        has_direct_target = _raw_decimal_is_usable(
+            raw_goal.get("target_amount"),
+            allow_zero=False,
+        )
+        has_expenses_and_coverage = _raw_decimal_is_usable(
+            raw_goal.get("essential_monthly_expenses"),
+            allow_zero=False,
+        ) and _raw_decimal_is_usable(
+            raw_goal.get("coverage_months"),
+            allow_zero=False,
+        )
+        if not has_direct_target and not has_expenses_and_coverage:
+            missing.append(
+                "target_amount or essential_monthly_expenses + coverage_months"
+            )
 
     if category == GoalCategory.HOME_DEPOSIT:
         has_direct_target = _raw_decimal_is_usable(
@@ -454,6 +477,30 @@ def _decimal_value(value: Any) -> Decimal | None:
     if not amount.is_finite() or amount < ZERO:
         return None
     return amount.quantize(CENT, rounding=ROUND_HALF_UP)
+
+
+def emergency_fund_target_amount(answers: Mapping[str, Any]) -> Decimal:
+    """Return a direct target, otherwise calculate expenses times coverage."""
+    direct_target = _decimal_value(answers.get("target_amount"))
+    if direct_target is not None and direct_target > ZERO:
+        return direct_target
+    essential_expenses = _decimal_value(
+        answers.get("essential_monthly_expenses")
+    )
+    coverage_months = _decimal_value(answers.get("coverage_months"))
+    if (
+        essential_expenses is None
+        or essential_expenses <= ZERO
+        or coverage_months is None
+        or coverage_months <= ZERO
+    ):
+        raise ValueError(
+            "Emergency Fund needs a target amount or expenses and coverage months."
+        )
+    return (essential_expenses * coverage_months).quantize(
+        CENT,
+        rounding=ROUND_HALF_UP,
+    )
 
 
 def _text_value(value: Any) -> str | None:

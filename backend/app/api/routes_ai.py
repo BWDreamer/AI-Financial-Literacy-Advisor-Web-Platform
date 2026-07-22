@@ -51,6 +51,17 @@ from app.services.financial_service import (
 from app.services.goal_allocation_service import (
     build_goal_allocation_context,
 )
+from app.services.goal_intent_clarification_service import (
+    GOAL_INTENT_CLARIFICATION_RESPONSE_SCHEMA,
+    GoalIntentClarification,
+    GoalIntentClarificationStatus,
+    build_emergency_fund_amount_question,
+    build_goal_intent_clarification_prompt,
+    emergency_fund_bare_amount_clarification,
+    normalize_goal_intent_clarification,
+    pending_emergency_fund_amount,
+    resolve_emergency_fund_amount_answer,
+)
 from app.services.goal_service import (
     ConfirmedGoalPlan,
     build_confirmed_goal_plan,
@@ -68,6 +79,7 @@ from app.services.goal_planning_service import (
 )
 from app.services.memory_service import (
     build_memory_context,
+    remember_confirmed_intent,
     remember_from_message,
     retrieve_relevant_memories,
 )
@@ -237,6 +249,51 @@ async def _extract_goal_planning_state(
             "The AI provider returned an incomplete goal recommendation."
         )
     return normalize_goal_planning_state(payload)
+
+
+async def _clarify_goal_intent(
+    advisor_service: AIAdvisorService,
+    conversation_context: str | None,
+    last_assistant_message: str | None,
+    user_message: str,
+) -> GoalIntentClarification:
+    resolved_amount = resolve_emergency_fund_amount_answer(
+        last_assistant_message,
+        user_message,
+    )
+    if resolved_amount is not None:
+        return resolved_amount
+
+    bare_amount = emergency_fund_bare_amount_clarification(
+        user_message,
+        conversation_context,
+    )
+    if bare_amount is not None:
+        return bare_amount
+
+    reply_json = getattr(advisor_service, "reply_json", None)
+    if reply_json is None:
+        return GoalIntentClarification(GoalIntentClarificationStatus.CLEAR)
+    payload = await reply_json(
+        build_goal_intent_clarification_prompt(
+            conversation_context,
+            user_message,
+        ),
+        GOAL_INTENT_CLARIFICATION_RESPONSE_SCHEMA,
+    )
+    clarification = normalize_goal_intent_clarification(payload)
+    pending_amount = pending_emergency_fund_amount(last_assistant_message)
+    if (
+        pending_amount is not None
+        and clarification.status == GoalIntentClarificationStatus.CLEAR
+    ):
+        return GoalIntentClarification(
+            GoalIntentClarificationStatus.NEEDS_CLARIFICATION,
+            clarifying_question=build_emergency_fund_amount_question(
+                pending_amount
+            ),
+        )
+    return clarification
 
 
 def _build_goal_workflow_context(
@@ -450,8 +507,10 @@ async def chat_with_advisor(
         goal_conversation_context = None
         goal_planning_context = None
         confirmed_goal_plan = None
+        structured_intent_remembered = False
         rule_context = None
         conversation = None
+        last_assistant_message = None
         if request.conversation_id is not None:
             conversation = get_conversation(
                 db, current_user.id, request.conversation_id
@@ -467,6 +526,11 @@ async def chat_with_advisor(
             goal_conversation_context = build_goal_conversation_context(
                 conversation.messages
             )
+            if (
+                conversation.messages
+                and conversation.messages[-1].role == "assistant"
+            ):
+                last_assistant_message = conversation.messages[-1].content
         goal_discussion = _is_goal_planning_discussion(
             request.message,
             conversation_context,
@@ -478,11 +542,16 @@ async def chat_with_advisor(
             financial_snapshot,
             include_empty=goal_discussion,
         )
+        memory_search_text = request.message
+        if goal_discussion and goal_conversation_context is not None:
+            memory_search_text = (
+                f"{request.message}\n{goal_conversation_context}"
+            )
         memory_context = build_memory_context(
             retrieve_relevant_memories(
                 db,
                 current_user.id,
-                request.message,
+                memory_search_text,
             )
         )
         if request.rule_id is not None:
@@ -499,6 +568,49 @@ async def chat_with_advisor(
 
         reply_json = getattr(advisor_service, "reply_json", None)
         if goal_discussion:
+            clarification = await _clarify_goal_intent(
+                advisor_service,
+                goal_conversation_context,
+                last_assistant_message,
+                request.message,
+            )
+            if (
+                clarification.status
+                == GoalIntentClarificationStatus.NEEDS_CLARIFICATION
+                and clarification.clarifying_question is not None
+            ):
+                answer = clarification.clarifying_question
+                if conversation is not None:
+                    add_message(db, conversation, "assistant", answer)
+                return AIChatResponse(
+                    answer=answer,
+                    model=advisor_service.model,
+                )
+            if (
+                clarification.status == GoalIntentClarificationStatus.RESOLVED
+                and clarification.confirmed_fact is not None
+                and clarification.memory_category is not None
+            ):
+                confirmed_memory = remember_confirmed_intent(
+                    db,
+                    current_user.id,
+                    clarification.confirmed_fact,
+                    clarification.memory_category,
+                )
+                structured_intent_remembered = True
+                relevant_memories = retrieve_relevant_memories(
+                    db,
+                    current_user.id,
+                    request.message,
+                )
+                memory_context = build_memory_context(
+                    [confirmed_memory]
+                    + [
+                        memory
+                        for memory in relevant_memories
+                        if memory.id != confirmed_memory.id
+                    ]
+                )
             goal_state = None
             if reply_json is not None:
                 goal_state = await _extract_goal_planning_state(
@@ -556,7 +668,8 @@ async def chat_with_advisor(
                 confirmed_goal_plan.goals,
             )
 
-        remember_from_message(db, current_user.id, request.message)
+        if not structured_intent_remembered:
+            remember_from_message(db, current_user.id, request.message)
 
         if conversation is not None:
             add_message(db, conversation, "assistant", answer)
