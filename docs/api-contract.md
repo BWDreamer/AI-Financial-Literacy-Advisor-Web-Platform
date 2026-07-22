@@ -36,11 +36,6 @@ The former `/monthly-allocation` write route is retired.
 
 - GET /api/health
 - GET /api/auth/ping
-- POST /api/auth/register/verification-code
-- POST /api/auth/register
-- POST /api/auth/login
-- POST /api/auth/email/verification-code (authenticated user)
-- PUT /api/auth/email (authenticated user)
 - GET /api/profile/ping
 - GET /api/calculator/ping
 - GET /api/calculator/goal-monthly-saving?target_amount=10000&current_amount=1000&months=12
@@ -51,7 +46,6 @@ The former `/monthly-allocation` write route is retired.
 - GET /api/rules/superannuation/employer-contribution?region=Australia&rule_year=2026-2027
 - GET /api/ai/ping
 - POST /api/ai/chat
-- POST /api/ai/chat/stream
 - POST /api/ai/chat/pdf
 - GET /api/memory
 - POST /api/memory
@@ -67,12 +61,6 @@ The former `/monthly-allocation` write route is retired.
 - GET /api/admin/advisory-settings (admin only)
 - PATCH /api/admin/advisory-settings (admin only)
 - POST /api/auth/heartbeat (authenticated user)
-
-Registration first sends a six-digit code to the requested email. The
-registration request must include that code as `verification_code`. Changing
-an authenticated user's login email follows the same pattern and also requires
-the current password. Codes are single-use, expire after the configured TTL,
-are rate-limited when resent, and are stored only as hashes.
 
 Admin user requests use `first_name`, `last_name`, `email`, and `password`
 for creation. Update requests omit `password`. User responses include `id`,
@@ -122,14 +110,6 @@ database retrieval and tax calculations from verified rules before sending
 grounded context back to the LLM for the final plain-English answer.
 Relevant long-term memories are retrieved before the AI drafts a response.
 
-`POST /api/ai/chat/stream` accepts the same JSON body and runs the same
-grounding, memory, goal-planning, persistence, and advisory-settings workflow.
-It returns `application/x-ndjson`: each line is a `delta` event containing a
-provider-generated text chunk, followed by one `done` event containing the
-formatted persisted answer and model. Failures that occur after streaming has
-started are returned as an in-band `error` event with a safe message and status.
-The stream is marked as non-cacheable and disables reverse-proxy buffering.
-
 `POST /api/ai/chat/pdf` accepts multipart form data with `message`,
 `conversation_id`, and one or more `files`. It supports text-based PDFs,
 extracts supported financial fields, calculates income and expenses from
@@ -154,6 +134,14 @@ Memory requests use `fact` and `category`. Supported categories are `asset`,
 `debt`, `expense`, `goal`, `income`, `preference`, `profile`, and `other`.
 Responses include `source`, timestamps, and `last_used_at`. Users can export
 all stored facts through `/api/memory/export`.
+
+After a successful `/api/ai/chat` turn, the backend extracts durable facts from
+the latest user message, recent conversation context, and the assistant reply.
+This lets short answers inherit the subject of the preceding question and lets
+personalized AI recommendations or confirmations become memory. A new value for
+an existing subject updates that memory in place and removes older conflicting
+duplicates. Memory extraction failure never prevents the completed chat reply
+from being returned.
 
 ## Account deletion
 
