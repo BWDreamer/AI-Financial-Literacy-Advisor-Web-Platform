@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date as Date
 from decimal import Decimal, ROUND_HALF_UP
 from io import BytesIO
@@ -27,6 +27,13 @@ from app.services.pdf_asset_classifier import (
     AssetClassifier,
     ExtractedAsset,
     select_classified_assets,
+)
+from app.services.pdf_cash_flow_classifier import (
+    CashFlowKindCandidate,
+    CashFlowKindClassifier,
+    ONE_OFF,
+    ONGOING,
+    selected_cash_flow_kinds,
 )
 
 
@@ -155,6 +162,7 @@ class ExtractedTransaction:
     source_line: str
     transaction_type: str = "unknown"
     direction: str = "none"
+    cash_flow_kind: str = ONE_OFF
 
 
 @dataclass(frozen=True)
@@ -186,6 +194,7 @@ class ImportedFinancialRecord:
     amount: Decimal
     asset_type: str | None = None
     flow_type: str | None = None
+    ongoing_amount: Decimal | None = None
     date: Date | None = None
 
 
@@ -712,6 +721,44 @@ def _facts_with_transaction_totals(
     return calculated_facts
 
 
+def _cash_flow_kind_candidates(
+    transactions: list[ExtractedTransaction],
+) -> list[CashFlowKindCandidate]:
+    return [
+        CashFlowKindCandidate(
+            candidate_id=f"cash_flow_{index}",
+            description=transaction.description,
+            amount=abs(transaction.amount),
+            transaction_type=transaction.transaction_type,
+            source_line=transaction.source_line,
+        )
+        for index, transaction in enumerate(transactions, start=1)
+    ]
+
+
+async def _transactions_with_cash_flow_kinds(
+    transactions: list[ExtractedTransaction],
+    classifier: CashFlowKindClassifier | None,
+) -> list[ExtractedTransaction]:
+    if not transactions or classifier is None:
+        return transactions
+
+    candidates = _cash_flow_kind_candidates(transactions)
+    classifications = await classifier(candidates)
+    kinds_by_candidate_id = selected_cash_flow_kinds(
+        candidates,
+        classifications,
+    )
+
+    return [
+        replace(
+            transaction,
+            cash_flow_kind=kinds_by_candidate_id[candidate.candidate_id],
+        )
+        for transaction, candidate in zip(transactions, candidates)
+    ]
+
+
 def extract_text_from_pdf_bytes(
     content: bytes,
 ) -> str:
@@ -926,6 +973,7 @@ def _upsert_cash_flow(
     name: str,
     flow_type: str,
     amount: Decimal,
+    ongoing_amount: Decimal,
     flow_date: Date,
 ) -> ImportedFinancialRecord:
     existing_cash_flow = get_cash_flow_by_identity(
@@ -942,6 +990,7 @@ def _upsert_cash_flow(
             flow_type=flow_type,
             name=name,
             amount=amount,
+            ongoing_amount=ongoing_amount,
             date=flow_date,
         ),
         existing_cash_flow,
@@ -952,8 +1001,45 @@ def _upsert_cash_flow(
         flow_type=cash_flow.flow_type,
         name=cash_flow.name,
         amount=cash_flow.amount,
+        ongoing_amount=cash_flow.ongoing_amount,
         date=cash_flow.date,
     )
+
+
+def _fact_ongoing_amount(
+    fact: ExtractedFinancialFact,
+    transactions: list[ExtractedTransaction],
+) -> Decimal:
+    expected_income = fact.field == "monthly_income"
+    matching_transactions = [
+        transaction
+        for transaction in transactions
+        if (transaction.amount > 0) == expected_income
+    ]
+    transaction_total = _round_money(
+        sum(
+            (abs(transaction.amount) for transaction in matching_transactions),
+            Decimal("0.00"),
+        )
+    )
+
+    if matching_transactions and transaction_total == fact.amount:
+        return _round_money(
+            sum(
+                (
+                    abs(transaction.amount)
+                    for transaction in matching_transactions
+                    if transaction.cash_flow_kind == ONGOING
+                ),
+                Decimal("0.00"),
+            )
+        )
+
+    normalized_source = fact.source_line.lower()
+    if "monthly" in normalized_source or "regular" in normalized_source:
+        return fact.amount
+
+    return Decimal("0.00")
 
 
 def import_financial_facts(
@@ -963,8 +1049,10 @@ def import_financial_facts(
     *,
     import_date: Date | None = None,
     include_cash_balance: bool = True,
+    transactions: list[ExtractedTransaction] | None = None,
 ) -> list[ImportedFinancialRecord]:
     flow_date = import_date or Date.today()
+    extracted_transactions = transactions or []
     imported_records: list[ImportedFinancialRecord] = []
 
     for fact in facts:
@@ -989,6 +1077,10 @@ def import_financial_facts(
                     name=IMPORTED_MONTHLY_INCOME_NAME,
                     flow_type="income",
                     amount=fact.amount,
+                    ongoing_amount=_fact_ongoing_amount(
+                        fact,
+                        extracted_transactions,
+                    ),
                     flow_date=flow_date,
                 )
             )
@@ -1002,6 +1094,10 @@ def import_financial_facts(
                     name=IMPORTED_MONTHLY_EXPENSES_NAME,
                     flow_type="expense",
                     amount=fact.amount,
+                    ongoing_amount=_fact_ongoing_amount(
+                        fact,
+                        extracted_transactions,
+                    ),
                     flow_date=flow_date,
                 )
             )
@@ -1014,6 +1110,7 @@ async def _extract_facts_and_transactions(
     classify_ambiguous_transactions: (
         AmbiguousTransactionClassifier | None
     ) = None,
+    classify_cash_flow_kinds: CashFlowKindClassifier | None = None,
     classify_asset_candidates: AssetClassifier | None = None,
 ) -> tuple[
     list[ExtractedFinancialFact],
@@ -1038,6 +1135,11 @@ async def _extract_facts_and_transactions(
                 classifications,
             )
         )
+
+    transactions = await _transactions_with_cash_flow_kinds(
+        transactions,
+        classify_cash_flow_kinds,
+    )
 
     assets: list[ExtractedAsset] = []
     if asset_candidates and classify_asset_candidates is not None:
@@ -1084,12 +1186,14 @@ async def process_financial_pdf(
     classify_ambiguous_transactions: (
         AmbiguousTransactionClassifier | None
     ) = None,
+    classify_cash_flow_kinds: CashFlowKindClassifier | None = None,
     classify_asset_candidates: AssetClassifier | None = None,
 ) -> PdfFinancialImportResult:
     extracted_text = extract_text_from_pdf_bytes(content)
     facts, transactions, assets = await _extract_facts_and_transactions(
         extracted_text,
         classify_ambiguous_transactions,
+        classify_cash_flow_kinds,
         classify_asset_candidates,
     )
     ocr_used = False
@@ -1109,6 +1213,7 @@ async def process_financial_pdf(
             ) = await _extract_facts_and_transactions(
                 extracted_text,
                 classify_ambiguous_transactions,
+                classify_cash_flow_kinds,
                 classify_asset_candidates,
             )
 
@@ -1143,6 +1248,7 @@ async def process_financial_pdf(
                 include_cash_balance=(
                     classify_asset_candidates is None
                 ),
+                transactions=transactions,
             )
         )
 
@@ -1169,6 +1275,12 @@ def imported_records_to_api(
             "amount": record.amount,
             "asset_type": record.asset_type,
             "flow_type": record.flow_type,
+            "ongoing_amount": record.ongoing_amount,
+            "one_off_amount": (
+                record.amount - record.ongoing_amount
+                if record.ongoing_amount is not None
+                else None
+            ),
             "date": record.date.isoformat() if record.date else None,
         }
         for record in records
@@ -1235,6 +1347,29 @@ def build_pdf_ai_context(
                 f"expenses=${expense_total:,.2f}; "
                 f"transaction_count={len(result.transactions)}"
             )
+            ongoing_income_total = sum(
+                transaction.amount
+                for transaction in result.transactions
+                if (
+                    transaction.amount > 0
+                    and transaction.cash_flow_kind == ONGOING
+                )
+            )
+            ongoing_expense_total = sum(
+                -transaction.amount
+                for transaction in result.transactions
+                if (
+                    transaction.amount < 0
+                    and transaction.cash_flow_kind == ONGOING
+                )
+            )
+            lines.append(
+                "Cash-flow classification summary: "
+                f"ongoing_income=${ongoing_income_total:,.2f}; "
+                f"ongoing_expenses=${ongoing_expense_total:,.2f}; "
+                f"one_off_income=${income_total - ongoing_income_total:,.2f}; "
+                f"one_off_expenses=${expense_total - ongoing_expense_total:,.2f}"
+            )
             lines.append("Transaction lines used:")
             for transaction in result.transactions[:8]:
                 lines.append(
@@ -1242,6 +1377,7 @@ def build_pdf_ai_context(
                     f"${transaction.amount:,.2f} "
                     f"type={transaction.transaction_type}; "
                     f"direction={transaction.direction}; "
+                    f"cash_flow_kind={transaction.cash_flow_kind}; "
                     f"from line '{transaction.source_line}'"
                 )
 
@@ -1257,6 +1393,14 @@ def build_pdf_ai_context(
                     details.append(f"asset_type={record.asset_type}")
                 if record.flow_type:
                     details.append(f"flow_type={record.flow_type}")
+                if record.ongoing_amount is not None:
+                    details.append(
+                        f"ongoing_amount=${record.ongoing_amount:,.2f}"
+                    )
+                    details.append(
+                        "one_off_amount="
+                        f"${record.amount - record.ongoing_amount:,.2f}"
+                    )
                 if record.date:
                     details.append(f"date={record.date.isoformat()}")
                 lines.append(f"Record {'; '.join(details)}")

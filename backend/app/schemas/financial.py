@@ -41,7 +41,19 @@ class AssetResponse(AssetRequest):
 
 class CashFlowRequest(NamedMoneyRequest):
     flow_type: FlowType
+    ongoing_amount: Decimal = Field(
+        default=Decimal("0"),
+        ge=0,
+        max_digits=14,
+        decimal_places=2,
+    )
     date: date
+
+    @model_validator(mode="after")
+    def ongoing_amount_not_above_total(self):
+        if self.ongoing_amount > self.amount:
+            raise ValueError("Ongoing amount must not exceed the total amount.")
+        return self
 
 
 class CashFlowResponse(CashFlowRequest):

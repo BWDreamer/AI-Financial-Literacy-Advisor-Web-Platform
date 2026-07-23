@@ -1,6 +1,7 @@
 import asyncio
 import json
 from datetime import date, timedelta
+from decimal import Decimal
 from io import BytesIO
 
 import httpx
@@ -22,7 +23,11 @@ from app.main import app
 from tests.helpers import register_verified_user
 from app.models.advisory_settings import AdvisorySettings
 from app.models.financial_rule import FinancialRule
-from app.services import pdf_asset_classifier, pdf_financial_service
+from app.services import (
+    pdf_asset_classifier,
+    pdf_cash_flow_classifier,
+    pdf_financial_service,
+)
 
 
 class SuccessfulTestAdvisorService:
@@ -33,6 +38,7 @@ class SuccessfulTestAdvisorService:
         self.system_instructions: list[str | None] = []
         self.rule_classification_messages: list[str] = []
         self.transaction_classification_messages: list[str] = []
+        self.cash_flow_kind_classification_messages: list[str] = []
         self.asset_classification_messages: list[str] = []
 
     def _rule_classification(self, message: str) -> dict:
@@ -174,6 +180,40 @@ class SuccessfulTestAdvisorService:
             "classifications": classifications,
         }
 
+    def _cash_flow_kind_classification(self, message: str) -> dict:
+        encoded_rows = message.split(
+            "Transactions:\n",
+            maxsplit=1,
+        )[1]
+        rows = json.loads(encoded_rows)
+        ongoing_terms = (
+            "salary",
+            "wages",
+            "rent",
+            "woolworths",
+            "electricity",
+            "utilities",
+            "subscription",
+        )
+
+        return {
+            "classifications": [
+                {
+                    "candidate_id": row["candidate_id"],
+                    "cash_flow_kind": (
+                        "ongoing"
+                        if any(
+                            term in row["description"].lower()
+                            for term in ongoing_terms
+                        )
+                        else "one_off"
+                    ),
+                    "confidence": 0.96,
+                }
+                for row in rows
+            ],
+        }
+
     async def reply(
         self,
         message: str,
@@ -213,6 +253,13 @@ class SuccessfulTestAdvisorService:
         ):
             self.rule_classification_messages.append(message)
             return self._rule_classification(message)
+
+        if message.startswith(
+            "Classify extracted personal finance transactions as ongoing "
+            "or one-off cash flow."
+        ):
+            self.cash_flow_kind_classification_messages.append(message)
+            return self._cash_flow_kind_classification(message)
 
         if message.startswith(
             "Classify monetary items from a financial PDF into "
@@ -2077,6 +2124,60 @@ def test_pdf_asset_classification_enforces_whitelist_and_confidence():
     ] == [("property", "900000.00")]
 
 
+def test_pdf_cash_flow_kind_classification_defaults_uncertain_rows_to_one_off():
+    candidates = [
+        pdf_cash_flow_classifier.CashFlowKindCandidate(
+            candidate_id="cash_flow_1",
+            description="Salary",
+            amount=Decimal("3000.00"),
+            transaction_type="income",
+            source_line="Salary +$3,000",
+        ),
+        pdf_cash_flow_classifier.CashFlowKindCandidate(
+            candidate_id="cash_flow_2",
+            description="Freelance",
+            amount=Decimal("800.00"),
+            transaction_type="income",
+            source_line="Freelance +$800",
+        ),
+        pdf_cash_flow_classifier.CashFlowKindCandidate(
+            candidate_id="cash_flow_3",
+            description="Unknown credit",
+            amount=Decimal("50.00"),
+            transaction_type="income",
+            source_line="Unknown credit +$50",
+        ),
+    ]
+    classifications = (
+        pdf_cash_flow_classifier.normalize_cash_flow_kind_payload(
+            {
+                "classifications": [
+                    {
+                        "candidate_id": "cash_flow_1",
+                        "cash_flow_kind": "ongoing",
+                        "confidence": 0.96,
+                    },
+                    {
+                        "candidate_id": "cash_flow_2",
+                        "cash_flow_kind": "ongoing",
+                        "confidence": 0.4,
+                    },
+                ],
+            },
+            candidates,
+        )
+    )
+
+    assert pdf_cash_flow_classifier.selected_cash_flow_kinds(
+        candidates,
+        classifications,
+    ) == {
+        "cash_flow_1": "ongoing",
+        "cash_flow_2": "one_off",
+        "cash_flow_3": "one_off",
+    }
+
+
 def test_pdf_chat_classifies_multiple_assets_for_homepage(client):
     headers = create_authorization_headers(client)
     conversation_id = client.post(
@@ -2219,6 +2320,17 @@ def test_pdf_chat_extracts_financials_and_updates_homepage_data(client):
         "Imported monthly income",
         "Imported monthly expenses",
     }
+    assert {
+        record["flow_type"]: (
+            record["ongoing_amount"],
+            record["one_off_amount"],
+        )
+        for record in data["imported_records"]
+        if record["flow_type"] is not None
+    } == {
+        "income": (4200.0, 0.0),
+        "expense": (2100.0, 0.0),
+    }
     assert len(service.asset_classification_messages) == 1
     assert "amount_from_backend" in service.asset_classification_messages[0]
     assert len(service.messages) == 1
@@ -2306,8 +2418,31 @@ def test_pdf_chat_calculates_income_and_expenses_from_transactions(client):
         "Imported monthly income": 3800.0,
         "Imported monthly expenses": 1710.0,
     }
+    assert {
+        record["name"]: (
+            record["ongoing_amount"],
+            record["one_off_amount"],
+        )
+        for record in data["imported_records"]
+        if record["flow_type"] is not None
+    } == {
+        "Imported monthly income": (3000.0, 800.0),
+        "Imported monthly expenses": (1710.0, 0.0),
+    }
     assert "Transaction summary: income=$3,800.00" in service.messages[0]
     assert "expenses=$1,710.00" in service.messages[0]
+    assert (
+        "Cash-flow classification summary: "
+        "ongoing_income=$3,000.00; ongoing_expenses=$1,710.00; "
+        "one_off_income=$800.00; one_off_expenses=$0.00"
+    ) in service.messages[0]
+    assert (
+        "Ongoing monthly surplus (ongoing income minus ongoing expenses): "
+        "$1,290.00."
+    ) in service.messages[0]
+    assert "One-off surplus in that period" in service.messages[0]
+    assert "$800.00" in service.messages[0]
+    assert len(service.cash_flow_kind_classification_messages) == 1
 
     financials = client.get(
         "/api/financials",
@@ -2315,11 +2450,14 @@ def test_pdf_chat_calculates_income_and_expenses_from_transactions(client):
     ).json()
     assert financials["assets"][0]["amount"] == "12500.00"
     assert {
-        item["flow_type"]: item["amount"]
+        item["flow_type"]: (
+            item["amount"],
+            item["ongoing_amount"],
+        )
         for item in financials["cash_flows"]
     } == {
-        "income": "3800.00",
-        "expense": "1710.00",
+        "income": ("3800.00", "3000.00"),
+        "expense": ("1710.00", "1710.00"),
     }
 
 

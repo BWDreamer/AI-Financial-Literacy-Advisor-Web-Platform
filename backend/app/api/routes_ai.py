@@ -104,6 +104,12 @@ from app.services.pdf_asset_classifier import (
     build_asset_classification_prompt,
     normalize_asset_classification_payload,
 )
+from app.services.pdf_cash_flow_classifier import (
+    CASH_FLOW_KIND_RESPONSE_SCHEMA,
+    CashFlowKindCandidate,
+    build_cash_flow_kind_prompt,
+    normalize_cash_flow_kind_payload,
+)
 from app.services.pdf_financial_service import (
     AmbiguousTransactionCandidate,
     PdfExtractionError,
@@ -482,6 +488,18 @@ async def _classify_pdf_transactions(
         response,
         candidates,
     )
+
+
+async def _classify_pdf_cash_flow_kinds(
+    advisor_service: AIAdvisorService,
+    candidates: list[CashFlowKindCandidate],
+):
+    payload = await advisor_service.reply_json(
+        build_cash_flow_kind_prompt(candidates),
+        CASH_FLOW_KIND_RESPONSE_SCHEMA,
+    )
+
+    return normalize_cash_flow_kind_payload(payload, candidates)
 
 
 async def _classify_pdf_assets(
@@ -967,6 +985,12 @@ async def chat_with_pdf_upload(
                     content=content,
                     classify_ambiguous_transactions=(
                         lambda candidates: _classify_pdf_transactions(
+                            advisor_service,
+                            candidates,
+                        )
+                    ),
+                    classify_cash_flow_kinds=(
+                        lambda candidates: _classify_pdf_cash_flow_kinds(
                             advisor_service,
                             candidates,
                         )

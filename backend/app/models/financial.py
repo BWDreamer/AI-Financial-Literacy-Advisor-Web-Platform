@@ -1,4 +1,14 @@
-from sqlalchemy import Column, Date, DateTime, ForeignKey, Integer, Numeric, String, func
+from sqlalchemy import (
+    CheckConstraint,
+    Column,
+    Date,
+    DateTime,
+    ForeignKey,
+    Integer,
+    Numeric,
+    String,
+    func,
+)
 
 from app.core.database import Base
 
@@ -27,6 +37,12 @@ class Asset(Base):
 
 class CashFlow(Base):
     __tablename__ = "cash_flows"
+    __table_args__ = (
+        CheckConstraint(
+            "ongoing_amount >= 0 AND ongoing_amount <= amount",
+            name="ck_cash_flows_ongoing_amount",
+        ),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(
@@ -38,6 +54,12 @@ class CashFlow(Base):
     flow_type = Column(String(20), nullable=False)
     name = Column(String(100), nullable=False)
     amount = Column(Numeric(14, 2), nullable=False)
+    ongoing_amount = Column(
+        Numeric(14, 2),
+        nullable=False,
+        default=0,
+        server_default="0.00",
+    )
     date = Column(Date, nullable=False)
     created_at = Column(DateTime, nullable=False, server_default=func.now())
     updated_at = Column(

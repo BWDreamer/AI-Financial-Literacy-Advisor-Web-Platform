@@ -1,5 +1,11 @@
 from datetime import date
+from decimal import Decimal
 
+from app.models.financial import CashFlow, RecurringCashFlow
+from app.services.financial_service import (
+    build_financial_planning_context,
+    build_financial_planning_snapshot,
+)
 from tests.helpers import register_verified_user
 
 
@@ -122,6 +128,63 @@ def test_financial_summary_calculation(client):
     assert len(data["recent_cash_flows"]) == 2
     assert len(data["cash_savings_trend"]) == 6
     assert float(data["cash_savings_trend"][-1]["amount"]) == 4200
+
+
+def test_planning_snapshot_separates_ongoing_and_one_off_components():
+    statement_date = date(2026, 7, 23)
+    cash_flows = [
+        CashFlow(
+            flow_type="income",
+            name="Imported monthly income",
+            amount=Decimal("3800.00"),
+            ongoing_amount=Decimal("3000.00"),
+            date=statement_date,
+        ),
+        CashFlow(
+            flow_type="expense",
+            name="Imported monthly expenses",
+            amount=Decimal("1710.00"),
+            ongoing_amount=Decimal("1710.00"),
+            date=statement_date,
+        ),
+    ]
+    recurring_cash_flows = [
+        RecurringCashFlow(
+            flow_type="income",
+            name="Salary",
+            amount=Decimal("3000.00"),
+            frequency="monthly",
+            start_date=statement_date,
+        ),
+        RecurringCashFlow(
+            flow_type="expense",
+            name="Living costs",
+            amount=Decimal("1710.00"),
+            frequency="monthly",
+            start_date=statement_date,
+        ),
+    ]
+
+    snapshot = build_financial_planning_snapshot(
+        assets=[],
+        debts=[],
+        cash_flows=cash_flows,
+        recurring_cash_flows=recurring_cash_flows,
+        as_of=statement_date,
+    )
+
+    assert snapshot.ongoing_monthly_income == Decimal("3000.00")
+    assert snapshot.ongoing_monthly_expenses == Decimal("1710.00")
+    assert snapshot.ongoing_monthly_surplus == Decimal("1290.00")
+    assert snapshot.one_off_income == Decimal("800.00")
+    assert snapshot.one_off_expenses == Decimal("0.00")
+    assert snapshot.one_off_surplus == Decimal("800.00")
+
+    context = build_financial_planning_context(snapshot)
+    assert "Ongoing monthly surplus" in context
+    assert "$1,290.00" in context
+    assert "One-off surplus in that period" in context
+    assert "$800.00" in context
 
 
 def test_financial_debts_and_recurring_cash_flows_crud(client):

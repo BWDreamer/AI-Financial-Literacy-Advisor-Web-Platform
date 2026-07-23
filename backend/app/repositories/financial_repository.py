@@ -92,6 +92,7 @@ def save_cash_flow(
     cash_flow.flow_type = data.flow_type
     cash_flow.name = data.name
     cash_flow.amount = data.amount
+    cash_flow.ongoing_amount = data.ongoing_amount
     cash_flow.date = data.date
     db.add(cash_flow)
     db.commit()

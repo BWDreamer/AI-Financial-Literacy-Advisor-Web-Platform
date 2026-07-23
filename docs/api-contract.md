@@ -137,6 +137,13 @@ Ambiguous unsigned transaction lines are batched into one LLM structured
 classification request. The LLM classifies direction and transaction type only;
 amount extraction, validation, totals, and database writes remain backend
 responsibilities.
+Extracted income and expense transactions are also batched for a separate
+structured ongoing-versus-one-off classification. The backend keeps the parsed
+amount authoritative, treats missing or low-confidence classifications as
+one-off, and stores the ongoing component in `cash_flows.ongoing_amount`.
+The remainder of each recorded amount is its one-off component. This preserves
+the statement's actual cash movement while preventing one-off income from being
+presented as sustainable monthly capacity.
 
 ## Long-term memory
 
@@ -177,3 +184,9 @@ flow net movement. Recurring cash flows affect `monthly_income` and
 `cash_savings_trend` contains six cumulative month-end balances calculated by
 the backend. The current cash value is included in `total_assets` and
 `asset_allocation`.
+Cash-flow responses include `ongoing_amount`; manual one-off records default it
+to zero. Goal-planning calculations use the latest classified ongoing
+components as monthly capacity and derive one-off amounts as
+`amount - ongoing_amount`. When the same flow type is also represented by an
+active recurring schedule, the larger supported monthly total is used instead
+of summing duplicate evidence.
