@@ -157,6 +157,7 @@ ZERO_ALLOWED_FIELDS = frozenset(
     {
         "current_amount",
         "current_super",
+        "monthly_contribution",
         "minimum_repayment",
         "extra_repayment",
         "cost_buffer",

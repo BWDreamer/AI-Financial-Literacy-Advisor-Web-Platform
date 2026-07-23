@@ -35,7 +35,10 @@ from app.repositories.financial_repository import (
 )
 from app.repositories.rule_repository import get_financial_rule_by_id
 from app.repositories.chat_repository import add_message, get_conversation
-from app.repositories.goal_repository import get_goal
+from app.repositories.goal_repository import (
+    get_goal,
+    save_confirmed_goal_plan,
+)
 from app.schemas.ai import (
     AIChatRequest,
     AIChatResponse,
@@ -76,6 +79,10 @@ from app.services.goal_planning_service import (
     goal_state_payload_is_complete,
     is_goal_planning_follow_up,
     normalize_goal_planning_state,
+)
+from app.services.goal_service import (
+    ConfirmedGoalPlan,
+    build_confirmed_goal_plan,
 )
 from app.services.goal_review_service import (
     build_goal_review_context,
@@ -311,6 +318,7 @@ async def _clarify_goal_intent(
 def _build_goal_workflow_context(
     state: GoalPlanningState | None,
     snapshot: FinancialPlanningSnapshot,
+    confirmed_goals_available: bool = False,
 ) -> str:
     dialogue_context = build_goal_dialogue_context(state, snapshot)
     if dialogue_context is not None:
@@ -324,7 +332,27 @@ def _build_goal_workflow_context(
             state.recommendation_status
             == GoalRecommendationStatus.NEEDS_RECOMMENDATION
         ),
+        confirmed_goals_available=confirmed_goals_available,
     )
+
+
+def _prepare_confirmed_goal_plan(
+    state: GoalPlanningState | None,
+    user_id: int,
+    conversation_id: int | None,
+) -> ConfirmedGoalPlan | None:
+    if (
+        state is None
+        or state.recommendation_status != GoalRecommendationStatus.ACCEPTED
+        or conversation_id is None
+    ):
+        return None
+    try:
+        return build_confirmed_goal_plan(state, user_id)
+    except (KeyError, ValueError) as error:
+        raise LLMServiceError(
+            "The confirmed goal plan could not be converted into MyGoals records."
+        ) from error
 
 
 def _llm_http_error(error: Exception) -> HTTPException:
@@ -496,6 +524,7 @@ async def _advisor_chat_events(
         goal_planning_context = None
         goal_review_context = None
         goal_review = None
+        confirmed_goal_plan = None
         confirmed_intent_memory: ExtractedMemory | None = None
         rule_context = None
         conversation = None
@@ -649,9 +678,15 @@ async def _advisor_chat_events(
                     memory_context,
                     financial_context,
                 )
+            confirmed_goal_plan = _prepare_confirmed_goal_plan(
+                goal_state,
+                current_user.id,
+                conversation.id if conversation is not None else None,
+            )
             goal_planning_context = _build_goal_workflow_context(
                 goal_state,
                 financial_snapshot,
+                confirmed_goals_available=confirmed_goal_plan is not None,
             )
         elif (
             request.goal_id is None
@@ -699,6 +734,14 @@ async def _advisor_chat_events(
                     message,
                     system_instruction=advisory_topic_instructions,
                 )
+            )
+
+        if confirmed_goal_plan is not None and conversation is not None:
+            save_confirmed_goal_plan(
+                db,
+                conversation.id,
+                confirmed_goal_plan.fingerprint,
+                confirmed_goal_plan.goals,
             )
 
         if conversation is not None:
@@ -991,6 +1034,7 @@ async def chat_with_pdf_upload(
         include_empty=goal_discussion,
     )
     goal_planning_context = None
+    confirmed_goal_plan = None
     try:
         if goal_discussion:
             goal_state = await _extract_goal_planning_state(
@@ -1000,9 +1044,15 @@ async def chat_with_pdf_upload(
                 memory_context,
                 financial_context,
             )
+            confirmed_goal_plan = _prepare_confirmed_goal_plan(
+                goal_state,
+                current_user.id,
+                conversation.id if conversation is not None else None,
+            )
             goal_planning_context = _build_goal_workflow_context(
                 goal_state,
                 financial_snapshot,
+                confirmed_goals_available=confirmed_goal_plan is not None,
             )
         context = _build_grounded_message(
             user_message=pdf_context,
@@ -1015,6 +1065,13 @@ async def chat_with_pdf_upload(
         answer = _formatted_answer(
             await advisor_service.reply(context)
         )
+        if confirmed_goal_plan is not None and conversation is not None:
+            save_confirmed_goal_plan(
+                db,
+                conversation.id,
+                confirmed_goal_plan.fingerprint,
+                confirmed_goal_plan.goals,
+            )
     except (
         LLMConfigurationError,
         LLMRateLimitError,

@@ -128,12 +128,29 @@ def _refresh_progress_balances(db: Session, goal: Goal) -> None:
 
 
 def get_allocation_settings(db: Session, user_id: int) -> GoalAllocationSettings:
-    settings = db.query(GoalAllocationSettings).filter(GoalAllocationSettings.user_id == user_id).first()
-    if settings is None:
-        settings = GoalAllocationSettings(user_id=user_id, goal_monthly_ratios=[])
-        db.add(settings)
+    settings = db.query(GoalAllocationSettings).filter(
+        GoalAllocationSettings.user_id == user_id
+    ).first()
+    if settings is not None:
+        return settings
+
+    settings = GoalAllocationSettings(
+        user_id=user_id,
+        goal_monthly_ratios=[],
+    )
+    db.add(settings)
+    try:
         db.commit()
-        db.refresh(settings)
+    except IntegrityError:
+        db.rollback()
+        settings = db.query(GoalAllocationSettings).filter(
+            GoalAllocationSettings.user_id == user_id
+        ).first()
+        if settings is None:
+            raise
+        return settings
+
+    db.refresh(settings)
     return settings
 
 

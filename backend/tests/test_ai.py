@@ -1,5 +1,6 @@
 import asyncio
 import json
+from datetime import date, timedelta
 from io import BytesIO
 
 import httpx
@@ -244,6 +245,41 @@ class SuccessfulPdfAdvisorService(SuccessfulTestAdvisorService):
         self.system_instructions.append(system_instruction)
 
         return f"Financial document response for: {message}"
+
+
+class ZeroMonthlyContributionGoalAdvisorService(
+    SuccessfulTestAdvisorService
+):
+    async def reply_json(
+        self,
+        message: str,
+        response_schema: dict,
+    ) -> dict:
+        if message.startswith(
+            "Extract and complete the user's goal-planning state."
+        ):
+            return {
+                "goal_count": 1,
+                "goals": [
+                    {
+                        "category": "general_saving",
+                        "goal_title": "Bicycle",
+                        "target_amount": 1000,
+                        "deadline": (
+                            date.today() + timedelta(days=365)
+                        ).isoformat(),
+                        "current_amount": 0,
+                        "monthly_contribution": 0,
+                        "priority": "Low",
+                    }
+                ],
+                "recommendation_status": "needs_recommendation",
+            }
+
+        return await super().reply_json(
+            message,
+            response_schema,
+        )
 
 
 class MarkdownTestAdvisorService:
@@ -1227,6 +1263,29 @@ def test_chat_returns_advisor_response(client):
         ),
         "model": "test-model",
     }
+
+
+def test_chat_accepts_goal_plan_with_zero_monthly_contribution(client):
+    service = ZeroMonthlyContributionGoalAdvisorService()
+    app.dependency_overrides[get_ai_advisor_service] = lambda: service
+
+    try:
+        response = client.post(
+            "/api/ai/chat",
+            headers=create_authorization_headers(client),
+            json={
+                "message": (
+                    "I want to save for a bicycle with lower "
+                    "monthly pressure."
+                ),
+            },
+        )
+    finally:
+        app.dependency_overrides.pop(get_ai_advisor_service, None)
+
+    assert response.status_code == 200
+    assert len(service.messages) == 1
+    assert "Planning monthly amount: $0.00." in service.messages[0]
 
 
 def test_chat_stream_returns_incremental_events_and_persists_answer(client):
