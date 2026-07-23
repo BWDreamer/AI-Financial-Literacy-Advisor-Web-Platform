@@ -115,7 +115,12 @@ class GoalChartResponse(BaseModel):
 
 class GoalRatio(BaseModel):
     goal_id: int
-    ratio: Decimal = Field(ge=0, le=100, max_digits=5, decimal_places=2)
+    ratio: Decimal = Field(
+        ge=0,
+        le=100,
+        max_digits=9,
+        decimal_places=6,
+    )
 
 
 class AllocationSettingsRequest(BaseModel):

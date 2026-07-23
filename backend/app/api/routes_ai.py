@@ -346,6 +346,7 @@ def _prepare_confirmed_goal_plan(
     state: GoalPlanningState | None,
     user_id: int,
     conversation_id: int | None,
+    financial_snapshot: FinancialPlanningSnapshot,
 ) -> ConfirmedGoalPlan | None:
     if (
         state is None
@@ -354,7 +355,11 @@ def _prepare_confirmed_goal_plan(
     ):
         return None
     try:
-        return build_confirmed_goal_plan(state, user_id)
+        return build_confirmed_goal_plan(
+            state,
+            user_id,
+            financial_snapshot,
+        )
     except (KeyError, ValueError) as error:
         raise LLMServiceError(
             "The confirmed goal plan could not be converted into MyGoals records."
@@ -700,6 +705,7 @@ async def _advisor_chat_events(
                 goal_state,
                 current_user.id,
                 conversation.id if conversation is not None else None,
+                financial_snapshot,
             )
             goal_planning_context = _build_goal_workflow_context(
                 goal_state,
@@ -760,6 +766,8 @@ async def _advisor_chat_events(
                 conversation.id,
                 confirmed_goal_plan.fingerprint,
                 confirmed_goal_plan.goals,
+                confirmed_goal_plan.one_off_allocations,
+                confirmed_goal_plan.monthly_ratios,
             )
 
         if conversation is not None:
@@ -1072,6 +1080,7 @@ async def chat_with_pdf_upload(
                 goal_state,
                 current_user.id,
                 conversation.id if conversation is not None else None,
+                financial_snapshot,
             )
             goal_planning_context = _build_goal_workflow_context(
                 goal_state,
@@ -1095,6 +1104,8 @@ async def chat_with_pdf_upload(
                 conversation.id,
                 confirmed_goal_plan.fingerprint,
                 confirmed_goal_plan.goals,
+                confirmed_goal_plan.one_off_allocations,
+                confirmed_goal_plan.monthly_ratios,
             )
     except (
         LLMConfigurationError,

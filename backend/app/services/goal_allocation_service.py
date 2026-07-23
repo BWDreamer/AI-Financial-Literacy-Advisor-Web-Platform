@@ -61,9 +61,14 @@ def _goal_name(goal: GoalPlanningGoal) -> str:
     )
 
 
-def _months_until(deadline: date, as_of: date) -> int:
-    months = (deadline.year - as_of.year) * 12 + deadline.month - as_of.month
-    if deadline.day > as_of.day:
+def months_until(deadline: date, as_of: date | None = None) -> int:
+    effective_date = as_of or date.today()
+    months = (
+        (deadline.year - effective_date.year) * 12
+        + deadline.month
+        - effective_date.month
+    )
+    if deadline.day > effective_date.day:
         months += 1
     return max(months, 1)
 
@@ -212,7 +217,7 @@ def calculate_goal_allocations(
     required_monthly = [
         (
             (remaining_target - one_off_amount)
-            / Decimal(_months_until(goal.deadline, effective_date))
+            / Decimal(months_until(goal.deadline, effective_date))
         ).quantize(CENT, rounding=ROUND_HALF_UP)
         for goal, remaining_target, one_off_amount in zip(
             funding_goals,

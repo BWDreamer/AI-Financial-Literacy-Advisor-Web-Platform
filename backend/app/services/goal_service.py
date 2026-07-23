@@ -3,7 +3,7 @@ import hashlib
 import json
 from dataclasses import dataclass
 from datetime import date, timedelta
-from decimal import Decimal, ROUND_DOWN, ROUND_HALF_UP
+from decimal import Decimal, ROUND_HALF_UP
 from types import SimpleNamespace
 from typing import Any
 
@@ -13,8 +13,21 @@ from app.models.financial import CashBucket
 from app.models.goal import Goal, GoalProgress
 from app.repositories.financial_repository import list_assets, list_cash_buckets, list_cash_flows, list_debts, list_recurring_cash_flows
 from app.repositories.goal_repository import list_progress
-from app.services.financial_service import build_financial_summary
+from app.services.financial_service import (
+    FinancialPlanningSnapshot,
+    build_financial_planning_snapshot,
+    build_financial_summary,
+)
+from app.services.goal_allocation_service import (
+    calculate_goal_allocations,
+    months_until,
+)
 from app.schemas.goal import GoalPreviewRequest, GoalRequest
+from app.services.goal_ratio_service import (
+    MAX_GOAL_RATIO,
+    normalize_goal_ratio_rows,
+    ratio_percent,
+)
 from app.services.goal_planning_service import (
     GoalCategory,
     GoalPlanningState,
@@ -24,7 +37,6 @@ from app.services.goal_planning_service import (
 
 
 MONEY = Decimal("0.01")
-MAX_GOAL_RATIO = Decimal("100.00")
 MAX_EXPECTED_CHART_POINTS = 600
 GOAL_STORAGE_CATEGORIES = {
     GoalCategory.GENERAL_SAVING: "General Saving",
@@ -40,22 +52,12 @@ GOAL_STORAGE_CATEGORIES = {
 class ConfirmedGoalPlan:
     fingerprint: str
     goals: tuple[Goal, ...]
+    one_off_allocations: tuple[Decimal, ...]
+    monthly_ratios: tuple[Decimal, ...]
 
 
 def money(value: Decimal) -> Decimal:
     return Decimal(value).quantize(MONEY, rounding=ROUND_HALF_UP)
-
-
-def percent(value: Decimal) -> Decimal:
-    return Decimal(value).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-
-
-def months_until(target: date, today: date | None = None) -> int:
-    today = today or date.today()
-    months = (target.year - today.year) * 12 + target.month - today.month
-    if target.day < today.day:
-        months -= 1
-    return max(months, 0)
 
 
 def add_months(value: date, count: int) -> date:
@@ -217,6 +219,7 @@ def _json_safe_category_details(
 def build_confirmed_goal_plan(
     state: GoalPlanningState,
     user_id: int,
+    snapshot: FinancialPlanningSnapshot,
 ) -> ConfirmedGoalPlan:
     """Convert an accepted AI plan into validated MyGoals records."""
     if state.recommendation_status != GoalRecommendationStatus.ACCEPTED:
@@ -224,8 +227,13 @@ def build_confirmed_goal_plan(
     if not state.goals:
         raise ValueError("An accepted goal plan must contain at least one goal.")
 
+    allocations, _, _ = calculate_goal_allocations(state, snapshot)
+    allocation_iterator = iter(allocations)
+    recurring_basis = max(snapshot.ongoing_monthly_surplus, Decimal("0"))
     requests: list[GoalRequest] = []
     goals: list[Goal] = []
+    one_off_allocations: list[Decimal] = []
+    monthly_ratios: list[Decimal] = []
     for planned_goal in state.goals:
         if planned_goal.priority is None:
             raise ValueError("Every confirmed goal must have a priority.")
@@ -239,10 +247,62 @@ def build_confirmed_goal_plan(
             )
         )
         request = preview["goal"]
+        one_off_amount = Decimal("0")
+        monthly_ratio = Decimal("0")
+        if planned_goal.category != GoalCategory.BUDGET:
+            allocation = next(allocation_iterator)
+            one_off_amount = allocation.one_off_amount
+            current_amount = money(
+                min(
+                    request.target_amount,
+                    request.current_amount + one_off_amount,
+                )
+            )
+            details = dict(request.category_details)
+            details["confirmed_one_off_allocation"] = format(
+                one_off_amount,
+                "f",
+            )
+            details["confirmed_monthly_allocation"] = format(
+                allocation.recurring_monthly_amount,
+                "f",
+            )
+            if "current_amount" in details:
+                details["current_amount"] = format(current_amount, "f")
+            if "current_super" in details:
+                details["current_super"] = format(current_amount, "f")
+            if "monthly_contribution" in details:
+                details["monthly_contribution"] = format(
+                    allocation.recurring_monthly_amount,
+                    "f",
+                )
+            if "regular_contribution" in details:
+                details["regular_contribution"] = format(
+                    allocation.recurring_monthly_amount,
+                    "f",
+                )
+            request = GoalRequest(
+                **{
+                    **request.model_dump(),
+                    "current_amount": current_amount,
+                    "monthly_contribution": (
+                        allocation.recurring_monthly_amount
+                    ),
+                    "category_details": details,
+                }
+            )
+            if recurring_basis > 0:
+                monthly_ratio = ratio_percent(
+                    allocation.recurring_monthly_amount
+                    / recurring_basis
+                    * Decimal("100")
+                )
         goal = Goal(user_id=user_id, **request.model_dump())
         refresh_goal_status(goal)
         requests.append(request)
         goals.append(goal)
+        one_off_allocations.append(one_off_amount)
+        monthly_ratios.append(monthly_ratio)
 
     fingerprint_payload = [
         request.model_dump(mode="json")
@@ -258,6 +318,8 @@ def build_confirmed_goal_plan(
     return ConfirmedGoalPlan(
         fingerprint=fingerprint,
         goals=tuple(goals),
+        one_off_allocations=tuple(one_off_allocations),
+        monthly_ratios=tuple(monthly_ratios),
     )
 
 
@@ -295,10 +357,25 @@ def build_goal_chart(db: Session, goal: Goal) -> dict:
 
 
 def financial_numbers(db: Session, user_id: int) -> dict:
+    assets = list_assets(db, user_id)
+    debts = list_debts(db, user_id)
+    cash_flows = list_cash_flows(db, user_id)
+    recurring_cash_flows = list_recurring_cash_flows(db, user_id)
     summary = build_financial_summary(
-        list_assets(db, user_id), list_debts(db, user_id),
-        list_cash_flows(db, user_id), list_recurring_cash_flows(db, user_id),
+        assets,
+        debts,
+        cash_flows,
+        recurring_cash_flows,
     )
+    snapshot = build_financial_planning_snapshot(
+        assets,
+        debts,
+        cash_flows,
+        recurring_cash_flows,
+    )
+    summary["monthly_income"] = snapshot.ongoing_monthly_income
+    summary["monthly_expenses"] = snapshot.ongoing_monthly_expenses
+    summary["monthly_cash_flow"] = snapshot.ongoing_monthly_surplus
     summary["cash_buckets"] = list_cash_buckets(db, user_id)
     return summary
 
@@ -318,46 +395,6 @@ def monthly_allocation_map(db: Session, user_id: int, settings) -> dict[int, Dec
 def active_goal_ratios(goals: list[Goal], ratios: list) -> list:
     active_ids = {goal.id for goal in goals if goal.status != "completed" and not goal.archived}
     return [item for item in ratios if int(item["goal_id"] if isinstance(item, dict) else item.goal_id) in active_ids]
-
-
-def normalize_goal_ratio_rows(ratios: list) -> list[dict[str, int | str]]:
-    """Return two-decimal goal ratios whose total never exceeds 100%."""
-    rows: list[tuple[int, Decimal]] = []
-    for item in ratios:
-        goal_id = item["goal_id"] if isinstance(item, dict) else item.goal_id
-        ratio = item["ratio"] if isinstance(item, dict) else item.ratio
-        rows.append((int(goal_id), max(percent(Decimal(str(ratio))), Decimal("0"))))
-
-    total = sum((ratio for _, ratio in rows), Decimal("0"))
-    if total > MAX_GOAL_RATIO:
-        exact_scaled = [
-            (goal_id, ratio * MAX_GOAL_RATIO / total)
-            for goal_id, ratio in rows
-        ]
-        rows = [
-            (goal_id, ratio.quantize(MONEY, rounding=ROUND_DOWN))
-            for goal_id, ratio in exact_scaled
-        ]
-        remaining_cents = int(
-            (MAX_GOAL_RATIO - sum((ratio for _, ratio in rows), Decimal("0")))
-            / MONEY
-        )
-        remainder_order = sorted(
-            range(len(rows)),
-            key=lambda index: (
-                exact_scaled[index][1] - rows[index][1],
-                -index,
-            ),
-            reverse=True,
-        )
-        for index in remainder_order[:remaining_cents]:
-            goal_id, ratio = rows[index]
-            rows[index] = (goal_id, ratio + MONEY)
-
-    return [
-        {"goal_id": goal_id, "ratio": str(percent(ratio))}
-        for goal_id, ratio in rows
-    ]
 
 
 def backfill_goal_ratios(goals: list[Goal], finance: dict, settings) -> bool:
@@ -381,9 +418,18 @@ def backfill_goal_ratios(goals: list[Goal], finance: dict, settings) -> bool:
     for goal in goals:
         if goal.status == "completed" or goal.archived:
             continue
-        ratio = money(Decimal(goal.monthly_contribution) / allocatable * 100)
+        ratio = ratio_percent(
+            Decimal(goal.monthly_contribution) / allocatable * 100
+        )
         if ratio > 0:
-            rows.append({"goal_id": goal.id, "ratio": str(percent(min(ratio, Decimal("100"))))})
+            rows.append(
+                {
+                    "goal_id": goal.id,
+                    "ratio": str(
+                        ratio_percent(min(ratio, MAX_GOAL_RATIO))
+                    ),
+                }
+            )
     if not rows:
         if stored_rows:
             settings.goal_monthly_ratios = []
@@ -401,13 +447,31 @@ def sync_goal_monthly_ratio(db: Session, goal: Goal) -> None:
     rows = []
     for item in settings.goal_monthly_ratios or []:
         if int(item["goal_id"]) != goal.id:
-            rows.append({"goal_id": int(item["goal_id"]), "ratio": str(percent(Decimal(str(item["ratio"]))))})
+            rows.append(
+                {
+                    "goal_id": int(item["goal_id"]),
+                    "ratio": str(
+                        ratio_percent(Decimal(str(item["ratio"])))
+                    ),
+                }
+            )
     if goal.status == "completed" or goal.archived:
         settings.goal_monthly_ratios = normalize_goal_ratio_rows(rows)
         db.add(settings)
         return
     if allocatable > 0 and Decimal(goal.monthly_contribution) > 0:
-        rows.append({"goal_id": goal.id, "ratio": str(percent(Decimal(goal.monthly_contribution) / allocatable * 100))})
+        rows.append(
+            {
+                "goal_id": goal.id,
+                "ratio": str(
+                    ratio_percent(
+                        Decimal(goal.monthly_contribution)
+                        / allocatable
+                        * 100
+                    )
+                ),
+            }
+        )
     settings.goal_monthly_ratios = normalize_goal_ratio_rows(rows)
     db.add(settings)
 

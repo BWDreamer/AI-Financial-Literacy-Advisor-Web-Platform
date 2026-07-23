@@ -1,8 +1,10 @@
+from datetime import date
 from decimal import Decimal
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.models.financial import CashBucket
 from app.models.goal import (
     Goal,
     GoalAllocationSettings,
@@ -11,6 +13,7 @@ from app.models.goal import (
     GoalProgress,
 )
 from app.schemas.goal import AllocationSettingsRequest, GoalProgressRequest, GoalRequest
+from app.services.goal_ratio_service import normalize_goal_ratio_rows
 
 
 def list_goals(db: Session, user_id: int) -> list[Goal]:
@@ -47,10 +50,22 @@ def save_confirmed_goal_plan(
     conversation_id: int,
     plan_fingerprint: str,
     goals: tuple[Goal, ...],
+    one_off_allocations: tuple[Decimal, ...],
+    monthly_ratios: tuple[Decimal, ...],
 ) -> bool:
     """Persist one confirmed plan once for its originating conversation."""
     if goal_plan_confirmation_exists(db, conversation_id, plan_fingerprint):
         return False
+    if not (
+        len(goals)
+        == len(one_off_allocations)
+        == len(monthly_ratios)
+    ):
+        raise ValueError("Confirmed goal allocations must align with goals.")
+    user_ids = {goal.user_id for goal in goals}
+    if len(user_ids) != 1:
+        raise ValueError("A confirmed goal plan must belong to one user.")
+    user_id = next(iter(user_ids))
 
     confirmation = GoalPlanConfirmation(
         conversation_id=conversation_id,
@@ -60,6 +75,68 @@ def save_confirmed_goal_plan(
         db.add(confirmation)
         db.flush()
         db.add_all(goals)
+        db.flush()
+
+        for goal, one_off_amount in zip(
+            goals,
+            one_off_allocations,
+            strict=True,
+        ):
+            if goal.current_amount > 0:
+                db.add(
+                    CashBucket(
+                        user_id=user_id,
+                        goal_id=goal.id,
+                        bucket_type="goal_reserved",
+                        name=goal.name,
+                        amount=goal.current_amount,
+                    )
+                )
+            if one_off_amount > 0:
+                db.add(
+                    GoalProgress(
+                        goal_id=goal.id,
+                        amount=one_off_amount,
+                        progress_date=date.today(),
+                        note="One-off allocation from confirmed AI savings plan",
+                        source="ai_plan_one_off",
+                        new_current_amount=goal.current_amount,
+                    )
+                )
+
+        if any(ratio > 0 for ratio in monthly_ratios):
+            settings = db.query(GoalAllocationSettings).filter(
+                GoalAllocationSettings.user_id == user_id
+            ).first()
+            if settings is None:
+                settings = GoalAllocationSettings(
+                    user_id=user_id,
+                    goal_monthly_ratios=[],
+                )
+            new_goal_ids = {goal.id for goal in goals}
+            ratio_rows = [
+                item
+                for item in (settings.goal_monthly_ratios or [])
+                if int(item["goal_id"]) not in new_goal_ids
+            ]
+            ratio_rows.extend(
+                {
+                    "goal_id": goal.id,
+                    "ratio": str(ratio),
+                }
+                for goal, ratio in zip(
+                    goals,
+                    monthly_ratios,
+                    strict=True,
+                )
+                if ratio > 0
+            )
+            settings.monthly_allocatable_ratio = Decimal("100")
+            settings.goal_monthly_ratios = normalize_goal_ratio_rows(
+                ratio_rows
+            )
+            db.add(settings)
+
         db.commit()
     except IntegrityError:
         db.rollback()

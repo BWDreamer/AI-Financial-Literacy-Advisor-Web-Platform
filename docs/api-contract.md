@@ -21,8 +21,11 @@
 Goal requests contain `name`, `category`, `target_amount`, `current_amount`,
 `monthly_contribution`, `target_date`, and `priority` (1-5). Goal responses
 include backend-calculated `status` and `progress_percentage`. Progress is the
-only public API that changes a goal's current amount; the older
-`/contributions` routes are retired.
+only public API that directly changes a goal's current amount; the older
+`/contributions` routes are retired. Accepting an AI savings plan is an
+internal atomic workflow: it creates the goals, applies confirmed one-off
+allocations as progress, reserves their cash, and initializes the exact ongoing
+monthly allocations shown in MyGoals.
 
 `POST /api/goals/preview` accepts the selected category, target date, priority,
 and raw `category_details`. It returns normalized goal fields plus goal analysis,
@@ -32,6 +35,9 @@ the frontend wizard.
 `GET/PUT /api/goals/allocation-settings` is the single source of truth for
 allocation ratios. Its response includes backend-calculated monthly net income,
 allocatable, assigned and unassigned totals, plus each goal's monthly amount.
+The monthly source uses sustainable ongoing income minus ongoing expenses; it
+does not include one-off cash-flow components. Ratios retain enough precision
+for confirmed cent-level monthly amounts to round-trip without drift.
 The former `/monthly-allocation` write route is retired.
 
 - GET /api/health
