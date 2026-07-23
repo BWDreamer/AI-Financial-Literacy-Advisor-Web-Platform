@@ -21,11 +21,12 @@ def send_verification_email(
             "Email delivery is not configured."
         )
 
-    action = (
-        "complete your registration"
-        if purpose == "registration"
-        else "confirm your new email address"
-    )
+    actions = {
+        "registration": "complete your registration",
+        "email_change": "confirm your new email address",
+        "password_reset": "reset your password",
+    }
+    action = actions.get(purpose, "verify your email address")
     minutes = max(1, expires_in_seconds // 60)
     message = EmailMessage()
     message["Subject"] = f"{settings.app_name} email verification code"

@@ -40,6 +40,8 @@ from app.schemas.auth import (
     EmailUpdateRequest,
     EmailChangeVerificationCodeRequest,
     OnboardingUpdateRequest,
+    PasswordResetRequest,
+    PasswordResetVerificationCodeRequest,
     PasswordUpdateRequest,
     RegistrationVerificationCodeRequest,
     TokenResponse,
@@ -432,6 +434,67 @@ def change_my_password(
         ),
     )
 
+    return None
+
+
+@router.post(
+    "/password-reset/verification-code",
+    response_model=VerificationCodeSentResponse,
+)
+def send_password_reset_verification_code(
+    request: PasswordResetVerificationCodeRequest,
+    db: Session = Depends(get_db),
+):
+    email = request.email.lower().strip()
+    user = get_user_by_email(db, email)
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No account was found for this email address.",
+        )
+    return _verification_code_response(
+        db=db,
+        email=email,
+        purpose="password_reset",
+        user_id=user.id,
+    )
+
+
+@router.put(
+    "/password-reset",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def reset_password(
+    request: PasswordResetRequest,
+    db: Session = Depends(get_db),
+):
+    email = request.email.lower().strip()
+    user = get_user_by_email(db, email)
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No account was found for this email address.",
+        )
+    try:
+        consume_verification_code(
+            db,
+            email=email,
+            purpose="password_reset",
+            code=request.verification_code,
+            user_id=user.id,
+        )
+    except VerificationCodeError as error:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(error),
+        ) from error
+    if verify_password(request.new_password, user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="The new password must be different from the current password.",
+        )
+    update_password_hash(db=db, user=user, password_hash=hash_password(request.new_password))
     return None
 
 

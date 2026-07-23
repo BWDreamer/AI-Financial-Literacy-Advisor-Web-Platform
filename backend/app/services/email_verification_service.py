@@ -16,7 +16,7 @@ from app.repositories.email_verification_repository import (
 from app.services import email_service
 
 
-VerificationPurpose = Literal["registration", "email_change"]
+VerificationPurpose = Literal["registration", "email_change", "password_reset"]
 
 
 class VerificationCodeError(ValueError):

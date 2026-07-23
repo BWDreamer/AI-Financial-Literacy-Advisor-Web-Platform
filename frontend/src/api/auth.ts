@@ -95,6 +95,20 @@ export function updatePassword(currentPassword: string, newPassword: string) {
   });
 }
 
+export function sendPasswordResetVerificationCode(email: string) {
+  return apiRequest<VerificationCodeSentResponse>("/auth/password-reset/verification-code", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+}
+
+export function resetPassword(email: string, verificationCode: string, newPassword: string) {
+  return apiRequest<void>("/auth/password-reset", {
+    method: "PUT",
+    body: JSON.stringify({ email, verification_code: verificationCode, new_password: newPassword }),
+  });
+}
+
 export function deleteAccount(currentPassword: string) {
   return apiRequest<void>("/auth/me", {
     method: "DELETE",
