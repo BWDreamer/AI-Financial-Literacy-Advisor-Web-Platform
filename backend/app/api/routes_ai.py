@@ -1,4 +1,7 @@
+import json
+import logging
 import re
+from collections.abc import AsyncIterator
 
 from fastapi import (
     APIRouter,
@@ -9,6 +12,7 @@ from fastapi import (
     status,
     UploadFile,
 )
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.ai.dependencies import get_ai_advisor_service
@@ -100,6 +104,7 @@ from app.services.rule_lookup_service import (
 )
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 PDF_MODEL_CONTEXT = "pdf-financial-parser"
 GOAL_PLANNING_PATTERN = re.compile(
     r"\b(?:my|our|financial|money)\s+goals?\b|"
@@ -264,33 +269,36 @@ def _build_goal_workflow_context(
     )
 
 
-def _raise_llm_http_error(error: Exception) -> None:
+def _llm_http_error(error: Exception) -> HTTPException:
     if isinstance(error, LLMConfigurationError):
-        raise HTTPException(
+        return HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=(
                 "The AI service is not configured. "
                 "Set the configured provider API key on the backend."
             ),
-        ) from error
+        )
 
     if isinstance(error, LLMRateLimitError):
-        raise HTTPException(
+        return HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail=(
                 "The AI provider rate limit was reached. "
                 "Please wait a moment and try again."
             ),
-        ) from error
+        )
 
-    if isinstance(error, LLMServiceError):
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=(
-                "The AI service could not generate a response. "
-                "Please try again."
-            ),
-        ) from error
+    return HTTPException(
+        status_code=status.HTTP_502_BAD_GATEWAY,
+        detail=(
+            "The AI service could not generate a response. "
+            "Please try again."
+        ),
+    )
+
+
+def _raise_llm_http_error(error: Exception) -> None:
+    raise _llm_http_error(error) from error
 
 
 def _formatted_answer(answer: str) -> str:
@@ -411,21 +419,15 @@ async def _classify_pdf_assets(
     return classifications
 
 
-@router.post(
-    "/chat",
-    response_model=AIChatResponse,
-)
-async def chat_with_advisor(
+async def _advisor_chat_events(
     request: AIChatRequest,
-    current_user: User = Depends(
-        get_current_user
-    ),
-    advisor_service: AIAdvisorService = Depends(
-        get_ai_advisor_service
-    ),
-    db: Session = Depends(get_db),
-):
-    """Return an educational reply from the configured LLM."""
+    current_user: User,
+    advisor_service: AIAdvisorService,
+    db: Session,
+    *,
+    stream_response: bool,
+) -> AsyncIterator[dict[str, str | int]]:
+    """Run one chat turn and emit events from a shared business workflow."""
     try:
         advisory_topic_instructions = build_advisory_topic_instructions(
             get_advisory_settings(db)["topics"]
@@ -560,60 +562,85 @@ async def chat_with_advisor(
             rule_context=rule_context,
             goal_review_context=goal_review_context,
         )
-        answer = _formatted_answer(
-            await advisor_service.reply(
+        if stream_response:
+            answer_parts: list[str] = []
+            async for chunk in advisor_service.stream_reply(
                 message,
                 system_instruction=advisory_topic_instructions,
-            )
-        )
-
-        memory_snapshot = get_memory_snapshot(
-            db,
-            current_user.id,
-            "\n".join(
-                context
-                for context in (
-                    conversation_context,
-                    request.message,
-                    answer,
-                )
-                if context
-            ),
-        )
-        structured_memories = []
-        if reply_json is not None:
-            try:
-                memory_payload = await reply_json(
-                    build_memory_extraction_prompt(
-                        memory_snapshot,
-                        conversation_context,
-                        request.message,
-                        answer,
-                    ),
-                    MEMORY_EXTRACTION_RESPONSE_SCHEMA,
-                )
-                structured_memories = normalize_memory_extraction_payload(
-                    memory_payload,
-                    memory_snapshot,
-                )
-            except (
-                LLMConfigurationError,
-                LLMRateLimitError,
-                LLMServiceError,
             ):
-                structured_memories = []
-
-        remember_from_conversation_turn(
-            db,
-            current_user.id,
-            user_message=request.message,
-            assistant_message=answer,
-            conversation_context=conversation_context,
-            structured_memories=structured_memories,
-        )
+                answer_parts.append(chunk)
+                yield {
+                    "type": "delta",
+                    "content": chunk,
+                }
+            answer = _formatted_answer("".join(answer_parts))
+        else:
+            answer = _formatted_answer(
+                await advisor_service.reply(
+                    message,
+                    system_instruction=advisory_topic_instructions,
+                )
+            )
 
         if conversation is not None:
             add_message(db, conversation, "assistant", answer)
+
+        try:
+            memory_snapshot = get_memory_snapshot(
+                db,
+                current_user.id,
+                "\n".join(
+                    context
+                    for context in (
+                        conversation_context,
+                        request.message,
+                        answer,
+                    )
+                    if context
+                ),
+            )
+            structured_memories = []
+            if reply_json is not None:
+                try:
+                    memory_payload = await reply_json(
+                        build_memory_extraction_prompt(
+                            memory_snapshot,
+                            conversation_context,
+                            request.message,
+                            answer,
+                        ),
+                        MEMORY_EXTRACTION_RESPONSE_SCHEMA,
+                    )
+                    structured_memories = normalize_memory_extraction_payload(
+                        memory_payload,
+                        memory_snapshot,
+                    )
+                except (
+                    LLMConfigurationError,
+                    LLMRateLimitError,
+                    LLMServiceError,
+                ):
+                    structured_memories = []
+
+            remember_from_conversation_turn(
+                db,
+                current_user.id,
+                user_message=request.message,
+                assistant_message=answer,
+                conversation_context=conversation_context,
+                structured_memories=structured_memories,
+            )
+        except Exception:
+            db.rollback()
+            logger.exception(
+                "Unable to update memory after a completed chat response."
+            )
+
+        yield {
+            "type": "done",
+            "answer": answer,
+            "model": advisor_service.model,
+        }
     except (
         LLMConfigurationError,
         LLMRateLimitError,
@@ -621,9 +648,98 @@ async def chat_with_advisor(
     ) as error:
         _raise_llm_http_error(error)
 
-    return AIChatResponse(
-        answer=answer,
-        model=advisor_service.model,
+
+@router.post(
+    "/chat",
+    response_model=AIChatResponse,
+)
+async def chat_with_advisor(
+    request: AIChatRequest,
+    current_user: User = Depends(get_current_user),
+    advisor_service: AIAdvisorService = Depends(
+        get_ai_advisor_service
+    ),
+    db: Session = Depends(get_db),
+):
+    """Return an educational reply from the configured LLM."""
+    async for event in _advisor_chat_events(
+        request,
+        current_user,
+        advisor_service,
+        db,
+        stream_response=False,
+    ):
+        if event["type"] == "done":
+            return AIChatResponse(
+                answer=str(event["answer"]),
+                model=str(event["model"]),
+            )
+
+    _raise_llm_http_error(
+        LLMServiceError("The AI service returned no response.")
+    )
+
+
+async def _stream_advisor_chat(
+    request: AIChatRequest,
+    current_user: User,
+    advisor_service: AIAdvisorService,
+    db: Session,
+) -> AsyncIterator[str]:
+    try:
+        async for event in _advisor_chat_events(
+            request,
+            current_user,
+            advisor_service,
+            db,
+            stream_response=True,
+        ):
+            yield json.dumps(event, ensure_ascii=False) + "\n"
+    except HTTPException as error:
+        yield json.dumps(
+            {
+                "type": "error",
+                "message": str(error.detail),
+                "status": error.status_code,
+            },
+            ensure_ascii=False,
+        ) + "\n"
+    except Exception:
+        logger.exception("Unexpected advisor streaming failure.")
+        yield json.dumps(
+            {
+                "type": "error",
+                "message": (
+                    "Unable to stream the AI response. Please try again."
+                ),
+                "status": status.HTTP_500_INTERNAL_SERVER_ERROR,
+            },
+            ensure_ascii=False,
+        ) + "\n"
+
+
+@router.post("/chat/stream")
+async def stream_chat_with_advisor(
+    request: AIChatRequest,
+    current_user: User = Depends(get_current_user),
+    advisor_service: AIAdvisorService = Depends(
+        get_ai_advisor_service
+    ),
+    db: Session = Depends(get_db),
+):
+    """Stream an educational LLM reply as newline-delimited JSON events."""
+    return StreamingResponse(
+        _stream_advisor_chat(
+            request,
+            current_user,
+            advisor_service,
+            db,
+        ),
+        media_type="application/x-ndjson",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
     )
 
 

@@ -1285,6 +1285,61 @@ def test_chat_stream_returns_incremental_events_and_persists_answer(client):
     )
 
 
+def test_chat_stream_keeps_completed_answer_when_memory_update_fails(
+    client,
+    monkeypatch,
+):
+    headers = create_authorization_headers(client)
+    conversation_id = client.post(
+        "/api/chat/conversations",
+        headers=headers,
+        json={},
+    ).json()["conversation_id"]
+    app.dependency_overrides[
+        get_ai_advisor_service
+    ] = lambda: StreamingTestAdvisorService()
+
+    def fail_memory_update(*args, **kwargs):
+        del args, kwargs
+        raise RuntimeError("Test memory storage failure.")
+
+    monkeypatch.setattr(
+        "app.api.routes_ai.remember_from_conversation_turn",
+        fail_memory_update,
+    )
+    try:
+        response = client.post(
+            "/api/ai/chat/stream",
+            headers=headers,
+            json={
+                "message": "How should I start saving?",
+                "conversation_id": conversation_id,
+            },
+        )
+    finally:
+        app.dependency_overrides.pop(get_ai_advisor_service, None)
+
+    events = [
+        json.loads(line)
+        for line in response.text.splitlines()
+        if line
+    ]
+    assert events[-1] == {
+        "type": "done",
+        "answer": "Streamed **financial guidance**.",
+        "model": "test-model",
+    }
+
+    detail = client.get(
+        f"/api/chat/conversations/{conversation_id}",
+        headers=headers,
+    ).json()
+    assert detail["messages"][-1]["role"] == "assistant"
+    assert detail["messages"][-1]["content"] == (
+        "Streamed **financial guidance**."
+    )
+
+
 def test_chat_stream_returns_in_band_error_after_partial_output(client):
     headers = create_authorization_headers(client)
     conversation_id = client.post(
@@ -1332,6 +1387,31 @@ def test_chat_stream_returns_in_band_error_after_partial_output(client):
     ).json()
     assert [message["role"] for message in detail["messages"]] == [
         "user",
+    ]
+
+
+def test_chat_stream_returns_in_band_error_for_missing_conversation(client):
+    response = client.post(
+        "/api/ai/chat/stream",
+        headers=create_authorization_headers(client),
+        json={
+            "message": "How should I start saving?",
+            "conversation_id": 999,
+        },
+    )
+
+    events = [
+        json.loads(line)
+        for line in response.text.splitlines()
+        if line
+    ]
+    assert response.status_code == 200
+    assert events == [
+        {
+            "type": "error",
+            "message": "Conversation was not found.",
+            "status": 404,
+        }
     ]
 
 
