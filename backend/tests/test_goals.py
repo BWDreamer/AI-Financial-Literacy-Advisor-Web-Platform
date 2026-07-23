@@ -1,9 +1,14 @@
 import json
 from datetime import date, timedelta
 from decimal import Decimal
+from unittest.mock import MagicMock
+
+from sqlalchemy.exc import IntegrityError
 
 from app.models.goal import GoalAllocationSettings
 from app.models.user import User
+from app.repositories.goal_repository import get_allocation_settings
+from app.services.financial_service import FinancialPlanningSnapshot
 from app.services.goal_planning_service import normalize_goal_planning_state
 from app.services.goal_service import build_confirmed_goal_plan
 from tests.helpers import register_verified_user
@@ -22,6 +27,32 @@ def payload(**overrides):
     data = {"name": "Emergency fund", "category": "savings", "target_amount": "10000.00", "current_amount": "1000.00", "monthly_contribution": "500.00", "target_date": (date.today() + timedelta(days=365)).isoformat(), "priority": 1}
     data.update(overrides)
     return data
+
+
+def test_allocation_settings_recovers_from_concurrent_default_creation():
+    db = MagicMock()
+    query = MagicMock()
+    concurrent_settings = GoalAllocationSettings(
+        id=7,
+        user_id=42,
+        goal_monthly_ratios=[],
+    )
+    query.filter.return_value.first.side_effect = [
+        None,
+        concurrent_settings,
+    ]
+    db.query.return_value = query
+    db.commit.side_effect = IntegrityError(
+        "INSERT INTO goal_allocation_settings",
+        {"user_id": 42},
+        Exception("duplicate user allocation settings"),
+    )
+
+    settings = get_allocation_settings(db, user_id=42)
+
+    assert settings is concurrent_settings
+    db.rollback.assert_called_once_with()
+    db.refresh.assert_not_called()
 
 
 def test_confirmed_ai_plan_maps_all_supported_goal_categories():
@@ -90,7 +121,22 @@ def test_confirmed_ai_plan_maps_all_supported_goal_categories():
         }
     )
 
-    confirmed_plan = build_confirmed_goal_plan(state, user_id=42)
+    confirmed_plan = build_confirmed_goal_plan(
+        state,
+        user_id=42,
+        snapshot=FinancialPlanningSnapshot(
+            has_financial_records=False,
+            has_cash_flow_records=False,
+            total_assets=Decimal("0"),
+            total_debts=Decimal("0"),
+            cash_savings=Decimal("0"),
+            ongoing_monthly_income=Decimal("0"),
+            ongoing_monthly_expenses=Decimal("0"),
+            one_off_period=None,
+            one_off_income=Decimal("0"),
+            one_off_expenses=Decimal("0"),
+        ),
+    )
     goals = confirmed_plan.goals
 
     assert len(confirmed_plan.fingerprint) == 64

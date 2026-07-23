@@ -73,12 +73,12 @@ function readImage(file: File) {
   });
 }
 
-function HistoryItem({ item, activeId, onSelect, onDelete }: { item: Conversation; activeId?: number; onSelect: () => void; onDelete: () => void }) {
-  return <button type="button" onClick={onSelect} title={item.title} className={`group flex w-full items-center gap-3 rounded-2xl p-3 text-left transition ${activeId === item.conversation_id ? "bg-blue-50 text-slate-900" : "text-slate-600 hover:bg-slate-50"}`}><span className="min-w-0 flex-1 truncate text-sm font-semibold">{item.title}</span><span onClick={(event) => { event.stopPropagation(); onDelete(); }} className="grid size-8 shrink-0 place-items-center rounded-xl text-red-500 hover:bg-red-50"><Trash2 size={16} /></span></button>;
+function HistoryItem({ item, activeId, disabled, onSelect, onDelete }: { item: Conversation; activeId?: number; disabled: boolean; onSelect: () => void; onDelete: () => void }) {
+  return <button type="button" disabled={disabled} onClick={onSelect} title={item.title} className={`group flex w-full items-center gap-3 rounded-2xl p-3 text-left transition disabled:cursor-not-allowed disabled:opacity-60 ${activeId === item.conversation_id ? "bg-blue-50 text-slate-900" : "text-slate-600 hover:bg-slate-50"}`}><span className="min-w-0 flex-1 truncate text-sm font-semibold">{item.title}</span><span onClick={(event) => { event.stopPropagation(); onDelete(); }} className="grid size-8 shrink-0 place-items-center rounded-xl text-red-500 hover:bg-red-50"><Trash2 size={16} /></span></button>;
 }
 
-function ConversationSidebar({ conversations, activeId, onNew, onSelect, onDelete }: { conversations: Conversation[]; activeId?: number; onNew: () => void; onSelect: (id: number) => void; onDelete: (id: number) => void }) {
-  return <aside className="sticky top-0 h-screen w-64 shrink-0 overflow-y-auto border-r border-slate-200 bg-white p-4"><button type="button" onClick={onNew} className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white"><Plus size={18} />New Conversation</button><p className="mt-5 px-1 text-xs font-bold uppercase tracking-[0.2em] text-slate-400">Historical Conversation</p><div className="mt-3 space-y-2">{conversations.length === 0 && <p className="p-3 text-sm text-slate-500">No saved conversations.</p>}{conversations.map((item) => <HistoryItem key={item.conversation_id} item={item} activeId={activeId} onSelect={() => onSelect(item.conversation_id)} onDelete={() => onDelete(item.conversation_id)} />)}</div></aside>;
+function ConversationSidebar({ conversations, activeId, disabled, onNew, onSelect, onDelete }: { conversations: Conversation[]; activeId?: number; disabled: boolean; onNew: () => void; onSelect: (id: number) => void; onDelete: (id: number) => void }) {
+  return <aside className="sticky top-0 h-screen w-64 shrink-0 overflow-y-auto border-r border-slate-200 bg-white p-4"><button type="button" disabled={disabled} onClick={onNew} className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"><Plus size={18} />New Conversation</button><p className="mt-5 px-1 text-xs font-bold uppercase tracking-[0.2em] text-slate-400">Historical Conversation</p><div className="mt-3 space-y-2">{conversations.length === 0 && <p className="p-3 text-sm text-slate-500">No saved conversations.</p>}{conversations.map((item) => <HistoryItem key={item.conversation_id} item={item} activeId={activeId} disabled={disabled} onSelect={() => onSelect(item.conversation_id)} onDelete={() => onDelete(item.conversation_id)} />)}</div></aside>;
 }
 
 function EmptyConversationWelcome({ userName }: { userName: string }) {
@@ -149,7 +149,7 @@ function MessageList({ messages, attachments, pending, sending, userName, pendin
         </div>
       )}
       {pending && (
-        <div className="space-y-4" aria-live="polite">
+        <div className="space-y-4" aria-busy={pending.thinking}>
           {!pendingGoalReview && (
             <div className="flex justify-end">
               <article
@@ -251,6 +251,7 @@ export default function AdvisorChat() {
   const [goalPlanningPending, setGoalPlanningPending] = useState(false);
   const [pendingExchange, setPendingExchange] = useState<PendingExchange | null>(null);
   const [pendingGoalReview, setPendingGoalReview] = useState<GoalReviewCardData | null>(null);
+  const activeRequestControllerRef = useRef<AbortController | null>(null);
   const requestedGoalReview = useMemo(
     () => goalReviewRouteState(location.state),
     [location.state],
@@ -282,6 +283,11 @@ export default function AdvisorChat() {
   useEffect(() => {
     rememberSuggestedQuestions(suggestedQuestions);
   }, [suggestedQuestions]);
+
+  useEffect(
+    () => () => activeRequestControllerRef.current?.abort(),
+    [],
+  );
 
   useEffect(() => {
     setConversations([]);
@@ -371,6 +377,9 @@ export default function AdvisorChat() {
   }
 
   async function sendMessage(message: string, files: AttachmentPreview[]) {
+    const requestController = new AbortController();
+    activeRequestControllerRef.current?.abort();
+    activeRequestControllerRef.current = requestController;
     setSending(true);
     setError("");
     setPendingExchange({
@@ -400,6 +409,7 @@ export default function AdvisorChat() {
           message || "Extract financial information from the uploaded PDF.",
           conversation.conversation_id,
           files.map((item) => item.file),
+          requestController.signal,
         );
         setPendingExchange((current) => current && ({
           ...current,
@@ -415,6 +425,9 @@ export default function AdvisorChat() {
             assistantContent: current.assistantContent + content,
             thinking: false,
           })),
+          undefined,
+          undefined,
+          requestController.signal,
         );
         setPendingExchange((current) => current && ({
           ...current,
@@ -433,12 +446,18 @@ export default function AdvisorChat() {
         await refreshActiveConversation(conversationId, files).catch(() => undefined);
       }
     } finally {
+      if (activeRequestControllerRef.current === requestController) {
+        activeRequestControllerRef.current = null;
+      }
       setPendingExchange(null);
       setSending(false);
     }
   }
 
   async function startGoalReview(request: GoalReviewRouteState) {
+    const requestController = new AbortController();
+    activeRequestControllerRef.current?.abort();
+    activeRequestControllerRef.current = requestController;
     setSending(true);
     setError("");
     setActive(null);
@@ -477,6 +496,7 @@ export default function AdvisorChat() {
         })),
         undefined,
         request.goal.goal_id,
+        requestController.signal,
       );
       setPendingExchange((current) => current && ({
         ...current,
@@ -498,6 +518,9 @@ export default function AdvisorChat() {
           : "Unable to review this goal.",
       );
     } finally {
+      if (activeRequestControllerRef.current === requestController) {
+        activeRequestControllerRef.current = null;
+      }
       setPendingGoalReview(null);
       setPendingExchange(null);
       setSending(false);
@@ -549,6 +572,7 @@ export default function AdvisorChat() {
         <ConversationSidebar
           conversations={orderedConversations}
           activeId={active?.conversation_id}
+          disabled={sending}
           onNew={startConversation}
           onSelect={(id) => void selectConversation(id)}
           onDelete={(id) => void removeConversation(id)}

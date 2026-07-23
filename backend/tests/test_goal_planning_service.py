@@ -96,6 +96,21 @@ def test_complete_goal_plan_payload_requires_ai_selected_details():
     assert "Preference/Profile and financial context" in correction
 
 
+def test_complete_goal_plan_allows_zero_monthly_contribution():
+    payload = complete_state()
+    payload["goals"][0]["monthly_contribution"] = 0
+
+    assert goal_state_payload_is_complete(payload) is True
+
+    state = normalize_goal_planning_state(payload)
+
+    assert state.goals[0].answers["monthly_contribution"] == Decimal("0.00")
+
+    payload["goals"][0]["monthly_contribution"] = -1
+
+    assert goal_state_payload_is_complete(payload) is False
+
+
 def test_emergency_fund_accepts_direct_target_without_reinterpreting_it():
     direct_target_goal = {
         "category": "emergency_fund",

@@ -134,8 +134,8 @@ def build_financial_planning_snapshot(
 ) -> FinancialPlanningSnapshot:
     """Calculate a goal-planning baseline without mixing cash-flow types."""
     effective_date = as_of or date.today()
-    ongoing_monthly_income = ZERO
-    ongoing_monthly_expenses = ZERO
+    scheduled_monthly_income = ZERO
+    scheduled_monthly_expenses = ZERO
 
     for flow in recurring_cash_flows:
         if flow.start_date > effective_date:
@@ -144,9 +144,9 @@ def build_financial_planning_snapshot(
             continue
         monthly_amount = flow.amount * MONTHLY_MULTIPLIERS[flow.frequency]
         if flow.flow_type == "income":
-            ongoing_monthly_income += monthly_amount
+            scheduled_monthly_income += monthly_amount
         else:
-            ongoing_monthly_expenses += monthly_amount
+            scheduled_monthly_expenses += monthly_amount
 
     one_off_period = max(
         (flow.date.strftime("%Y-%m") for flow in cash_flows),
@@ -154,14 +154,39 @@ def build_financial_planning_snapshot(
     )
     one_off_income = ZERO
     one_off_expenses = ZERO
+    classified_ongoing_income = ZERO
+    classified_ongoing_expenses = ZERO
     if one_off_period is not None:
         for flow in cash_flows:
             if flow.date.strftime("%Y-%m") != one_off_period:
                 continue
+            ongoing_component = min(
+                max(
+                    getattr(flow, "ongoing_amount", ZERO) or ZERO,
+                    ZERO,
+                ),
+                flow.amount,
+            )
+            one_off_component = flow.amount - ongoing_component
             if flow.flow_type == "income":
-                one_off_income += flow.amount
+                classified_ongoing_income += ongoing_component
+                one_off_income += one_off_component
             else:
-                one_off_expenses += flow.amount
+                classified_ongoing_expenses += ongoing_component
+                one_off_expenses += one_off_component
+
+    # Scheduled records and a classified statement are alternative evidence
+    # for sustainable capacity. Taking the larger per flow type prevents an
+    # uploaded salary or bill from being counted twice when the user has also
+    # entered its recurring schedule.
+    ongoing_monthly_income = max(
+        scheduled_monthly_income,
+        classified_ongoing_income,
+    )
+    ongoing_monthly_expenses = max(
+        scheduled_monthly_expenses,
+        classified_ongoing_expenses,
+    )
 
     return FinancialPlanningSnapshot(
         has_financial_records=bool(
@@ -232,7 +257,7 @@ def build_financial_planning_context(
     if snapshot.one_off_period is not None:
         lines.extend(
             [
-                f"Latest one-off transaction period: {snapshot.one_off_period}.",
+                f"Latest classified transaction period: {snapshot.one_off_period}.",
                 f"One-off income in that period: {_money(snapshot.one_off_income)}.",
                 f"One-off expenses in that period: {_money(snapshot.one_off_expenses)}.",
                 (

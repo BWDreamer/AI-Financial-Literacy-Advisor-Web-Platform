@@ -2,6 +2,7 @@ from datetime import date, timedelta
 
 from app.ai.dependencies import get_ai_advisor_service
 from app.main import app
+from app.models.financial import CashBucket
 from tests.helpers import register_verified_user
 
 
@@ -345,7 +346,9 @@ def test_user_acceptance_completes_the_goal_plan(client):
     assert saved_goals[0]["category"] == "General Saving"
     assert saved_goals[0]["target_amount"] == "15000.00"
     assert saved_goals[0]["current_amount"] == "0.00"
-    assert saved_goals[0]["monthly_contribution"] == "500.00"
+    assert saved_goals[0]["monthly_contribution"] == "625.00"
+    assert saved_goals[0]["allocated_monthly"] == "625.00"
+    assert saved_goals[0]["status"] == "on_track"
     assert saved_goals[0]["priority"] == 3
     final_prompt = service.messages[1]
     assert "Earlier messages in this same conversation" in final_prompt
@@ -354,6 +357,149 @@ def test_user_acceptance_completes_the_goal_plan(client):
     assert "every agreed goal is now available in MyGoals" in final_prompt
     assert "Does this overall plan work for you?" not in final_prompt
     assert "Do not ask another question" in final_prompt
+
+
+def test_confirmed_plan_is_persisted_with_exact_my_goals_allocations(
+    client,
+    db_session,
+):
+    headers = authorization_headers(client, "confirmed-allocations@example.com")
+    today = date.today()
+    for endpoint, payload in [
+        (
+            "/api/financials/assets",
+            {
+                "asset_type": "cash",
+                "name": "Opening balance",
+                "amount": 12500,
+            },
+        ),
+        (
+            "/api/financials/cash-flows",
+            {
+                "flow_type": "income",
+                "name": "Imported monthly income",
+                "amount": 3800,
+                "ongoing_amount": 3000,
+                "date": today.isoformat(),
+            },
+        ),
+        (
+            "/api/financials/cash-flows",
+            {
+                "flow_type": "expense",
+                "name": "Imported monthly expenses",
+                "amount": 1710,
+                "ongoing_amount": 1710,
+                "date": today.isoformat(),
+            },
+        ),
+    ]:
+        assert client.post(endpoint, headers=headers, json=payload).status_code == 201
+
+    planned_goals = [
+        {
+            "category": "emergency_fund",
+            "target_amount": 6000,
+            "essential_monthly_expenses": None,
+            "coverage_months": None,
+            "deadline": today.replace(year=today.year + 1).isoformat(),
+            "current_amount": 0,
+            "monthly_contribution": 0,
+            "priority": "High",
+        },
+        {
+            "category": "general_saving",
+            "goal_title": "Reliable used car",
+            "target_amount": 15000,
+            "deadline": today.replace(year=today.year + 2).isoformat(),
+            "current_amount": 0,
+            "monthly_contribution": 0,
+            "priority": "Medium",
+        },
+    ]
+    conversation_id = create_conversation(client, headers)
+    service = SequencedGoalPlanningAdvisorService(
+        [
+            goal_state("needs_recommendation", planned_goals),
+            goal_state("accepted", planned_goals),
+        ]
+    )
+    app.dependency_overrides[get_ai_advisor_service] = lambda: service
+    try:
+        client.post(
+            "/api/ai/chat",
+            headers=headers,
+            json={
+                "message": "Plan my emergency fund and car savings.",
+                "conversation_id": conversation_id,
+            },
+        )
+        response = client.post(
+            "/api/ai/chat",
+            headers=headers,
+            json={
+                "message": "Yes, I confirm this plan.",
+                "conversation_id": conversation_id,
+            },
+        )
+        saved_goals = client.get("/api/goals", headers=headers).json()
+        allocation = client.get(
+            "/api/goals/allocation-settings",
+            headers=headers,
+        ).json()
+        summary = client.get("/api/goals/summary", headers=headers).json()
+    finally:
+        app.dependency_overrides.pop(get_ai_advisor_service, None)
+
+    assert response.status_code == 200
+    goals_by_name = {goal["name"]: goal for goal in saved_goals}
+    emergency = goals_by_name["Emergency Fund"]
+    car = goals_by_name["Reliable used car"]
+
+    assert emergency["current_amount"] == "480.00"
+    assert emergency["progress_percentage"] == "8.00"
+    assert emergency["monthly_contribution"] == "460.00"
+    assert emergency["allocated_monthly"] == "460.00"
+    assert emergency["status"] == "on_track"
+
+    assert car["current_amount"] == "320.00"
+    assert car["progress_percentage"] == "2.13"
+    assert car["monthly_contribution"] == "611.67"
+    assert car["allocated_monthly"] == "611.67"
+    assert car["status"] == "on_track"
+
+    monthly_allocation = allocation["monthly_allocation"]
+    assert monthly_allocation["monthly_net_income"] == "1290.00"
+    assert monthly_allocation["monthly_allocatable"] == "1290.00"
+    assert monthly_allocation["already_assigned"] == "1071.67"
+    assert monthly_allocation["unassigned"] == "218.33"
+    assert summary["cash_savings"] == "14590.00"
+    assert summary["cash_already_assigned"] == "800.00"
+    assert summary["monthly_net_income"] == "1290.00"
+    assert summary["monthly_unassigned"] == "218.33"
+    cash_buckets = db_session.query(CashBucket).filter(
+        CashBucket.goal_id.in_([emergency["id"], car["id"]])
+    ).all()
+    assert sorted(
+        (bucket.name, str(bucket.amount))
+        for bucket in cash_buckets
+    ) == [
+        ("Emergency Fund", "480.00"),
+        ("Reliable used car", "320.00"),
+    ]
+
+    for goal, expected_amount in [
+        (emergency, "480.00"),
+        (car, "320.00"),
+    ]:
+        progress = client.get(
+            f"/api/goals/{goal['id']}/progress",
+            headers=headers,
+        ).json()
+        assert len(progress) == 1
+        assert progress[0]["amount"] == expected_amount
+        assert progress[0]["source"] == "ai_plan_one_off"
 
 
 def test_user_rejection_only_triggers_a_macro_question(client):

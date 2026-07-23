@@ -21,8 +21,11 @@
 Goal requests contain `name`, `category`, `target_amount`, `current_amount`,
 `monthly_contribution`, `target_date`, and `priority` (1-5). Goal responses
 include backend-calculated `status` and `progress_percentage`. Progress is the
-only public API that changes a goal's current amount; the older
-`/contributions` routes are retired.
+only public API that directly changes a goal's current amount; the older
+`/contributions` routes are retired. Accepting an AI savings plan is an
+internal atomic workflow: it creates the goals, applies confirmed one-off
+allocations as progress, reserves their cash, and initializes the exact ongoing
+monthly allocations shown in MyGoals.
 
 `POST /api/goals/preview` accepts the selected category, target date, priority,
 and raw `category_details`. It returns normalized goal fields plus goal analysis,
@@ -32,6 +35,9 @@ the frontend wizard.
 `GET/PUT /api/goals/allocation-settings` is the single source of truth for
 allocation ratios. Its response includes backend-calculated monthly net income,
 allocatable, assigned and unassigned totals, plus each goal's monthly amount.
+The monthly source uses sustainable ongoing income minus ongoing expenses; it
+does not include one-off cash-flow components. Ratios retain enough precision
+for confirmed cent-level monthly amounts to round-trip without drift.
 The former `/monthly-allocation` write route is retired.
 
 - GET /api/health
@@ -46,6 +52,7 @@ The former `/monthly-allocation` write route is retired.
 - GET /api/rules/superannuation/employer-contribution?region=Australia&rule_year=2026-2027
 - GET /api/ai/ping
 - POST /api/ai/chat
+- POST /api/ai/chat/stream
 - POST /api/ai/chat/pdf
 - GET /api/memory
 - POST /api/memory
@@ -110,6 +117,15 @@ database retrieval and tax calculations from verified rules before sending
 grounded context back to the LLM for the final plain-English answer.
 Relevant long-term memories are retrieved before the AI drafts a response.
 
+`POST /api/ai/chat/stream` accepts the same JSON body and runs the same chat
+workflow. It returns newline-delimited JSON using `application/x-ndjson`:
+zero or more `delta` events followed by one `done` event. Failures that happen
+inside the streaming workflow, including validation and provider failures, are
+returned as an in-band `error` event after the HTTP 200 stream has opened. The
+frontend buffers received deltas and renders them incrementally without slowing
+the provider connection or leaving long responses in a display queue
+indefinitely.
+
 `POST /api/ai/chat/pdf` accepts multipart form data with `message`,
 `conversation_id`, and one or more `files`. It supports text-based PDFs,
 extracts supported financial fields, calculates income and expenses from
@@ -127,6 +143,13 @@ Ambiguous unsigned transaction lines are batched into one LLM structured
 classification request. The LLM classifies direction and transaction type only;
 amount extraction, validation, totals, and database writes remain backend
 responsibilities.
+Extracted income and expense transactions are also batched for a separate
+structured ongoing-versus-one-off classification. The backend keeps the parsed
+amount authoritative, treats missing or low-confidence classifications as
+one-off, and stores the ongoing component in `cash_flows.ongoing_amount`.
+The remainder of each recorded amount is its one-off component. This preserves
+the statement's actual cash movement while preventing one-off income from being
+presented as sustainable monthly capacity.
 
 ## Long-term memory
 
@@ -167,3 +190,9 @@ flow net movement. Recurring cash flows affect `monthly_income` and
 `cash_savings_trend` contains six cumulative month-end balances calculated by
 the backend. The current cash value is included in `total_assets` and
 `asset_allocation`.
+Cash-flow responses include `ongoing_amount`; manual one-off records default it
+to zero. Goal-planning calculations use the latest classified ongoing
+components as monthly capacity and derive one-off amounts as
+`amount - ongoing_amount`. When the same flow type is also represented by an
+active recurring schedule, the larger supported monthly total is used instead
+of summing duplicate evidence.

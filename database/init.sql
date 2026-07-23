@@ -70,6 +70,8 @@ CREATE TABLE IF NOT EXISTS cash_flows (
     flow_type VARCHAR(20) NOT NULL,
     name VARCHAR(100) NOT NULL,
     amount NUMERIC(14, 2) NOT NULL CHECK (amount >= 0),
+    ongoing_amount NUMERIC(14, 2) NOT NULL DEFAULT 0
+        CHECK (ongoing_amount >= 0 AND ongoing_amount <= amount),
     date DATE NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP

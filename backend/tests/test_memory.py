@@ -2,6 +2,7 @@ from app.ai.dependencies import get_ai_advisor_service
 from app.ai.exceptions import LLMRateLimitError
 from app.main import app
 from app.services.memory_service import extract_memories_from_message
+from tests.helpers import register_verified_user
 
 
 class SuccessfulTestAdvisorService:
@@ -165,9 +166,9 @@ def create_authorization_headers(
     client,
     email: str = "memory@example.com",
 ) -> dict[str, str]:
-    client.post(
-        "/api/auth/register",
-        json={
+    register_verified_user(
+        client,
+        {
             "email": email,
             "password": "Password123",
         },

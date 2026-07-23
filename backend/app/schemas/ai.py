@@ -41,6 +41,8 @@ class ImportedFinancialRecordResponse(BaseModel):
     amount: float
     asset_type: str | None = None
     flow_type: str | None = None
+    ongoing_amount: float | None = None
+    one_off_amount: float | None = None
     date: str | None = None
 
 
