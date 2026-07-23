@@ -7,6 +7,7 @@ import {
 } from "../api/auth";
 import AuthLayout from "../components/AuthLayout";
 import FormInput from "../components/FormInput";
+import PasswordChecklist, { isStrongPassword } from "../components/PasswordChecklist";
 import PasswordInput from "../components/PasswordInput";
 import PrimaryButton from "../components/PrimaryButton";
 import { useUser } from "../store/UserProvider";
@@ -19,7 +20,9 @@ type RegisterFieldsProps = {
   loading: boolean;
   sendingCode: boolean;
   codeSent: boolean;
+  password: string;
   onEmailChange: (email: string) => void;
+  onPasswordChange: (password: string) => void;
   onSendCode: () => void;
 };
 
@@ -30,9 +33,12 @@ function RegisterFields({
   loading,
   sendingCode,
   codeSent,
+  password,
   onEmailChange,
+  onPasswordChange,
   onSendCode,
 }: RegisterFieldsProps) {
+  const passwordValid = isStrongPassword(password);
   return <>
     {error && <p className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">{error}</p>}
     {info && <p className="rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-700" role="status">{info}</p>}
@@ -70,9 +76,10 @@ function RegisterFields({
         {sendingCode ? "Sending..." : codeSent ? "Resend code" : "Send code"}
       </button>
     </div>
-    <PasswordInput id="register-password" label="Password" name="password" autoComplete="new-password" minLength={8} maxLength={72} placeholder="At least 8 characters" required />
+    <PasswordInput id="register-password" label="Password" name="password" autoComplete="new-password" minLength={10} maxLength={72} placeholder="At least 10 characters" value={password} onChange={(event) => onPasswordChange(event.target.value)} required />
+    <PasswordChecklist password={password} />
     <PasswordInput id="confirm-password" label="Confirm password" name="confirmPassword" autoComplete="new-password" placeholder="Re-enter your password" required />
-    <PrimaryButton type="submit" disabled={loading}>{loading ? "Creating account..." : "Create Account"}</PrimaryButton>
+    <PrimaryButton type="submit" disabled={loading || !passwordValid}>{loading ? "Creating account..." : "Create Account"}</PrimaryButton>
   </>;
 }
 
@@ -80,6 +87,7 @@ function useRegisterForm() {
   const navigate = useNavigate();
   const { user, refreshUser, refreshProfile } = useUser();
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
   const [loading, setLoading] = useState(false);
@@ -115,6 +123,10 @@ function useRegisterForm() {
       setError("Passwords do not match.");
       return;
     }
+    if (!isStrongPassword(password)) {
+      setError("Password must include lowercase, uppercase, numbers, and at least 10 characters.");
+      return;
+    }
     setError("");
     setLoading(true);
     try {
@@ -139,12 +151,14 @@ function useRegisterForm() {
   return {
     user,
     email,
+    password,
     error,
     info,
     loading,
     sendingCode,
     codeSent,
     changeEmail,
+    setPassword,
     sendCode,
     handleSubmit,
   };
@@ -163,7 +177,9 @@ export default function Register() {
           loading={form.loading}
           sendingCode={form.sendingCode}
           codeSent={form.codeSent}
+          password={form.password}
           onEmailChange={form.changeEmail}
+          onPasswordChange={form.setPassword}
           onSendCode={() => void form.sendCode()}
         />
       </form>

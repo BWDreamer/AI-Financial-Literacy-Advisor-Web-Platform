@@ -1,5 +1,5 @@
 import { ChangeEvent, DragEvent, FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FileText, PanelLeft, Plus, Send, Trash2, X } from "lucide-react";
+import { ChevronDown, FileText, PanelLeft, Plus, Send, Trash2, X } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { ChatMessage, Conversation, ConversationDetail, addConversationMessage, createConversation, deleteConversation, getConversation, getConversations, sendAdvisorPdfMessage, streamAdvisorMessage } from "../api/chat";
 import {
@@ -77,8 +77,16 @@ function HistoryItem({ item, activeId, disabled, onSelect, onDelete }: { item: C
   return <button type="button" disabled={disabled} onClick={onSelect} title={item.title} className={`group flex w-full items-center gap-3 rounded-2xl p-3 text-left transition disabled:cursor-not-allowed disabled:opacity-60 ${activeId === item.conversation_id ? "bg-blue-50 text-slate-900" : "text-slate-600 hover:bg-slate-50"}`}><span className="min-w-0 flex-1 truncate text-sm font-semibold">{item.title}</span><span onClick={(event) => { event.stopPropagation(); onDelete(); }} className="grid size-8 shrink-0 place-items-center rounded-xl text-red-500 hover:bg-red-50"><Trash2 size={16} /></span></button>;
 }
 
-function ConversationSidebar({ conversations, activeId, disabled, onNew, onSelect, onDelete }: { conversations: Conversation[]; activeId?: number; disabled: boolean; onNew: () => void; onSelect: (id: number) => void; onDelete: (id: number) => void }) {
-  return <aside className="sticky top-0 h-screen w-64 shrink-0 overflow-y-auto border-r border-slate-200 bg-white p-4"><button type="button" disabled={disabled} onClick={onNew} className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"><Plus size={18} />New Conversation</button><p className="mt-5 px-1 text-xs font-bold uppercase tracking-[0.2em] text-slate-400">Historical Conversation</p><div className="mt-3 space-y-2">{conversations.length === 0 && <p className="p-3 text-sm text-slate-500">No saved conversations.</p>}{conversations.map((item) => <HistoryItem key={item.conversation_id} item={item} activeId={activeId} disabled={disabled} onSelect={() => onSelect(item.conversation_id)} onDelete={() => onDelete(item.conversation_id)} />)}</div></aside>;
+function ConversationSidebar({ conversations, activeId, disabled, mobile = false, open = true, onClose, onNew, onSelect, onDelete }: { conversations: Conversation[]; activeId?: number; disabled: boolean; mobile?: boolean; open?: boolean; onClose?: () => void; onNew: () => void; onSelect: (id: number) => void; onDelete: (id: number) => void }) {
+  const content = <><button type="button" disabled={disabled} onClick={() => { onNew(); onClose?.(); }} className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"><Plus size={18} />New Conversation</button><p className="mt-5 px-1 text-xs font-bold uppercase tracking-[0.2em] text-slate-400">Historical Conversation</p><div className="mt-3 space-y-2">{conversations.length === 0 && <p className="p-3 text-sm text-slate-500">No saved conversations.</p>}{conversations.map((item) => <HistoryItem key={item.conversation_id} item={item} activeId={activeId} disabled={disabled} onSelect={() => { onSelect(item.conversation_id); onClose?.(); }} onDelete={() => onDelete(item.conversation_id)} />)}</div></>;
+  if (mobile) return <aside className={`fixed inset-y-0 left-0 z-50 w-[82vw] max-w-80 overflow-y-auto border-r border-slate-200 bg-white p-4 transition-transform duration-[650ms] ease-out lg:hidden ${open ? "translate-x-0" : "-translate-x-full"}`}><div className="mb-4 flex items-center justify-between"><h2 className="text-lg font-bold text-slate-900">Conversations</h2><button type="button" onClick={onClose} className="grid size-9 place-items-center rounded-lg text-slate-500 hover:bg-slate-100" aria-label="Close conversations"><X size={20} /></button></div>{content}</aside>;
+  return <aside className="sticky top-0 hidden h-screen w-64 shrink-0 overflow-y-auto border-r border-slate-200 bg-white p-4 lg:block">{content}</aside>;
+}
+
+function MobileHistoryHandle({ open, onClick }: { open: boolean; onClick: () => void }) {
+  return <button type="button" onClick={onClick} style={{ left: open ? "min(82vw, 20rem)" : 0 }} className="fixed top-1/2 z-[55] flex h-28 w-10 -translate-y-1/2 items-center justify-center rounded-r-xl bg-blue-600 text-[11px] font-bold uppercase tracking-[0.16em] text-white shadow-lg transition-[left,background-color] duration-[650ms] ease-out hover:bg-blue-700 lg:hidden" aria-label={open ? "Close conversation history" : "Open conversation history"}>
+    <span className="flex -rotate-90 items-center gap-1">History<ChevronDown size={14} className={`transition-transform ${open ? "rotate-180" : ""}`} /></span>
+  </button>;
 }
 
 function EmptyConversationWelcome({ userName }: { userName: string }) {
@@ -206,7 +214,7 @@ function MessageAttachments({ files, onRemove, inBubble = false }: { files: Atta
   return <div className={`flex flex-wrap items-start gap-3 ${inBubble ? "mb-3" : "px-2 pb-4"}`}>{files.map((file, index) => <AttachmentCard key={file.id} file={file} inBubble={inBubble} onRemove={onRemove ? () => onRemove(index) : undefined} />)}</div>;
 }
 
-function ChatComposer({ sending, onSubmit }: { sending: boolean; onSubmit: (message: string, files: AttachmentPreview[]) => Promise<void> }) {
+function ChatComposer({ sending, onSubmit, onSetGoal }: { sending: boolean; onSubmit: (message: string, files: AttachmentPreview[]) => Promise<void>; onSetGoal: () => void }) {
   const [message, setMessage] = useState(""); const [files, setFiles] = useState<AttachmentPreview[]>([]); const [dragging, setDragging] = useState(false); const inputRef = useRef<HTMLInputElement>(null); const textRef = useRef<HTMLTextAreaElement>(null);
   const canSend = (message.trim().length > 0 || files.length > 0) && !sending;
   async function addFiles(list?: FileList | null) {
@@ -224,10 +232,16 @@ function ChatComposer({ sending, onSubmit }: { sending: boolean; onSubmit: (mess
     if (message || !files.length || (event.key !== "Delete" && event.key !== "Backspace")) return;
     event.preventDefault(); setFiles((current) => current.slice(0, -1));
   }
+  function keyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault(); event.currentTarget.form?.requestSubmit(); return;
+    }
+    removeLastOnEmpty(event);
+  }
   function drop(event: DragEvent<HTMLFormElement>) {
     event.preventDefault(); setDragging(false); void addFiles(event.dataTransfer.files);
   }
-  return <form onSubmit={submit} onDragOver={(event) => { event.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={drop} className={`rounded-3xl border bg-white p-3 shadow-sm transition ${dragging ? "border-blue-400 ring-4 ring-blue-100" : "border-slate-200"}`}><MessageAttachments files={files} onRemove={(index) => setFiles((current) => current.filter((_, itemIndex) => itemIndex !== index))} /><textarea ref={textRef} value={message} onKeyDown={removeLastOnEmpty} onChange={(event) => setMessage(event.target.value)} rows={1} placeholder="Ask anything about personal finance..." className={`max-h-56 w-full resize-none overflow-y-auto bg-transparent px-2 text-sm leading-6 outline-none placeholder:text-slate-400 ${files.length ? "min-h-16" : "min-h-12"}`} /><div className="mt-2 flex items-center justify-between"><input ref={inputRef} type="file" multiple accept=".pdf,application/pdf" className="hidden" onChange={(event: ChangeEvent<HTMLInputElement>) => void addFiles(event.target.files)} /><button type="button" onClick={() => inputRef.current?.click()} className="grid size-10 place-items-center rounded-full text-slate-600 hover:bg-slate-100" title="Upload PDF financial documents"><Plus size={24} /></button><button type="submit" disabled={!canSend} className={`grid size-10 place-items-center rounded-full transition ${canSend ? "bg-blue-600 text-white hover:bg-blue-700" : "bg-slate-200 text-slate-400"}`} title="Send message"><Send size={18} /></button></div></form>;
+  return <form onSubmit={submit} onDragOver={(event) => { event.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={drop} className={`rounded-3xl border bg-white p-3 shadow-sm transition ${dragging ? "border-blue-400 ring-4 ring-blue-100" : "border-slate-200"}`}><MessageAttachments files={files} onRemove={(index) => setFiles((current) => current.filter((_, itemIndex) => itemIndex !== index))} /><textarea ref={textRef} value={message} onKeyDown={keyDown} onChange={(event) => setMessage(event.target.value)} rows={1} placeholder="Ask anything about personal finance..." className={`max-h-56 w-full resize-none overflow-y-auto bg-transparent px-2 text-sm leading-6 outline-none placeholder:text-slate-400 ${files.length ? "min-h-16" : "min-h-12"}`} /><div className="mt-2 flex items-center justify-between"><input ref={inputRef} type="file" multiple accept=".pdf,application/pdf" className="hidden" onChange={(event: ChangeEvent<HTMLInputElement>) => void addFiles(event.target.files)} /><div className="flex items-center gap-2"><button type="button" onClick={() => inputRef.current?.click()} className="grid size-10 place-items-center rounded-full text-slate-600 hover:bg-slate-100" title="Upload PDF financial documents"><Plus size={24} /></button><GoalPlanningEntryButton disabled={sending} onClick={onSetGoal} /></div><button type="submit" disabled={!canSend} className={`grid size-10 place-items-center rounded-full transition ${canSend ? "bg-blue-600 text-white hover:bg-blue-700" : "bg-slate-200 text-slate-400"}`} title="Send message"><Send size={18} /></button></div></form>;
 }
 
 async function toPreview(file: File): Promise<AttachmentPreview> {
@@ -568,6 +582,19 @@ export default function AdvisorChat() {
 
   return (
     <main className="flex min-h-screen bg-slate-50">
+      <MobileHistoryHandle open={historyOpen} onClick={() => setHistoryOpen((value) => !value)} />
+      <button type="button" onClick={() => setHistoryOpen(false)} className={`fixed inset-0 z-40 bg-slate-950/40 transition-opacity duration-[650ms] lg:hidden ${historyOpen ? "opacity-100" : "pointer-events-none opacity-0"}`} aria-label="Close conversation history overlay" />
+      <ConversationSidebar
+        conversations={orderedConversations}
+        activeId={active?.conversation_id}
+        disabled={sending}
+        mobile
+        open={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        onNew={startConversation}
+        onSelect={(id) => void selectConversation(id)}
+        onDelete={(id) => void removeConversation(id)}
+      />
       {historyOpen && (
         <ConversationSidebar
           conversations={orderedConversations}
@@ -584,7 +611,7 @@ export default function AdvisorChat() {
             type="button"
             aria-label="Toggle conversation history"
             onClick={() => setHistoryOpen(!historyOpen)}
-            className="grid size-11 shrink-0 place-items-center rounded-full bg-white text-slate-600 shadow-sm ring-1 ring-slate-200 hover:bg-slate-50 focus:outline-none focus:ring-4 focus:ring-blue-100"
+            className="hidden size-11 shrink-0 place-items-center rounded-full bg-white text-slate-600 shadow-sm ring-1 ring-slate-200 hover:bg-slate-50 focus:outline-none focus:ring-4 focus:ring-blue-100 lg:grid"
           >
             <PanelLeft size={22} aria-hidden="true" />
           </button>
@@ -594,10 +621,6 @@ export default function AdvisorChat() {
               Ask educational questions about personal finance.
             </p>
           </div>
-          <GoalPlanningEntryButton
-            disabled={sending}
-            onClick={startGoalPlanning}
-          />
         </div>
         {error && (
           <p className="mt-5 rounded-xl bg-red-50 p-3 text-sm text-red-700">
@@ -626,7 +649,7 @@ export default function AdvisorChat() {
               onSelect={(question) => void sendMessage(question, [])}
             />
           )}
-          <ChatComposer sending={sending} onSubmit={sendMessage} />
+          <ChatComposer sending={sending} onSubmit={sendMessage} onSetGoal={startGoalPlanning} />
         </div>
       </section>
     </main>

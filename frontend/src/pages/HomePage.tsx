@@ -53,16 +53,16 @@ function pieBackground(slices: AssetSlice[]) {
 function AssetAllocation({ summary }: { summary: FinancialSummary | null }) {
   const slices = assetSlices(summary);
   const total = slices.reduce((sum, slice) => sum + slice.amount, 0);
-  return <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6"><h2 className="text-lg font-bold text-slate-900">Asset Allocation</h2><div className="mt-6 grid items-center gap-6 sm:grid-cols-[13rem_minmax(0,1fr)]"><AssetDonut slices={slices} total={total} /><AssetLegend slices={slices} /></div></section>;
+  return <section className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6"><h2 className="text-lg font-bold text-slate-900">Asset Allocation</h2><div className="mt-6 grid min-w-0 items-center gap-6 md:grid-cols-[minmax(12rem,0.9fr)_minmax(10rem,1fr)]"><AssetDonut slices={slices} total={total} /><AssetLegend slices={slices} /></div></section>;
 }
 
 function AssetDonut({ slices, total }: { slices: AssetSlice[]; total: number }) {
-  return <div className="mx-auto grid size-48 place-items-center rounded-full p-3 sm:size-52" style={{ background: pieBackground(slices) }}><div className="grid size-full place-items-center rounded-full bg-white text-center shadow-inner"><div><p className="text-xs font-semibold text-slate-500">Total Assets</p><p className="mt-1 text-2xl font-bold text-slate-900">{money(total)}</p></div></div></div>;
+  return <div className="mx-auto grid aspect-square w-full max-w-52 min-w-0 place-items-center rounded-full p-3" style={{ background: pieBackground(slices) }}><div className="grid size-full min-w-0 place-items-center rounded-full bg-white px-3 text-center shadow-inner"><div className="min-w-0"><p className="text-xs font-semibold text-slate-500">Total Assets</p><p className="mt-1 max-w-full break-words text-[clamp(1.25rem,4vw,1.9rem)] font-bold leading-tight text-slate-900">{money(total)}</p></div></div></div>;
 }
 
 function AssetLegend({ slices }: { slices: AssetSlice[] }) {
   if (!slices.length) return <p className="text-sm text-slate-500">Add assets to view allocation.</p>;
-  return <div className="grid min-w-44 gap-3">{slices.map((slice) => <div key={slice.type} className="grid grid-cols-[minmax(6rem,1fr)_3.5rem] items-center gap-3"><span className="whitespace-nowrap"><span className="mr-3 inline-block size-3 rounded" style={{ background: assetColors[slice.type] }} />{assetLabels[slice.type]}</span><b className="text-right">{Math.round(slice.percent)}%</b></div>)}</div>;
+  return <div className="grid min-w-0 gap-3">{slices.map((slice) => <div key={slice.type} className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-3"><span className="min-w-0 truncate whitespace-nowrap"><span className="mr-3 inline-block size-3 shrink-0 rounded" style={{ background: assetColors[slice.type] }} />{assetLabels[slice.type]}</span><b className="shrink-0 text-right">{Math.round(slice.percent)}%</b></div>)}</div>;
 }
 
 function linePath(points: { x: number; y: number }[]) { return points.map((point, index) => `${index ? "L" : "M"} ${point.x} ${point.y}`).join(" "); }

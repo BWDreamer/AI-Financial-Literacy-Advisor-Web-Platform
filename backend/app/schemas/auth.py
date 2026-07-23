@@ -9,6 +9,18 @@ from pydantic import (
 )
 
 
+def validate_password_strength(value: str) -> str:
+    if len(value) < 10:
+        raise ValueError("Password must contain at least 10 characters.")
+    if not any(character.islower() for character in value):
+        raise ValueError("Password must contain lowercase characters.")
+    if not any(character.isupper() for character in value):
+        raise ValueError("Password must contain uppercase characters.")
+    if not any(character.isdigit() for character in value):
+        raise ValueError("Password must contain numbers.")
+    return value
+
+
 class UserRegisterRequest(BaseModel):
     email: EmailStr
 
@@ -19,7 +31,7 @@ class UserRegisterRequest(BaseModel):
     )
 
     password: str = Field(
-        min_length=8,
+        min_length=10,
         max_length=72,
     )
 
@@ -44,6 +56,11 @@ class UserRegisterRequest(BaseModel):
             )
 
         return normalized
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, value: str) -> str:
+        return validate_password_strength(value)
 
 
 class UserLoginRequest(BaseModel):
@@ -121,9 +138,29 @@ class PasswordUpdateRequest(BaseModel):
     )
 
     new_password: str = Field(
-        min_length=8,
+        min_length=10,
         max_length=72,
     )
+
+    @field_validator("new_password")
+    @classmethod
+    def validate_new_password(cls, value: str) -> str:
+        return validate_password_strength(value)
+
+
+class PasswordResetVerificationCodeRequest(BaseModel):
+    email: EmailStr
+
+
+class PasswordResetRequest(BaseModel):
+    email: EmailStr
+    verification_code: str = Field(pattern=r"^\d{6}$")
+    new_password: str = Field(min_length=10, max_length=72)
+
+    @field_validator("new_password")
+    @classmethod
+    def validate_new_password(cls, value: str) -> str:
+        return validate_password_strength(value)
 
 
 class AccountDeleteRequest(BaseModel):

@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS email_verification_codes (
     id SERIAL PRIMARY KEY,
     email VARCHAR(255) NOT NULL,
     purpose VARCHAR(30) NOT NULL
-        CHECK (purpose IN ('registration', 'email_change')),
+        CHECK (purpose IN ('registration', 'email_change', 'password_reset')),
     user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
     code_hash VARCHAR(64) NOT NULL,
     expires_at TIMESTAMPTZ NOT NULL,

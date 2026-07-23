@@ -8,13 +8,15 @@ import { saveFinancialProfile } from "../api/profile";
 import { useUser } from "../store/UserProvider";
 import FormInput from "./FormInput";
 import Modal from "./Modal";
+import PasswordChecklist, { isStrongPassword } from "./PasswordChecklist";
 import PasswordInput from "./PasswordInput";
 import PrimaryButton from "./PrimaryButton";
 import DatePicker from "./DatePicker";
 import MemorySettingsPanel from "./MemorySettingsPanel";
 
 type ActionState = { loading: boolean; error: string; success: string };
-type Tab = "account" | "security" | "memories";
+export type ProfileSettingsTab = "account" | "security" | "memories";
+type Tab = ProfileSettingsTab;
 
 const phoneRegions = [
   { region: "Australia", code: "+61" }, { region: "China", code: "+86" },
@@ -145,13 +147,15 @@ function EmailUpdateModal({ onClose }: { onClose: () => void }) {
 
 function PasswordUpdateModal({ onClose }: { onClose: () => void }) {
   const action = useAction();
+  const [nextPassword, setNextPassword] = useState("");
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); const element = event.currentTarget; const form = new FormData(element);
     if (form.get("next") !== form.get("confirm")) { action.setState({ loading: false, error: "New password and confirmation do not match.", success: "" }); return; }
+    if (!isStrongPassword(nextPassword)) { action.setState({ loading: false, error: "Password must include lowercase, uppercase, numbers, and at least 10 characters.", success: "" }); return; }
     const saved = await action.run(() => updatePassword(String(form.get("current")), String(form.get("next"))), "Password updated successfully.");
-    if (saved) element.reset();
+    if (saved) { element.reset(); setNextPassword(""); }
   }
-  return <Modal title="Change Password" onClose={onClose}><form onSubmit={submit} className="grid gap-4"><PasswordInput id="security-current" name="current" label="Current Password" autoComplete="current-password" required /><PasswordInput id="security-next" name="next" label="New Password" autoComplete="new-password" minLength={8} required /><PasswordInput id="security-confirm" name="confirm" label="Confirm New Password" autoComplete="new-password" minLength={8} required /><ActionMessage state={action.state} /><div className="flex justify-end gap-3"><button type="button" onClick={onClose} className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">Cancel</button><PrimaryButton className="w-auto" disabled={action.state.loading}>{action.state.loading ? "Saving..." : "Change Password"}</PrimaryButton></div></form></Modal>;
+  return <Modal title="Change Password" onClose={onClose}><form onSubmit={submit} className="grid gap-4"><PasswordInput id="security-current" name="current" label="Current Password" autoComplete="current-password" required /><PasswordInput id="security-next" name="next" label="New Password" autoComplete="new-password" minLength={10} value={nextPassword} onChange={(event) => setNextPassword(event.target.value)} required /><PasswordChecklist password={nextPassword} /><PasswordInput id="security-confirm" name="confirm" label="Confirm New Password" autoComplete="new-password" minLength={10} required /><ActionMessage state={action.state} /><div className="flex justify-end gap-3"><button type="button" onClick={onClose} className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">Cancel</button><PrimaryButton className="w-auto" disabled={action.state.loading || !isStrongPassword(nextPassword)}>{action.state.loading ? "Saving..." : "Change Password"}</PrimaryButton></div></form></Modal>;
 }
 
 function DeleteAccountModal({ onClose }: { onClose: () => void }) {
@@ -169,7 +173,7 @@ function DeleteSection() {
   return <SettingsCard title="Delete Account"><div className="flex items-start justify-between gap-4 px-5 py-5"><div className="flex items-start gap-4"><span className="grid size-11 place-items-center rounded-full bg-red-50 text-red-600"><Trash2 size={20} /></span><div><p className="font-semibold text-red-900">Delete your account</p><p className="mt-1 max-w-xl text-sm text-red-700">This permanently removes your account access and user data. You will need your current password to continue.</p></div></div><button type="button" onClick={() => setOpen(true)} className="shrink-0 rounded-xl bg-red-600 px-4 py-3 text-sm font-semibold text-white hover:bg-red-700">Delete Account</button></div>{open && <DeleteAccountModal onClose={() => setOpen(false)} />}</SettingsCard>;
 }
 
-function AccountTab() {
+export function AccountTab() {
   return <SettingsCard title="User Profile"><div className="px-5 pb-5 pt-5"><AccountDetailsForm /></div></SettingsCard>;
 }
 
@@ -177,12 +181,12 @@ function SecurityActionRow({ icon, title, detail, action, onClick }: { icon: Rea
   return <div className="flex items-center justify-between gap-4 border-t border-slate-200 px-5 py-5 first:border-t-0"><div className="flex min-w-0 items-center gap-4"><span className="grid size-11 shrink-0 place-items-center rounded-full bg-slate-100 text-slate-400">{icon}</span><div className="min-w-0"><p className="font-semibold text-slate-900">{title}</p>{detail && <p className="mt-1 truncate text-sm text-slate-500">{detail}</p>}</div></div><button type="button" onClick={onClick} className="shrink-0 rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700">{action}</button></div>;
 }
 
-function SecurityTab() {
+export function SecurityTab() {
   const { user } = useUser(); const [modal, setModal] = useState<"email" | "password" | null>(null);
   return <div className="space-y-6"><SettingsCard title="Security settings"><SecurityActionRow icon={<Mail size={20} />} title="Log in email" detail={user?.email} action="Update Email" onClick={() => setModal("email")} /><SecurityActionRow icon={<LockKeyhole size={20} />} title="Password" action="Change Password" onClick={() => setModal("password")} /></SettingsCard><DeleteSection />{modal === "email" && <EmailUpdateModal onClose={() => setModal(null)} />}{modal === "password" && <PasswordUpdateModal onClose={() => setModal(null)} />}</div>;
 }
 
-export default function ProfileSettingsModal({ onClose }: { onClose: () => void }) {
-  const [tab, setTab] = useState<Tab>("account");
+export default function ProfileSettingsModal({ onClose, initialTab = "account" }: { onClose: () => void; initialTab?: ProfileSettingsTab }) {
+  const [tab, setTab] = useState<Tab>(initialTab);
   return <Modal title="Settings" onClose={onClose} wide hideHeader><SettingsTabs tab={tab} setTab={setTab} onClose={onClose} /><SettingsHero />{tab === "account" && <AccountTab />}{tab === "security" && <SecurityTab />}{tab === "memories" && <MemorySettingsPanel />}</Modal>;
 }
