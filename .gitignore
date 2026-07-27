@@ -5,9 +5,12 @@ __pycache__/
 .venv/
 venv/
 .pytest_cache/
+.coverage
+htmlcov/
 node_modules/
 dist/
 build/
+coverage/
 *.tsbuildinfo
 .vscode/
 .idea/

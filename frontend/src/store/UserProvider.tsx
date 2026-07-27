@@ -1,6 +1,6 @@
 import { createContext, ReactNode, useCallback, useContext, useEffect, useState } from "react";
 import { getCurrentUser, sendHeartbeat, User } from "../api/auth";
-import { ApiError } from "../api/client";
+import { ApiError, AUTH_UNAUTHORIZED_EVENT } from "../api/client";
 import { FinancialProfile, getFinancialProfile } from "../api/profile";
 import { clearToken, getToken } from "./tokenService";
 
@@ -50,6 +50,13 @@ function useHeartbeat(user: User | null, clearUser: () => void) {
   }, [clearUser, user]);
 }
 
+function useUnauthorizedSessionListener(clearUser: () => void) {
+  useEffect(() => {
+    window.addEventListener(AUTH_UNAUTHORIZED_EVENT, clearUser);
+    return () => window.removeEventListener(AUTH_UNAUTHORIZED_EVENT, clearUser);
+  }, [clearUser]);
+}
+
 function useUserState(): UserContextValue {
   const [user, setUser] = useState<User | null>(null); const [loading, setLoading] = useState(true);
   const [error, setError] = useState(""); const { profile, setProfile, refreshProfile } = useProfileState();
@@ -66,6 +73,7 @@ function useUserState(): UserContextValue {
   }, [clearUser]);
   useSessionBootstrap(refreshUser, refreshProfile, setLoading);
   useHeartbeat(user, clearUser);
+  useUnauthorizedSessionListener(clearUser);
   return { user, profile, loading, error, refreshUser, refreshProfile, clearUser };
 }
 

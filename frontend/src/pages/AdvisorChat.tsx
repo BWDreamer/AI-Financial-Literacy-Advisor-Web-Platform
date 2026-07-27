@@ -74,7 +74,7 @@ function readImage(file: File) {
 }
 
 function HistoryItem({ item, activeId, disabled, onSelect, onDelete }: { item: Conversation; activeId?: number; disabled: boolean; onSelect: () => void; onDelete: () => void }) {
-  return <button type="button" disabled={disabled} onClick={onSelect} title={item.title} className={`group flex w-full items-center gap-3 rounded-2xl p-3 text-left transition disabled:cursor-not-allowed disabled:opacity-60 ${activeId === item.conversation_id ? "bg-blue-50 text-slate-900" : "text-slate-600 hover:bg-slate-50"}`}><span className="min-w-0 flex-1 truncate text-sm font-semibold">{item.title}</span><span onClick={(event) => { event.stopPropagation(); onDelete(); }} className="grid size-8 shrink-0 place-items-center rounded-xl text-red-500 hover:bg-red-50"><Trash2 size={16} /></span></button>;
+  return <button type="button" disabled={disabled} onClick={onSelect} title={item.title} className={`group flex w-full items-center gap-3 rounded-2xl p-3 text-left transition disabled:cursor-not-allowed disabled:opacity-60 ${activeId === item.conversation_id ? "bg-blue-50 text-slate-900" : "text-slate-600 hover:bg-slate-50"}`}><span className="min-w-0 flex-1 truncate text-sm font-semibold">{item.title}</span><span role="button" tabIndex={disabled ? -1 : 0} aria-label={`Delete ${item.title}`} onClick={(event) => { event.stopPropagation(); if (!disabled) onDelete(); }} onKeyDown={(event) => { if (disabled || (event.key !== "Enter" && event.key !== " ")) return; event.preventDefault(); event.stopPropagation(); onDelete(); }} className="grid size-8 shrink-0 place-items-center rounded-xl text-red-500 hover:bg-red-50"><Trash2 size={16} /></span></button>;
 }
 
 function ConversationSidebar({ conversations, activeId, disabled, mobile = false, open = true, onClose, onNew, onSelect, onDelete }: { conversations: Conversation[]; activeId?: number; disabled: boolean; mobile?: boolean; open?: boolean; onClose?: () => void; onNew: () => void; onSelect: (id: number) => void; onDelete: (id: number) => void }) {
@@ -364,13 +364,22 @@ export default function AdvisorChat() {
   }
 
   async function removeConversation(id: number) {
-    await deleteConversation(id);
-    const items = await loadList();
-    setActive(
-      items[0]
-        ? await getConversation(items[0].conversation_id)
-        : null,
-    );
+    try {
+      setError("");
+      await deleteConversation(id);
+      const items = await loadList();
+      setActive(
+        items[0]
+          ? await getConversation(items[0].conversation_id)
+          : null,
+      );
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "Unable to delete conversation.",
+      );
+    }
   }
 
   function attachToLatestUserMessage(next: ConversationDetail, files: AttachmentPreview[]) {
