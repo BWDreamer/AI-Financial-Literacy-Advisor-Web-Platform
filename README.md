@@ -149,7 +149,7 @@ Open the frontend HTML coverage report:
 open frontend/coverage/lcov-report/index.html
 ```
 
-The current backend test suite covers authentication, financial profiles, calculators and financial-rule queries.
+
 
 ## Create a Local Administrator
 
