@@ -117,12 +117,36 @@ Detailed request and response formats are available in the FastAPI documentation
 http://localhost:8000/docs
 ```
 
-## Run Backend Tests
+## Run Tests and Coverage
 
 Run all backend tests:
 
 ```bash
 docker compose exec backend pytest -q
+```
+
+Run backend tests with coverage:
+
+```bash
+docker compose exec backend pytest --cov=app --cov-report=term-missing --cov-report=html
+```
+
+Open the backend HTML coverage report:
+
+```bash
+open backend/htmlcov/index.html
+```
+
+Run frontend tests with coverage:
+
+```bash
+docker compose exec frontend npm run test:coverage
+```
+
+Open the frontend HTML coverage report:
+
+```bash
+open frontend/coverage/lcov-report/index.html
 ```
 
 The current backend test suite covers authentication, financial profiles, calculators and financial-rule queries.

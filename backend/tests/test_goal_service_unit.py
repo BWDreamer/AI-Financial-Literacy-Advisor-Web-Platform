@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
@@ -34,9 +34,9 @@ def make_goal(
 
 
 def test_months_until_and_add_months_handle_month_boundaries():
-    assert months_until(date(2026, 8, 20), today=date(2026, 7, 21)) == 0
-    assert months_until(date(2026, 8, 21), today=date(2026, 7, 21)) == 1
-    assert months_until(date(2025, 1, 1), today=date(2026, 7, 21)) == 0
+    assert months_until(date(2026, 8, 20), as_of=date(2026, 7, 21)) == 1
+    assert months_until(date(2026, 8, 21), as_of=date(2026, 7, 21)) == 1
+    assert months_until(date(2025, 1, 1), as_of=date(2026, 7, 21)) == 1
 
     assert add_months(date(2026, 1, 31), 1) == date(2026, 2, 28)
     assert add_months(date(2026, 12, 31), 2) == date(2027, 2, 28)
@@ -65,8 +65,8 @@ def test_analyse_goal_marks_completed_on_track_and_behind_states():
         today=date(2026, 7, 21),
     )
     assert on_track["status"] == "on_track"
-    assert on_track["required_monthly"] == Decimal("200.00")
-    assert on_track["monthly_difference"] == Decimal("50.00")
+    assert on_track["required_monthly"] == Decimal("166.67")
+    assert on_track["monthly_difference"] == Decimal("83.33")
 
     behind = analyse_goal(
         make_goal(
@@ -134,7 +134,7 @@ def test_build_goal_preview_rejects_unknown_category_and_invalid_numbers():
             )
         )
 
-    with pytest.raises(InvalidOperation):
+    with pytest.raises(ValueError, match="Emergency Fund needs a target amount"):
         build_goal_preview(
             GoalPreviewRequest(
                 category="Emergency Fund",

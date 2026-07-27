@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import UserPortalLayout from "../UserPortalLayout";
@@ -57,8 +57,15 @@ jest.mock("../OnboardingOverlay", () => ({
   default: () => <div>Onboarding overlay</div>,
 }));
 
+jest.mock("../MemorySettingsPanel", () => ({
+  __esModule: true,
+  default: () => <div>Memory settings panel</div>,
+}));
+
 jest.mock("../ProfileSettingsModal", () => ({
   __esModule: true,
+  AccountTab: () => <div>Account tab</div>,
+  SecurityTab: () => <div>Security tab</div>,
   default: ({ onClose }: { onClose: () => void }) => (
     <div role="dialog" aria-label="Profile Settings">
       <button type="button" onClick={onClose}>Close profile settings</button>
@@ -107,10 +114,11 @@ test("renders user navigation and signed-in profile", async () => {
 
   await waitFor(() => expect(mockedGetGoalNotifications).toHaveBeenCalledTimes(1));
   expect(screen.getByText("FinanceAI")).toBeInTheDocument();
-  expect(screen.getByRole("link", { name: /home page/i })).toHaveAttribute("href", "/home");
-  expect(screen.getByRole("link", { name: /advisor chat/i })).toHaveAttribute("href", "/advisor-chat");
-  expect(screen.getByRole("link", { name: /my goals/i })).toHaveAttribute("href", "/goals");
-  expect(screen.getByRole("link", { name: /knowledge hub/i })).toHaveAttribute("href", "/knowledge-hub");
+  const navigation = screen.getByRole("navigation", { name: /portal navigation/i });
+  expect(within(navigation).getByRole("link", { name: /home page/i })).toHaveAttribute("href", "/home");
+  expect(within(navigation).getByRole("link", { name: /advisor chat/i })).toHaveAttribute("href", "/advisor-chat");
+  expect(within(navigation).getByRole("link", { name: /my goals/i })).toHaveAttribute("href", "/goals");
+  expect(within(navigation).getByRole("link", { name: /knowledge hub/i })).toHaveAttribute("href", "/knowledge-hub");
   expect(screen.getByText("Regular User")).toBeInTheDocument();
   expect(screen.getByText("user@example.com")).toBeInTheDocument();
 });
@@ -175,4 +183,35 @@ test("shows goal notifications and confirms a completed goal", async () => {
   await waitFor(() => expect(mockedArchiveGoal).toHaveBeenCalledWith(7));
   expect(mockedReadGoalNotification).toHaveBeenCalledWith(11);
   await waitFor(() => expect(mockedGetGoalNotifications).toHaveBeenCalledTimes(2));
+});
+
+test("shows the empty goal notifications state", async () => {
+  const user = userEvent.setup();
+
+  renderLayout();
+
+  await user.click(await screen.findByRole("button", { name: /goal notifications/i }));
+
+  expect(screen.getByText("Notifications")).toBeInTheDocument();
+  expect(screen.getByText("No goal notifications.")).toBeInTheDocument();
+});
+
+test("opens mobile profile detail tabs", async () => {
+  const user = userEvent.setup();
+
+  renderLayout();
+
+  await waitFor(() => expect(mockedGetGoalNotifications).toHaveBeenCalledTimes(1));
+  await user.click(screen.getByRole("button", { name: /open user profile/i }));
+
+  await user.click(screen.getByRole("button", { name: "Account" }));
+  expect(screen.getByText("Account tab")).toBeInTheDocument();
+
+  await user.click(screen.getByRole("button", { name: /back to profile menu/i }));
+  await user.click(screen.getByRole("button", { name: "Security" }));
+  expect(screen.getByText("Security tab")).toBeInTheDocument();
+
+  await user.click(screen.getByRole("button", { name: /back to profile menu/i }));
+  await user.click(screen.getByRole("button", { name: "Memories" }));
+  expect(screen.getByText("Memory settings panel")).toBeInTheDocument();
 });

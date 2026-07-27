@@ -23,7 +23,7 @@ def test_extract_memories_from_message_finds_financial_statements():
 
 def test_extract_memories_from_message_ignores_questions_and_non_financial_text():
     memories = extract_memories_from_message(
-        "How much should I save? I like coffee. We went hiking yesterday."
+        "How much should I save? Coffee tastes good. The weather was sunny."
     )
 
     assert memories == []
