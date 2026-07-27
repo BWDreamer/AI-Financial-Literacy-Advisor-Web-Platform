@@ -2,6 +2,11 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import UserPortalLayout from "../UserPortalLayout";
+import {
+  archiveGoal,
+  getGoalNotifications,
+  readGoalNotification,
+} from "../../api/goals";
 
 const clearUser = jest.fn();
 const refreshUser = jest.fn();
@@ -31,6 +36,12 @@ let userState: {
 
 jest.mock("../../api/auth", () => ({
   avatarUrl: jest.fn(() => null),
+}));
+
+jest.mock("../../api/goals", () => ({
+  archiveGoal: jest.fn(),
+  getGoalNotifications: jest.fn(() => Promise.resolve([])),
+  readGoalNotification: jest.fn(),
 }));
 
 jest.mock("../../store/UserProvider", () => ({
@@ -68,8 +79,15 @@ function renderLayout(initialPath = "/home") {
   );
 }
 
+const mockedGetGoalNotifications = jest.mocked(getGoalNotifications);
+const mockedArchiveGoal = jest.mocked(archiveGoal);
+const mockedReadGoalNotification = jest.mocked(readGoalNotification);
+
 beforeEach(() => {
   jest.clearAllMocks();
+  mockedGetGoalNotifications.mockResolvedValue([]);
+  mockedArchiveGoal.mockResolvedValue(undefined);
+  mockedReadGoalNotification.mockResolvedValue(undefined);
   userState = {
     user: {
       id: 1,
@@ -84,9 +102,10 @@ beforeEach(() => {
   };
 });
 
-test("renders user navigation and signed-in profile", () => {
+test("renders user navigation and signed-in profile", async () => {
   renderLayout();
 
+  await waitFor(() => expect(mockedGetGoalNotifications).toHaveBeenCalledTimes(1));
   expect(screen.getByText("FinanceAI")).toBeInTheDocument();
   expect(screen.getByRole("link", { name: /home page/i })).toHaveAttribute("href", "/home");
   expect(screen.getByRole("link", { name: /advisor chat/i })).toHaveAttribute("href", "/advisor-chat");
@@ -100,6 +119,7 @@ test("clears the user and returns to login when logging out", async () => {
   const user = userEvent.setup();
   renderLayout();
 
+  await waitFor(() => expect(mockedGetGoalNotifications).toHaveBeenCalledTimes(1));
   await user.click(screen.getByRole("button", { name: /regular user user@example.com/i }));
   await user.click(screen.getByRole("button", { name: /log out/i }));
 
@@ -115,7 +135,7 @@ test("redirects to login when no user is available", async () => {
   expect(await screen.findByText("Login page")).toBeInTheDocument();
 });
 
-test("shows onboarding for incomplete regular users", () => {
+test("shows onboarding for incomplete regular users", async () => {
   userState.user = {
     ...userState.user!,
     onboarding_completed: false,
@@ -123,5 +143,36 @@ test("shows onboarding for incomplete regular users", () => {
 
   renderLayout();
 
+  await waitFor(() => expect(mockedGetGoalNotifications).toHaveBeenCalledTimes(1));
   expect(screen.getByText("Onboarding overlay")).toBeInTheDocument();
+});
+
+test("shows goal notifications and confirms a completed goal", async () => {
+  mockedGetGoalNotifications
+    .mockResolvedValueOnce([
+      {
+        id: 11,
+        goal_id: 7,
+        title: "Emergency Fund completed",
+        message: "You reached your emergency fund target.",
+        notification_type: "goal_completed",
+        read: false,
+        created_at: "2026-07-22T00:00:00Z",
+      },
+    ])
+    .mockResolvedValueOnce([]);
+  const user = userEvent.setup();
+
+  renderLayout();
+
+  await user.click(await screen.findByRole("button", { name: /goal notifications/i }));
+
+  expect(screen.getByText("Emergency Fund completed")).toBeInTheDocument();
+  expect(screen.getByText("You reached your emergency fund target.")).toBeInTheDocument();
+
+  await user.click(screen.getByRole("button", { name: /confirm completed/i }));
+
+  await waitFor(() => expect(mockedArchiveGoal).toHaveBeenCalledWith(7));
+  expect(mockedReadGoalNotification).toHaveBeenCalledWith(11);
+  await waitFor(() => expect(mockedGetGoalNotifications).toHaveBeenCalledTimes(2));
 });

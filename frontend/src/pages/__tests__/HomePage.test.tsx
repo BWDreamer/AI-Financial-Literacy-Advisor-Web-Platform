@@ -1,5 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router-dom";
 import HomePage from "../HomePage";
 import {
   createAsset,
@@ -8,6 +9,10 @@ import {
   getFinancialSummary,
   type FinancialSummary,
 } from "../../api/financials";
+
+jest.mock("../../api/goals", () => ({
+  getGoals: jest.fn(() => Promise.resolve([])),
+}));
 
 jest.mock("../../api/financials", () => ({
   createAsset: jest.fn(),
@@ -62,6 +67,14 @@ const mockedGetFinancialSummary = jest.mocked(getFinancialSummary);
 const mockedGetFinancials = jest.mocked(getFinancials);
 const mockedCreateAsset = jest.mocked(createAsset);
 const mockedCreateCashFlow = jest.mocked(createCashFlow);
+
+function renderHomePage(initialPath = "/home") {
+  render(
+    <MemoryRouter initialEntries={[initialPath]}>
+      <HomePage />
+    </MemoryRouter>
+  );
+}
 
 const summary: FinancialSummary = {
   total_assets: 15000,
@@ -126,7 +139,7 @@ beforeEach(() => {
 });
 
 test("loads and displays the financial dashboard summary", async () => {
-  render(<HomePage />);
+  renderHomePage();
 
   expect(screen.getByText("Loading your financial dashboard...")).toBeInTheDocument();
   expect(await screen.findByRole("heading", { name: /insights overview/i })).toBeInTheDocument();
@@ -144,14 +157,14 @@ test("loads and displays the financial dashboard summary", async () => {
 test("shows an error when financial data cannot load", async () => {
   mockedGetFinancialSummary.mockRejectedValueOnce(new Error("Unable to load financial data."));
 
-  render(<HomePage />);
+  renderHomePage();
 
   expect(await screen.findByText("Unable to load financial data.")).toBeInTheDocument();
 });
 
 test("adds an asset entry and refreshes financial data", async () => {
   const user = userEvent.setup();
-  render(<HomePage />);
+  renderHomePage();
 
   await screen.findByRole("heading", { name: /insights overview/i });
   await user.click(screen.getByRole("button", { name: "Add asset entry" }));
@@ -166,7 +179,7 @@ test("adds an asset entry and refreshes financial data", async () => {
 
 test("adds a cash flow entry and refreshes financial data", async () => {
   const user = userEvent.setup();
-  render(<HomePage />);
+  renderHomePage();
 
   await screen.findByRole("heading", { name: /insights overview/i });
   await user.click(screen.getByRole("button", { name: "Add cash flow entry" }));

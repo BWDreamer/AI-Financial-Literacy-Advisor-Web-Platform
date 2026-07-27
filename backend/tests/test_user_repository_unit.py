@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from app.core.security import hash_password
 from app.repositories.user_repository import (
     create_user,
@@ -48,7 +50,8 @@ def test_update_user_fields_and_touch_last_seen(db_session):
     )
 
     update_username(db_session, user, " Updated Name ")
-    update_email(db_session, user, " New.Email@Example.COM ")
+    verified_at = datetime(2026, 7, 22)
+    update_email(db_session, user, " New.Email@Example.COM ", verified_at)
     update_password_hash(db_session, user, hash_password("NewPassword123!"))
     update_avatar_url(db_session, user, "/uploads/avatar.png")
     update_onboarding_completed(db_session, user, True)
@@ -56,6 +59,7 @@ def test_update_user_fields_and_touch_last_seen(db_session):
 
     assert user.username == "Updated Name"
     assert user.email == "new.email@example.com"
+    assert user.email_verified_at == verified_at
     assert user.avatar_url == "/uploads/avatar.png"
     assert user.onboarding_completed is True
     assert user.last_seen_at is not None

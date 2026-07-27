@@ -52,7 +52,7 @@ def test_analyse_goal_marks_completed_on_track_and_behind_states():
         ),
         today=date(2026, 7, 21),
     )
-    assert completed["status"] == "completed"
+    assert completed["status"] == "pending_archive"
     assert completed["progress_percentage"] == Decimal("100.00")
 
     on_track = analyse_goal(
@@ -116,7 +116,12 @@ def test_build_goal_preview_calculates_category_specific_goal_values():
     assert preview["goal"].target_amount == Decimal("7500")
     assert preview["goal"].current_amount == Decimal("1000")
     assert preview["goal"].priority == 1
-    assert preview["analysis"]["status"] in {"on_track", "behind", "completed"}
+    assert preview["analysis"]["status"] in {
+        "on_track",
+        "behind",
+        "pending_archive",
+        "completed",
+    }
 
 
 def test_build_goal_preview_rejects_unknown_category_and_invalid_numbers():

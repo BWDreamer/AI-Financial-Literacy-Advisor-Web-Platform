@@ -1,5 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router-dom";
 import MyGoals from "../MyGoals";
 import {
   createGoal,
@@ -128,6 +129,14 @@ const mockedGetGoalSummary = jest.mocked(getGoalSummary);
 const mockedUpdateGoalAllocationSettings = jest.mocked(updateGoalAllocationSettings);
 const mockedCreateGoal = jest.mocked(createGoal);
 
+function renderMyGoals(initialPath = "/goals") {
+  render(
+    <MemoryRouter initialEntries={[initialPath]}>
+      <MyGoals />
+    </MemoryRouter>
+  );
+}
+
 const goalRecords: GoalRecord[] = [
   {
     id: 1,
@@ -210,7 +219,7 @@ beforeEach(() => {
 });
 
 test("loads goals, summary and allocation settings", async () => {
-  render(<MyGoals />);
+  renderMyGoals();
 
   expect(screen.getByText("Loading goals...")).toBeInTheDocument();
   expect(await screen.findByText("Total goals: 2")).toBeInTheDocument();
@@ -223,7 +232,7 @@ test("loads goals, summary and allocation settings", async () => {
 
 test("filters goals by backend-derived status", async () => {
   const user = userEvent.setup();
-  render(<MyGoals />);
+  renderMyGoals();
 
   await screen.findByRole("button", { name: "Emergency Fund" });
   await user.click(screen.getByRole("button", { name: "Behind goals" }));
@@ -234,7 +243,7 @@ test("filters goals by backend-derived status", async () => {
 
 test("creates a goal and reloads page data", async () => {
   const user = userEvent.setup();
-  render(<MyGoals />);
+  renderMyGoals();
 
   await screen.findByRole("button", { name: "Emergency Fund" });
   await user.click(screen.getByRole("button", { name: /create goal/i }));
@@ -252,7 +261,7 @@ test("creates a goal and reloads page data", async () => {
 
 test("saves allocation settings from allocation controls", async () => {
   const user = userEvent.setup();
-  render(<MyGoals />);
+  renderMyGoals();
 
   await screen.findByRole("button", { name: "Emergency Fund" });
   await user.click(screen.getByRole("button", { name: "Apply allocation" }));
@@ -269,7 +278,7 @@ test("saves allocation settings from allocation controls", async () => {
 
 test("navigates to advisor chat for a selected goal", async () => {
   const user = userEvent.setup();
-  render(<MyGoals />);
+  renderMyGoals();
 
   await screen.findByRole("button", { name: "Emergency Fund" });
   await user.click(screen.getByRole("button", { name: "Emergency Fund" }));
@@ -277,9 +286,14 @@ test("navigates to advisor chat for a selected goal", async () => {
 
   expect(navigate).toHaveBeenCalledWith("/advisor-chat", {
     state: {
-      goalId: "1",
-      goalName: "Emergency Fund",
+      goal: expect.objectContaining({
+        goal_id: 1,
+        kind: "goal_review",
+        name: "Emergency Fund",
+        target_amount: 10000,
+      }),
       mode: "goal-review",
+      requestId: expect.any(String),
     },
   });
 });
@@ -287,7 +301,7 @@ test("navigates to advisor chat for a selected goal", async () => {
 test("shows an error when goal data cannot load", async () => {
   mockedGetGoals.mockRejectedValueOnce(new Error("Unable to load goals."));
 
-  render(<MyGoals />);
+  renderMyGoals();
 
   expect(await screen.findByText("Unable to load goals.")).toBeInTheDocument();
 });
