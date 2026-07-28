@@ -50,6 +50,7 @@ type ArticleForm = {
 };
 
 const categories = ["All", "Budgeting", "Saving", "Tax", "Superannuation", "Investing", "Security"];
+const PAGE_SIZE = 10;
 
 const sortOptions = [
   { value: "published-desc", label: "Newest published" },
@@ -79,6 +80,18 @@ function imageSrc(value: string | null) {
   if (!value) return null;
   if (/^https?:\/\//i.test(value) || value.startsWith("data:")) return value;
   return `${API_ORIGIN}${value}`;
+}
+
+function useMobileListView() {
+  const [mobile, setMobile] = useState(() => window.innerWidth < 1024);
+  useEffect(() => {
+    function resize() {
+      setMobile(window.innerWidth < 1024);
+    }
+    window.addEventListener("resize", resize);
+    return () => window.removeEventListener("resize", resize);
+  }, []);
+  return mobile;
 }
 
 function formatPublishedDate(value: string | null) {
@@ -482,6 +495,8 @@ export default function AdminKnowledgeHub() {
   const [pageError, setPageError] = useState("");
   const [saving, setSaving] = useState(false);
   const [deletingArticle, setDeletingArticle] = useState<Article | null>(null);
+  const [page, setPage] = useState(1);
+  const mobileList = useMobileListView();
 
   const loadArticles = useCallback(async () => {
     setLoading(true);
@@ -524,6 +539,19 @@ export default function AdminKnowledgeHub() {
       }
     });
   }, [articles, searchTerm, selectedCategory, sortBy]);
+  const totalPages = Math.max(1, Math.ceil(visibleArticles.length / PAGE_SIZE));
+  const pageArticles = useMemo(() => {
+    const start = (page - 1) * PAGE_SIZE;
+    return visibleArticles.slice(start, start + PAGE_SIZE);
+  }, [page, visibleArticles]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [searchTerm, selectedCategory, sortBy]);
+
+  useEffect(() => {
+    setPage((current) => Math.min(current, totalPages));
+  }, [totalPages]);
 
   function openNewArticle() {
     setForm(emptyForm());
@@ -617,7 +645,7 @@ export default function AdminKnowledgeHub() {
   }
 
   return (
-    <section className="p-5 sm:p-8 lg:p-12">
+    <section className="px-5 pb-5 pt-20 sm:p-8 lg:p-12">
       <header className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-3xl font-semibold tracking-tight text-slate-950 sm:text-4xl">Knowledge Hub</h1>
@@ -675,7 +703,7 @@ export default function AdminKnowledgeHub() {
       </div>
 
       <div className="mt-8 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="grid grid-cols-[minmax(280px,1.9fr)_minmax(120px,0.75fr)_minmax(110px,0.75fr)_minmax(120px,0.75fr)_minmax(78px,0.45fr)_minmax(78px,0.45fr)_minmax(78px,0.45fr)_minmax(160px,0.85fr)] border-b border-slate-200 bg-slate-50/70 px-5 py-5 text-xs font-bold uppercase tracking-wide text-slate-500">
+        {!mobileList && <div className="grid grid-cols-[minmax(280px,1.9fr)_minmax(120px,0.75fr)_minmax(110px,0.75fr)_minmax(120px,0.75fr)_minmax(78px,0.45fr)_minmax(78px,0.45fr)_minmax(78px,0.45fr)_minmax(160px,0.85fr)] border-b border-slate-200 bg-slate-50/70 px-5 py-5 text-xs font-bold uppercase tracking-wide text-slate-500">
           <div>Article</div>
           <div>Category</div>
           <div>Status</div>
@@ -684,12 +712,12 @@ export default function AdminKnowledgeHub() {
           <div>Likes</div>
           <div>Saves</div>
           <div>Actions</div>
-        </div>
+        </div>}
 
         {loading && <div className="px-6 py-16 text-center text-slate-500">Loading articles...</div>}
 
-        {!loading && visibleArticles.map((article) => (
-          <article key={article.id} className="grid grid-cols-[minmax(280px,1.9fr)_minmax(120px,0.75fr)_minmax(110px,0.75fr)_minmax(120px,0.75fr)_minmax(78px,0.45fr)_minmax(78px,0.45fr)_minmax(78px,0.45fr)_minmax(160px,0.85fr)] items-center gap-0 border-b border-slate-200 px-5 py-6 transition last:border-b-0 hover:bg-slate-50/70">
+        {!loading && pageArticles.map((article) => (
+          !mobileList && <article key={article.id} className="grid grid-cols-[minmax(280px,1.9fr)_minmax(120px,0.75fr)_minmax(110px,0.75fr)_minmax(120px,0.75fr)_minmax(78px,0.45fr)_minmax(78px,0.45fr)_minmax(78px,0.45fr)_minmax(160px,0.85fr)] items-center gap-0 border-b border-slate-200 px-5 py-6 transition last:border-b-0 hover:bg-slate-50/70">
             <div className="flex min-w-0 gap-3 pr-4">
               <div className="grid size-16 shrink-0 place-items-center overflow-hidden rounded-xl border border-slate-200 bg-slate-100 text-slate-300">
                 {article.coverImageUrl ? <img src={imageSrc(article.coverImageUrl) ?? undefined} alt="" className="h-full w-full object-cover" /> : <ImageIcon size={24} />}
@@ -717,8 +745,57 @@ export default function AdminKnowledgeHub() {
           </article>
         ))}
 
+        {!loading && mobileList && pageArticles.length > 0 && (
+          <div className="divide-y divide-slate-200">
+            {pageArticles.map((article) => (
+              <article key={article.id} className="p-5">
+                <div className="flex gap-4">
+                  <div className="grid size-16 shrink-0 place-items-center overflow-hidden rounded-xl border border-slate-200 bg-slate-100 text-slate-300">
+                    {article.coverImageUrl ? <img src={imageSrc(article.coverImageUrl) ?? undefined} alt="" className="h-full w-full object-cover" /> : <ImageIcon size={24} />}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <h2 className="line-clamp-2 font-bold leading-snug text-slate-900">{article.title}</h2>
+                    <p className="mt-1 line-clamp-2 text-sm leading-5 text-slate-500">{shortText(article.summary, 68)}</p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <span className={`inline-flex max-w-full truncate rounded-full px-3 py-1 text-xs font-semibold ${categoryTone(article.category)}`}>{article.category}</span>
+                      <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">Published</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-4 grid grid-cols-3 gap-2 rounded-xl bg-slate-50 px-3 py-3 text-center text-xs font-semibold text-slate-600">
+                  <span className="inline-flex items-center justify-center gap-1"><Eye size={14} className="text-slate-400" />{article.views.toLocaleString()}</span>
+                  <span className="inline-flex items-center justify-center gap-1"><Heart size={14} className="text-red-500" />{article.likes.toLocaleString()}</span>
+                  <span className="inline-flex items-center justify-center gap-1"><Bookmark size={14} className="text-indigo-500" />{article.saves.toLocaleString()}</span>
+                </div>
+                <div className="mt-4 flex items-center justify-between gap-3 text-xs text-slate-500">
+                  <span>{formatPublishedDate(article.publishedAt)}</span>
+                  <span className="truncate">{article.sourceName}</span>
+                </div>
+                <div className="mt-5 grid grid-cols-2 gap-3">
+                  <button type="button" disabled={saving} onClick={() => void openEditArticle(article)} className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-indigo-200 px-4 py-2.5 text-sm font-semibold text-indigo-600 hover:bg-indigo-50 disabled:opacity-60">
+                    <Pencil size={16} /> Edit
+                  </button>
+                  <button type="button" disabled={saving} onClick={() => setDeletingArticle(article)} className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-red-200 px-4 py-2.5 text-sm font-semibold text-red-500 hover:bg-red-50 disabled:opacity-60">
+                    <Trash2 size={16} /> Delete
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+
         {!loading && visibleArticles.length === 0 && !pageError && (
           <div className="px-6 py-16 text-center text-slate-500">No published articles match the current filters.</div>
+        )}
+
+        {!loading && visibleArticles.length > PAGE_SIZE && (
+          <div className="flex flex-col gap-3 border-t border-slate-200 px-5 py-4 text-sm sm:flex-row sm:items-center sm:justify-between">
+            <span className="text-slate-500">Showing {(page - 1) * PAGE_SIZE + 1}-{Math.min(page * PAGE_SIZE, visibleArticles.length)} of {visibleArticles.length} articles</span>
+            <div className="grid grid-cols-2 gap-3 sm:flex">
+              <button type="button" disabled={page === 1} onClick={() => setPage((current) => Math.max(1, current - 1))} className="rounded-xl border border-slate-300 px-4 py-2 font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-50">Previous</button>
+              <button type="button" disabled={page === totalPages} onClick={() => setPage((current) => Math.min(totalPages, current + 1))} className="rounded-xl border border-slate-300 px-4 py-2 font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-50">Next</button>
+            </div>
+          </div>
         )}
       </div>
       {deletingArticle && (

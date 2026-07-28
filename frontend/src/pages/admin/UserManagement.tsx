@@ -1,4 +1,4 @@
-import { FormEvent, ReactNode, useCallback, useEffect, useState } from "react";
+import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { Bookmark, Eye, EyeOff, Heart, Pencil, Plus, RefreshCw, Search, Target, Trash2, UserCircle, X } from "lucide-react";
 import {
   AdminUser,
@@ -20,6 +20,7 @@ type UserForm = {
 };
 
 const DEFAULT_PASSWORD = "11111111";
+const PAGE_SIZE = 10;
 const emptyInviteForm = (): UserForm => ({ firstName: "", lastName: "", email: "", password: DEFAULT_PASSWORD });
 
 function errorMessage(caught: unknown) {
@@ -74,6 +75,18 @@ function DetailStat({ icon, label, value }: { icon: ReactNode; label: string; va
     <div className="flex items-center gap-3 text-sm font-semibold text-slate-500">{icon}<span>{label}</span></div>
     <p className="mt-3 text-2xl font-bold text-slate-950">{value.toLocaleString()}</p>
   </div>;
+}
+
+function useMobileListView() {
+  const [mobile, setMobile] = useState(() => window.innerWidth < 1024);
+  useEffect(() => {
+    function resize() {
+      setMobile(window.innerWidth < 1024);
+    }
+    window.addEventListener("resize", resize);
+    return () => window.removeEventListener("resize", resize);
+  }, []);
+  return mobile;
 }
 
 function UserFields({
@@ -146,10 +159,25 @@ export default function UserManagement() {
   const [editForm, setEditForm] = useState<UserForm>(emptyInviteForm);
   const [detailUser, setDetailUser] = useState<AdminUser | null>(null);
   const [deletingUser, setDeletingUser] = useState<AdminUser | null>(null);
+  const [page, setPage] = useState(1);
+  const mobileList = useMobileListView();
   const normalizedSearch = emailSearch.trim().toLowerCase();
   const visibleUsers = users.filter((user) =>
     user.id !== currentUser?.id && user.email.toLowerCase().includes(normalizedSearch)
   );
+  const totalPages = Math.max(1, Math.ceil(visibleUsers.length / PAGE_SIZE));
+  const pageUsers = useMemo(() => {
+    const start = (page - 1) * PAGE_SIZE;
+    return visibleUsers.slice(start, start + PAGE_SIZE);
+  }, [page, visibleUsers]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [normalizedSearch]);
+
+  useEffect(() => {
+    setPage((current) => Math.min(current, totalPages));
+  }, [totalPages]);
 
   const loadUsers = useCallback(async (showLoading = false) => {
     if (showLoading) setLoading(true);
@@ -233,7 +261,7 @@ export default function UserManagement() {
     }
   }
 
-  return <section className="p-5 sm:p-8 lg:p-12">
+  return <section className="px-5 pb-5 pt-20 sm:p-8 lg:p-12">
     <header className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
       <div><p className="text-sm font-bold uppercase tracking-wide text-violet-600">Administration</p><h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-950 sm:text-4xl">User Management</h1></div>
       <button type="button" onClick={openInvite} className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-950 px-6 py-3.5 font-semibold text-white transition hover:bg-slate-800"><Plus size={20} /> Invite User</button>
@@ -251,20 +279,59 @@ export default function UserManagement() {
       </div>
     </div>
 
-    <div className="mt-8 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"><div className="overflow-x-auto"><table className="w-full min-w-[900px] text-left">
-      <thead className="border-b border-slate-200 bg-slate-50/70 text-xs uppercase tracking-wide text-slate-500"><tr><th className="px-6 py-5">User ID</th><th className="px-6 py-5">Name</th><th className="px-6 py-5">Email</th><th className="px-6 py-5">Joined</th><th className="px-6 py-5">Status</th><th className="px-6 py-5">Actions</th></tr></thead>
-      <tbody className="divide-y divide-slate-200">
-        {loading && <tr><td colSpan={6} className="px-6 py-16 text-center text-slate-500">Loading users...</td></tr>}
-        {!loading && visibleUsers.map((user) => <tr key={user.id} className="transition hover:bg-slate-50/70">
-          <td className="px-6 py-6"><span className="rounded-lg bg-slate-100 px-3 py-2 font-mono text-sm text-slate-600">{user.user_id}</span></td>
-          <td className="px-6 py-6"><div className="flex items-center gap-3"><span className="grid size-11 place-items-center rounded-full bg-violet-600 text-sm font-bold text-white">{initials(user)}</span><span className="font-semibold text-slate-950">{fullName(user)}</span></div></td>
-          <td className="px-6 py-6 text-slate-600">{user.email}</td><td className="px-6 py-6 text-slate-600">{displayDate(user.created_at)}</td>
-          <td className="px-6 py-6"><span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${user.is_online ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>{user.is_online ? "Online" : "Offline"}</span></td>
-          <td className="px-6 py-6"><div className="flex items-center gap-5 whitespace-nowrap"><button type="button" onClick={() => openEdit(user)} className="inline-flex items-center gap-1.5 font-semibold text-indigo-600 hover:text-indigo-800"><Pencil size={17} /> Edit</button><button type="button" onClick={() => { setDeletingUser(user); setFormError(""); }} className="inline-flex items-center gap-1.5 font-semibold text-red-500 hover:text-red-700"><Trash2 size={17} /> Delete</button></div></td>
-        </tr>)}
-        {!loading && visibleUsers.length === 0 && !pageError && <tr><td colSpan={6} className="px-6 py-16 text-center text-slate-500">{normalizedSearch ? "No users match this email search." : "No users have been added yet."}</td></tr>}
-      </tbody>
-    </table></div></div>
+    <div className="mt-8 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      {!mobileList && <div className="overflow-x-auto"><table className="w-full min-w-[900px] text-left">
+        <thead className="border-b border-slate-200 bg-slate-50/70 text-xs uppercase tracking-wide text-slate-500"><tr><th className="px-6 py-5">User ID</th><th className="px-6 py-5">Name</th><th className="px-6 py-5">Email</th><th className="px-6 py-5">Joined</th><th className="px-6 py-5">Status</th><th className="px-6 py-5">Actions</th></tr></thead>
+        <tbody className="divide-y divide-slate-200">
+          {loading && <tr><td colSpan={6} className="px-6 py-16 text-center text-slate-500">Loading users...</td></tr>}
+          {!loading && pageUsers.map((user) => <tr key={user.id} className="transition hover:bg-slate-50/70">
+            <td className="px-6 py-6"><span className="rounded-lg bg-slate-100 px-3 py-2 font-mono text-sm text-slate-600">{user.user_id}</span></td>
+            <td className="px-6 py-6"><div className="flex items-center gap-3"><span className="grid size-11 place-items-center rounded-full bg-violet-600 text-sm font-bold text-white">{initials(user)}</span><span className="font-semibold text-slate-950">{fullName(user)}</span></div></td>
+            <td className="px-6 py-6 text-slate-600">{user.email}</td><td className="px-6 py-6 text-slate-600">{displayDate(user.created_at)}</td>
+            <td className="px-6 py-6"><span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${user.is_online ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>{user.is_online ? "Online" : "Offline"}</span></td>
+            <td className="px-6 py-6"><div className="flex items-center gap-5 whitespace-nowrap"><button type="button" onClick={() => openEdit(user)} className="inline-flex items-center gap-1.5 font-semibold text-indigo-600 hover:text-indigo-800"><Pencil size={17} /> Edit</button><button type="button" onClick={() => { setDeletingUser(user); setFormError(""); }} className="inline-flex items-center gap-1.5 font-semibold text-red-500 hover:text-red-700"><Trash2 size={17} /> Delete</button></div></td>
+          </tr>)}
+          {!loading && visibleUsers.length === 0 && !pageError && <tr><td colSpan={6} className="px-6 py-16 text-center text-slate-500">{normalizedSearch ? "No users match this email search." : "No users have been added yet."}</td></tr>}
+        </tbody>
+      </table></div>}
+
+      {mobileList && <div className="divide-y divide-slate-200">
+        {loading && <div className="px-5 py-14 text-center text-slate-500">Loading users...</div>}
+        {!loading && pageUsers.map((user) => (
+          <article key={user.id} className="p-5">
+            <div className="flex items-start gap-4">
+              <UserAvatar user={user} size="size-12" />
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="truncate text-base font-bold text-slate-950">{fullName(user)}</h2>
+                  <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${user.is_online ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>{user.is_online ? "Online" : "Offline"}</span>
+                </div>
+                <p className="mt-1 truncate text-sm text-slate-600">{user.email}</p>
+                <div className="mt-3 grid gap-2 text-xs text-slate-500">
+                  <span><strong className="font-semibold text-slate-700">User ID:</strong> {user.user_id}</span>
+                  <span><strong className="font-semibold text-slate-700">Joined:</strong> {displayDate(user.created_at)}</span>
+                </div>
+              </div>
+            </div>
+            <div className="mt-5 grid grid-cols-2 gap-3">
+              <button type="button" onClick={() => openEdit(user)} className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-indigo-200 px-4 py-2.5 text-sm font-semibold text-indigo-600 hover:bg-indigo-50"><Pencil size={16} /> Edit</button>
+              <button type="button" onClick={() => { setDeletingUser(user); setFormError(""); }} className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-red-200 px-4 py-2.5 text-sm font-semibold text-red-500 hover:bg-red-50"><Trash2 size={16} /> Delete</button>
+            </div>
+          </article>
+        ))}
+        {!loading && visibleUsers.length === 0 && !pageError && <div className="px-5 py-14 text-center text-slate-500">{normalizedSearch ? "No users match this email search." : "No users have been added yet."}</div>}
+      </div>}
+
+      {!loading && visibleUsers.length > PAGE_SIZE && (
+        <div className="flex flex-col gap-3 border-t border-slate-200 px-5 py-4 text-sm sm:flex-row sm:items-center sm:justify-between">
+          <span className="text-slate-500">Showing {(page - 1) * PAGE_SIZE + 1}-{Math.min(page * PAGE_SIZE, visibleUsers.length)} of {visibleUsers.length} users</span>
+          <div className="grid grid-cols-2 gap-3 sm:flex">
+            <button type="button" disabled={page === 1} onClick={() => setPage((current) => Math.max(1, current - 1))} className="rounded-xl border border-slate-300 px-4 py-2 font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-50">Previous</button>
+            <button type="button" disabled={page === totalPages} onClick={() => setPage((current) => Math.min(totalPages, current + 1))} className="rounded-xl border border-slate-300 px-4 py-2 font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-50">Next</button>
+          </div>
+        </div>
+      )}
+    </div>
 
     {inviteOpen && <Modal title="Invite User" wide onClose={() => !submitting && setInviteOpen(false)}><form onSubmit={submitInvite}>{formError && <p role="alert" className="mb-5 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">{formError}</p>}<UserFields form={inviteForm} setForm={setInviteForm} includePassword passwordVisible={invitePasswordVisible} onTogglePassword={() => setInvitePasswordVisible((visible) => !visible)} /><p className="mt-2 text-xs text-slate-500">The default password is 11111111.</p><FormActions submitLabel="Add User" onCancel={() => setInviteOpen(false)} disabled={submitting} /></form></Modal>}
     {editingUser && (
