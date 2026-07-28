@@ -19,7 +19,7 @@ type SummaryProps = {
   onToggle: () => void;
   onAllocatableRatioChange: (value: number) => void;
   onMonthlyAllocatableRatioChange: (value: number) => void;
-  onMonthlyAllocatableRatioCommit: () => void;
+  onMonthlyAllocatableRatioCommit: (value: number) => void;
 };
 
 function SummaryCard({ icon, label, value, text, tone, expanded, onClick }: { icon: React.ReactNode; label: string; value: string; text: string; tone: string; expanded: boolean; onClick: () => void }) {
@@ -74,9 +74,9 @@ export default function GoalSummary({ totalGoals, onTrackGoals, behindGoals, com
                 max="100"
                 value={monthlyAllocatableRatio}
                 onChange={(event) => onMonthlyAllocatableRatioChange(Number(event.target.value))}
-                onMouseUp={onMonthlyAllocatableRatioCommit}
-                onTouchEnd={onMonthlyAllocatableRatioCommit}
-                onBlur={onMonthlyAllocatableRatioCommit}
+                onMouseUp={(event) => onMonthlyAllocatableRatioCommit(Number(event.currentTarget.value))}
+                onTouchEnd={(event) => onMonthlyAllocatableRatioCommit(Number(event.currentTarget.value))}
+                onBlur={(event) => onMonthlyAllocatableRatioCommit(Number(event.currentTarget.value))}
               />
             </label>
             <Row label="Allocatable" value={`${formatGoalCurrency(monthlyAllocatable)} (${monthlyAllocatableRatio}%)`} tone="text-blue-600" />
