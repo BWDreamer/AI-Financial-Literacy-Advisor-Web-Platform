@@ -187,15 +187,44 @@ function DeleteGoalConfirm({ goal, onCancel, onDeleted }: { goal: Goal; onCancel
   </section>;
 }
 
+function numberText(value: number | undefined) {
+  return value === undefined ? "" : String(value);
+}
+
 function EditGoalForm({ goal, allocatedMonthly, onCancel, onSaved }: { goal: Goal; allocatedMonthly?: number; onCancel: () => void; onSaved: (goal: Goal) => void }) {
-  const [draft, setDraft] = useState({ ...goal, monthlyContribution: allocatedMonthly ?? goal.allocatedMonthly ?? goal.monthlyContribution });
+  const [draft, setDraft] = useState({
+    name: goal.name,
+    targetAmount: numberText(goal.targetAmount),
+    currentAmount: numberText(goal.currentAmount),
+    monthlyContribution: numberText(allocatedMonthly ?? goal.allocatedMonthly ?? goal.monthlyContribution),
+    targetDate: goal.targetDate,
+  });
   const [saving, setSaving] = useState(false); const [error, setError] = useState("");
-  function change<K extends keyof Goal>(key: K, value: Goal[K]) { setDraft((item) => ({ ...item, [key]: value })); }
+  function change<K extends keyof typeof draft>(key: K, value: (typeof draft)[K]) { setDraft((item) => ({ ...item, [key]: value })); }
+  function numericValue(label: string, value: string, options: { positive?: boolean } = {}) {
+    if (value.trim() === "") throw new Error(`${label} is required.`);
+    const next = Number(value);
+    if (!Number.isFinite(next)) throw new Error(`${label} must be a valid number.`);
+    if (options.positive ? next <= 0 : next < 0) throw new Error(`${label} must be ${options.positive ? "greater than 0" : "0 or greater"}.`);
+    return next;
+  }
   async function save() {
     if (!goal.apiId) return;
-    setSaving(true); setError("");
+    setError("");
+    let nextGoal: Goal;
     try {
-      onSaved(goalFromApi(await updateGoal(goal.apiId, goalToPayload(draft))));
+      const targetAmount = numericValue("Target amount", draft.targetAmount, { positive: true });
+      const currentAmount = numericValue("Current amount", draft.currentAmount);
+      const monthlyContribution = numericValue("Allocated monthly", draft.monthlyContribution);
+      if (currentAmount > targetAmount) throw new Error("Current amount cannot be greater than target amount.");
+      nextGoal = { ...goal, ...draft, targetAmount, currentAmount, monthlyContribution };
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Please check the goal details.");
+      return;
+    }
+    setSaving(true);
+    try {
+      onSaved(goalFromApi(await updateGoal(goal.apiId, goalToPayload(nextGoal))));
     } catch (err) { setError(err instanceof Error ? err.message : "Unable to update goal."); }
     finally { setSaving(false); }
   }
@@ -203,9 +232,9 @@ function EditGoalForm({ goal, allocatedMonthly, onCancel, onSaved }: { goal: Goa
     {error && <p className="mb-3 rounded-xl bg-red-50 p-3 text-sm font-semibold text-red-600">{error}</p>}
     <div className="grid gap-3 md:grid-cols-2">
       <EditInput label="Goal name" value={draft.name} onChange={(value) => change("name", value)} />
-      <EditInput label="Target amount" type="number" value={draft.targetAmount} onChange={(value) => change("targetAmount", Number(value))} />
-      <EditInput label="Current amount" type="number" value={draft.currentAmount} onChange={(value) => change("currentAmount", Number(value))} />
-      <EditInput label="Allocated monthly" type="number" value={draft.monthlyContribution} onChange={(value) => change("monthlyContribution", Number(value))} />
+      <EditInput label="Target amount" type="number" value={draft.targetAmount} onChange={(value) => change("targetAmount", value)} />
+      <EditInput label="Current amount" type="number" value={draft.currentAmount} onChange={(value) => change("currentAmount", value)} />
+      <EditInput label="Allocated monthly" type="number" value={draft.monthlyContribution} onChange={(value) => change("monthlyContribution", value)} />
       <DatePicker id="goal-edit-target-date" label="Target date" value={draft.targetDate} min={new Date().toISOString().slice(0, 10)} max="2046-12-31" placement="bottom" onChange={(value) => change("targetDate", value)} />
     </div>
     <div className="mt-4 flex justify-end gap-3"><button type="button" onClick={onCancel} className="rounded-xl border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700">Cancel</button><PrimaryButton type="button" disabled={saving} onClick={() => void save()} className="w-auto px-6">{saving ? "Saving..." : "Save Goal"}</PrimaryButton></div>
