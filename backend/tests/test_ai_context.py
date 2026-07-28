@@ -446,6 +446,175 @@ def test_user_acceptance_completes_the_goal_plan(client):
     assert "Do not ask another question" in final_prompt
 
 
+def test_confirmed_plans_reuse_existing_goal_across_conversations(
+    client,
+    db_session,
+):
+    headers = authorization_headers(client, "cross-conversation@example.com")
+    add_goal_planning_cash_flow(client, headers)
+    car_goal = complete_chat_goal(
+        title="Car",
+        target_amount=15000,
+        priority="Medium",
+        deadline_days=730,
+    )
+    car_goal["current_amount"] = 1000
+    updated_car_goal = {
+        **car_goal,
+        "goal_title": "Car Savings",
+    }
+    computer_goal = complete_chat_goal(
+        title="Computer Savings",
+        target_amount=5000,
+        priority="Medium",
+    )
+
+    first_conversation_id = create_conversation(client, headers)
+    add_goal_planning_category_prompt(
+        client,
+        headers,
+        first_conversation_id,
+    )
+    first_service = SequencedGoalPlanningAdvisorService(
+        [
+            goal_state(goals=[car_goal]),
+            goal_state("accepted", [car_goal]),
+        ]
+    )
+    app.dependency_overrides[get_ai_advisor_service] = lambda: first_service
+    try:
+        client.post(
+            "/api/ai/chat",
+            headers=headers,
+            json={
+                "message": "I want to save $15,000 for a car.",
+                "conversation_id": first_conversation_id,
+            },
+        )
+        first_confirmation = client.post(
+            "/api/ai/chat",
+            headers=headers,
+            json={
+                "message": "Yes, I confirm this car plan.",
+                "conversation_id": first_conversation_id,
+            },
+        )
+        goals_after_first_plan = client.get(
+            "/api/goals",
+            headers=headers,
+        ).json()
+    finally:
+        app.dependency_overrides.pop(get_ai_advisor_service, None)
+
+    duplicate_goal_response = client.post(
+        "/api/goals",
+        headers=headers,
+        json={
+            "name": "Car Savings",
+            "category": "General Saving",
+            "target_amount": 15000,
+            "current_amount": 500,
+            "monthly_contribution": 300,
+            "target_date": car_goal["deadline"],
+            "priority": 3,
+            "category_details": {
+                "goal_title": "Car Savings",
+                "target_amount": "15000",
+                "current_amount": "500",
+                "monthly_contribution": "300",
+                "deadline": car_goal["deadline"],
+                "confirmed_one_off_allocation": "500",
+                "confirmed_monthly_allocation": "300",
+            },
+        },
+    )
+    assert duplicate_goal_response.status_code == 201
+    duplicate_car_id = duplicate_goal_response.json()["id"]
+
+    second_conversation_id = create_conversation(client, headers)
+    add_goal_planning_category_prompt(
+        client,
+        headers,
+        second_conversation_id,
+    )
+    second_service = SequencedGoalPlanningAdvisorService(
+        [
+            goal_state(goals=[updated_car_goal, computer_goal]),
+            goal_state("accepted", [updated_car_goal, computer_goal]),
+        ]
+    )
+    app.dependency_overrides[get_ai_advisor_service] = lambda: second_service
+    try:
+        client.post(
+            "/api/ai/chat",
+            headers=headers,
+            json={
+                "message": "I also want to save for a computer.",
+                "conversation_id": second_conversation_id,
+            },
+        )
+        second_confirmation = client.post(
+            "/api/ai/chat",
+            headers=headers,
+            json={
+                "message": "Yes, I confirm this updated plan.",
+                "conversation_id": second_conversation_id,
+            },
+        )
+        goals_after_second_plan = client.get(
+            "/api/goals",
+            headers=headers,
+        ).json()
+        allocation_settings = client.get(
+            "/api/goals/allocation-settings",
+            headers=headers,
+        ).json()
+    finally:
+        app.dependency_overrides.pop(get_ai_advisor_service, None)
+
+    assert first_confirmation.status_code == 200
+    assert second_confirmation.status_code == 200
+    assert len(goals_after_first_plan) == 1
+    original_car_id = goals_after_first_plan[0]["id"]
+    assert {
+        goal["name"]
+        for goal in goals_after_second_plan
+    } == {"Car", "Computer Savings"}
+    assert len(
+        [
+            goal
+            for goal in goals_after_second_plan
+            if goal["name"] == "Car"
+        ]
+    ) == 1
+    saved_car = next(
+        goal
+        for goal in goals_after_second_plan
+        if goal["name"] == "Car"
+    )
+    assert saved_car["id"] == original_car_id
+    assert saved_car["current_amount"] == "1000.00"
+    car_cash_buckets = db_session.query(CashBucket).filter(
+        CashBucket.goal_id == original_car_id,
+        CashBucket.bucket_type == "goal_reserved",
+    ).all()
+    assert len(car_cash_buckets) == 1
+    assert str(car_cash_buckets[0].amount) == "1000.00"
+    saved_goal_ids = {
+        goal["id"]
+        for goal in goals_after_second_plan
+    }
+    assert duplicate_car_id not in saved_goal_ids
+    assert db_session.query(CashBucket).filter(
+        CashBucket.goal_id == duplicate_car_id
+    ).count() == 0
+    ratio_goal_ids = {
+        row["goal_id"]
+        for row in allocation_settings["goal_monthly_ratios"]
+    }
+    assert ratio_goal_ids == saved_goal_ids
+
+
 def test_confirmed_plan_is_persisted_with_exact_my_goals_allocations(
     client,
     db_session,
