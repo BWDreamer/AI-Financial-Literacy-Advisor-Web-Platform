@@ -186,6 +186,86 @@ def create_conversation(client, headers: dict[str, str]) -> int:
     ).json()["conversation_id"]
 
 
+def add_goal_planning_category_prompt(
+    client,
+    headers: dict[str, str],
+    conversation_id: int,
+    category: str = "general_saving",
+) -> None:
+    response = client.post(
+        f"/api/chat/conversations/{conversation_id}/messages",
+        headers=headers,
+        json={
+            "role": "assistant",
+            "content": (
+                "What goal would you like to set?\n\n"
+                f"[Financial goal planning mode: category={category}]"
+            ),
+        },
+    )
+    assert response.status_code == 201
+
+
+def test_goal_setting_intent_requires_set_a_goal_entry(client):
+    headers = authorization_headers(client, "goal-entry-required@example.com")
+    conversation_id = create_conversation(client, headers)
+    service = GoalPlanningAdvisorService()
+    app.dependency_overrides[get_ai_advisor_service] = lambda: service
+    try:
+        response = client.post(
+            "/api/ai/chat",
+            headers=headers,
+            json={
+                "message": "I'd like to save for a reliable used car.",
+                "conversation_id": conversation_id,
+            },
+        )
+        conversation = client.get(
+            f"/api/chat/conversations/{conversation_id}",
+            headers=headers,
+        ).json()
+    finally:
+        app.dependency_overrides.pop(get_ai_advisor_service, None)
+
+    assert response.status_code == 200
+    assert response.json()["answer"] == (
+        "## Set a Goal\n\n"
+        "It sounds like you want to create a new financial goal. Click "
+        "**Set a Goal** below to start the guided Goal Planning flow."
+    )
+    assert service.extraction_messages == []
+    assert service.messages == []
+    assert [message["role"] for message in conversation["messages"]] == [
+        "user",
+        "assistant",
+    ]
+
+
+def test_goal_education_question_stays_in_ordinary_chat(client):
+    headers = authorization_headers(client, "goal-education@example.com")
+    conversation_id = create_conversation(client, headers)
+    service = CapturingAdvisorService()
+    app.dependency_overrides[get_ai_advisor_service] = lambda: service
+    try:
+        response = client.post(
+            "/api/ai/chat",
+            headers=headers,
+            json={
+                "message": (
+                    "What is a financial goal, and why is it useful?"
+                ),
+                "conversation_id": conversation_id,
+            },
+        )
+    finally:
+        app.dependency_overrides.pop(get_ai_advisor_service, None)
+
+    assert response.status_code == 200
+    assert response.json()["answer"] == "Captured educational response."
+    assert len(service.messages) == 1
+    assert "Goal planning workflow directive" not in service.messages[0]
+
+
 def test_goal_recommendation_packages_preference_profile_and_finances(client):
     headers = authorization_headers(client, "context@example.com")
     for memory in [
@@ -202,6 +282,7 @@ def test_goal_recommendation_packages_preference_profile_and_finances(client):
         assert response.status_code == 201
     add_goal_planning_cash_flow(client, headers)
     conversation_id = create_conversation(client, headers)
+    add_goal_planning_category_prompt(client, headers, conversation_id)
     service = GoalPlanningAdvisorService()
     app.dependency_overrides[get_ai_advisor_service] = lambda: service
     try:
@@ -274,13 +355,18 @@ def test_goal_category_ui_metadata_enters_the_planning_prompt(client):
 
 def test_goal_recommendation_is_not_blocked_without_financial_records(client):
     headers = authorization_headers(client, "missing-context@example.com")
+    conversation_id = create_conversation(client, headers)
+    add_goal_planning_category_prompt(client, headers, conversation_id)
     service = GoalPlanningAdvisorService()
     app.dependency_overrides[get_ai_advisor_service] = lambda: service
     try:
         response = client.post(
             "/api/ai/chat",
             headers=headers,
-            json={"message": "I want to save for a home deposit."},
+            json={
+                "message": "I want to save for a home deposit.",
+                "conversation_id": conversation_id,
+            },
         )
     finally:
         app.dependency_overrides.pop(get_ai_advisor_service, None)
@@ -297,6 +383,7 @@ def test_user_acceptance_completes_the_goal_plan(client):
     headers = authorization_headers(client, "accepted@example.com")
     add_goal_planning_cash_flow(client, headers)
     conversation_id = create_conversation(client, headers)
+    add_goal_planning_category_prompt(client, headers, conversation_id)
     service = SequencedGoalPlanningAdvisorService(
         [goal_state(), goal_state("accepted")]
     )
@@ -419,6 +506,7 @@ def test_confirmed_plan_is_persisted_with_exact_my_goals_allocations(
         },
     ]
     conversation_id = create_conversation(client, headers)
+    add_goal_planning_category_prompt(client, headers, conversation_id)
     service = SequencedGoalPlanningAdvisorService(
         [
             goal_state("needs_recommendation", planned_goals),
@@ -506,6 +594,7 @@ def test_user_rejection_only_triggers_a_macro_question(client):
     headers = authorization_headers(client, "rejected@example.com")
     add_goal_planning_cash_flow(client, headers)
     conversation_id = create_conversation(client, headers)
+    add_goal_planning_category_prompt(client, headers, conversation_id)
     service = SequencedGoalPlanningAdvisorService(
         [goal_state(), goal_state("rejected")]
     )
@@ -543,6 +632,7 @@ def test_macro_answer_produces_a_revised_complete_recommendation(client):
     headers = authorization_headers(client, "revision@example.com")
     add_goal_planning_cash_flow(client, headers)
     conversation_id = create_conversation(client, headers)
+    add_goal_planning_category_prompt(client, headers, conversation_id)
     revised_goal = complete_chat_goal(
         title="Reliable used car",
         target_amount=12000,
@@ -604,6 +694,8 @@ def test_goal_count_correction_preserves_all_goals_in_recommendation(client):
     service = SequencedGoalPlanningAdvisorService(
         [incomplete_state, goal_state("needs_recommendation", goals)]
     )
+    conversation_id = create_conversation(client, headers)
+    add_goal_planning_category_prompt(client, headers, conversation_id)
     app.dependency_overrides[get_ai_advisor_service] = lambda: service
     try:
         response = client.post(
@@ -612,7 +704,8 @@ def test_goal_count_correction_preserves_all_goals_in_recommendation(client):
             json={
                 "message": (
                     "I want to buy a computer, an RTX 5090, a Mercedes, and a house."
-                )
+                ),
+                "conversation_id": conversation_id,
             },
         )
     finally:
@@ -654,18 +747,12 @@ def add_emergency_fund_category_prompt(
     headers: dict[str, str],
     conversation_id: int,
 ) -> None:
-    response = client.post(
-        f"/api/chat/conversations/{conversation_id}/messages",
-        headers=headers,
-        json={
-            "role": "assistant",
-            "content": (
-                "What Emergency Fund goal would you like to set?\n\n"
-                "[Financial goal planning mode: category=emergency_fund]"
-            ),
-        },
+    add_goal_planning_category_prompt(
+        client,
+        headers,
+        conversation_id,
+        category="emergency_fund",
     )
-    assert response.status_code == 201
 
 
 def test_bare_emergency_amount_is_confirmed_remembered_and_never_multiplied(client):

@@ -1207,6 +1207,8 @@ def test_financial_advisor_prompt_enforces_goal_recommendation_flow():
     assert "Do not ask the user for those details" in normalized_prompt
     assert "ask only the single macro-level trade-off question" in normalized_prompt
     assert "Never ask for amounts, balances, contributions" in normalized_prompt
+    assert "Never create a goal plan merely because" in normalized_prompt
+    assert "click the **Set a Goal** button" in normalized_prompt
 
 
 def test_advisory_topic_instructions_define_enabled_and_disabled_behaviour():
@@ -1313,18 +1315,37 @@ def test_chat_returns_advisor_response(client):
 
 
 def test_chat_accepts_goal_plan_with_zero_monthly_contribution(client):
+    headers = create_authorization_headers(client)
+    conversation_id = client.post(
+        "/api/chat/conversations",
+        headers=headers,
+        json={},
+    ).json()["conversation_id"]
+    category_prompt = client.post(
+        f"/api/chat/conversations/{conversation_id}/messages",
+        headers=headers,
+        json={
+            "role": "assistant",
+            "content": (
+                "What General Saving goal would you like to set?\n\n"
+                "[Financial goal planning mode: category=general_saving]"
+            ),
+        },
+    )
+    assert category_prompt.status_code == 201
     service = ZeroMonthlyContributionGoalAdvisorService()
     app.dependency_overrides[get_ai_advisor_service] = lambda: service
 
     try:
         response = client.post(
             "/api/ai/chat",
-            headers=create_authorization_headers(client),
+            headers=headers,
             json={
                 "message": (
                     "I want to save for a bicycle with lower "
                     "monthly pressure."
                 ),
+                "conversation_id": conversation_id,
             },
         )
     finally:
@@ -1333,6 +1354,47 @@ def test_chat_accepts_goal_plan_with_zero_monthly_contribution(client):
     assert response.status_code == 200
     assert len(service.messages) == 1
     assert "Planning monthly amount: $0.00." in service.messages[0]
+
+
+def test_chat_stream_redirects_unlaunched_goal_intent_to_set_a_goal(client):
+    headers = create_authorization_headers(client)
+    conversation_id = client.post(
+        "/api/chat/conversations",
+        headers=headers,
+        json={},
+    ).json()["conversation_id"]
+    service = SuccessfulTestAdvisorService()
+    app.dependency_overrides[get_ai_advisor_service] = lambda: service
+
+    try:
+        with client.stream(
+            "POST",
+            "/api/ai/chat/stream",
+            headers=headers,
+            json={
+                "message": "Help me create a savings goal for a holiday.",
+                "conversation_id": conversation_id,
+            },
+        ) as response:
+            events = [
+                json.loads(line)
+                for line in response.iter_lines()
+                if line
+            ]
+    finally:
+        app.dependency_overrides.pop(get_ai_advisor_service, None)
+
+    reminder = (
+        "## Set a Goal\n\n"
+        "It sounds like you want to create a new financial goal. Click "
+        "**Set a Goal** below to start the guided Goal Planning flow."
+    )
+    assert response.status_code == 200
+    assert events == [
+        {"type": "delta", "content": reminder},
+        {"type": "done", "answer": reminder, "model": "test-model"},
+    ]
+    assert service.messages == []
 
 
 def test_chat_stream_returns_incremental_events_and_persists_answer(client):
@@ -2704,6 +2766,57 @@ def test_pdf_chat_low_confidence_does_not_update_financials(client):
         "cash_flows": [],
         "recurring_cash_flows": [],
     }
+
+
+def test_pdf_chat_redirects_unlaunched_goal_intent_to_set_a_goal(client):
+    headers = create_authorization_headers(client)
+    conversation_id = client.post(
+        "/api/chat/conversations",
+        headers=headers,
+        json={},
+    ).json()["conversation_id"]
+    service = SuccessfulPdfAdvisorService()
+    app.dependency_overrides[
+        get_ai_advisor_service
+    ] = lambda: service
+
+    try:
+        response = client.post(
+            "/api/ai/chat/pdf",
+            headers=headers,
+            data={
+                "message": "I want to save for a home deposit.",
+                "conversation_id": str(conversation_id),
+            },
+            files={
+                "files": (
+                    "summary.pdf",
+                    make_pdf_bytes(["Summary only"]),
+                    "application/pdf",
+                ),
+            },
+        )
+        conversation = client.get(
+            f"/api/chat/conversations/{conversation_id}",
+            headers=headers,
+        ).json()
+    finally:
+        app.dependency_overrides.pop(
+            get_ai_advisor_service,
+            None,
+        )
+
+    assert response.status_code == 200
+    assert response.json()["answer"] == (
+        "## Set a Goal\n\n"
+        "It sounds like you want to create a new financial goal. Click "
+        "**Set a Goal** below to start the guided Goal Planning flow."
+    )
+    assert service.messages == []
+    assert [message["role"] for message in conversation["messages"]] == [
+        "user",
+        "assistant",
+    ]
 
 
 def test_pdf_chat_rejects_non_pdf_upload(client):
