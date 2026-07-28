@@ -152,6 +152,9 @@ const goalRecords: GoalRecord[] = [
     updated_at: "2026-07-01T00:00:00Z",
     status: "on_track",
     progress_percentage: 25,
+    allocated_monthly: 1200,
+    cash_allocation: 2500,
+    archived: false,
   },
   {
     id: 2,
@@ -167,6 +170,9 @@ const goalRecords: GoalRecord[] = [
     updated_at: "2026-07-02T00:00:00Z",
     status: "behind",
     progress_percentage: 12.5,
+    allocated_monthly: 800,
+    cash_allocation: 1000,
+    archived: false,
   },
 ];
 
@@ -178,9 +184,11 @@ const summary = {
   cash_savings: 5000,
   cash_allocatable: 2500,
   cash_already_assigned: 500,
+  cash_unassigned: 2000,
   monthly_net_income: 4000,
   monthly_allocatable: 2000,
   monthly_already_assigned: 800,
+  monthly_unassigned: 1200,
   total_target_amount: 18000,
   total_current_amount: 3500,
   total_monthly_contribution: 600,

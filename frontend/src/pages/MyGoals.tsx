@@ -11,6 +11,11 @@ import GoalSummary from "../components/goals/GoalSummary";
 import type { GoalReviewCardData } from "../components/chat/GoalReviewCard";
 import PrimaryButton from "../components/PrimaryButton";
 import type { Goal, GoalAllocation, GoalFilter } from "../types/goalTypes";
+import {
+  goalRatiosFromAllocation,
+  monthlyAllocationFromRatios,
+  roundRatio,
+} from "../utils/goalAllocation";
 import { filterGoals, goalFromApi, goalStatus, goalToPayload } from "../utils/goalUtils";
 
 const emptyGoalSummary: GoalSummaryRecord = {
@@ -21,10 +26,6 @@ const emptyGoalSummary: GoalSummaryRecord = {
   monthly_unassigned: 0,
   total_target_amount: 0, total_current_amount: 0, total_monthly_contribution: 0,
 };
-
-function roundMoney(value: number) {
-  return Math.round((Number.isFinite(value) ? value : 0) * 100) / 100;
-}
 
 const emptyMonthlyAllocation: MonthlyAllocation = {
   monthly_net_income: 0, monthly_allocatable: 0, already_assigned: 0,
@@ -37,20 +38,6 @@ function allocations(goals: Goal[], monthly: MonthlyAllocation): GoalAllocation[
     const row = byGoal.get(Number(goal.id));
     return { goalId: goal.id, ratio: Number(row?.ratio ?? 0), monthlyAmount: Number(row?.monthly_amount ?? 0) };
   });
-}
-
-function ratiosByGoal(goals: Goal[], ratios: Map<number, number>) {
-  return goals.map((goal) => ratios.get(Number(goal.id)) ?? 0);
-}
-
-function monthlyFromRatios(netIncome: number, monthlyRatio: number, goals: Goal[], ratios: number[]): MonthlyAllocation {
-  const monthly_allocatable = roundMoney(Math.max(netIncome, 0) * monthlyRatio / 100);
-  const rows = goals.map((goal, index) => {
-    const ratio = roundMoney(ratios[index] ?? 0);
-    return { goal_id: Number(goal.id), ratio, monthly_amount: roundMoney(monthly_allocatable * ratio / 100) };
-  });
-  const already_assigned = roundMoney(rows.reduce((sum, item) => sum + item.monthly_amount, 0));
-  return { monthly_net_income: netIncome, monthly_allocatable, already_assigned, unassigned: roundMoney(Math.max(monthly_allocatable - already_assigned, 0)), goals: rows };
 }
 
 function minCashRatio(summary: GoalSummaryRecord) {
@@ -68,7 +55,6 @@ export default function MyGoals() {
   const [goalSummary, setGoalSummary] = useState<GoalSummaryRecord>(emptyGoalSummary);
   const [allocatableRatio, setAllocatableRatio] = useState(50);
   const [monthlyAllocatableRatio, setMonthlyAllocatableRatio] = useState(50);
-  const [monthlyRatios, setMonthlyRatios] = useState<number[]>([]);
   const [monthlyAllocation, setMonthlyAllocation] = useState<MonthlyAllocation>(emptyMonthlyAllocation);
   const [summaryExpanded, setSummaryExpanded] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -79,6 +65,10 @@ export default function MyGoals() {
   const monthlyAllocatable = monthlyAllocation.monthly_allocatable;
   const goalAllocations = useMemo(() => allocations(orderedGoals, monthlyAllocation), [monthlyAllocation, orderedGoals]);
   const allocationGoalAllocations = useMemo(() => allocations(allocationGoals, monthlyAllocation), [allocationGoals, monthlyAllocation]);
+  const monthlyRatios = useMemo(
+    () => goalRatiosFromAllocation(allocationGoals, monthlyAllocation),
+    [allocationGoals, monthlyAllocation],
+  );
   const monthlyAmounts = Object.fromEntries(goalAllocations.map((item) => [item.goalId, item.monthlyAmount]));
   const monthlyAssigned = monthlyAllocation.already_assigned;
   const minimumCashRatio = minCashRatio(goalSummary);
@@ -99,16 +89,12 @@ export default function MyGoals() {
     try {
       const [goalRows, settings, goalsSummary] = await Promise.all([getGoals(), getGoalAllocationSettings(), getGoalSummary()]);
       const mappedGoals = goalRows.map(goalFromApi);
-      const activeGoals = mappedGoals.filter((goal) => goalStatus(goal) !== "Completed");
-      const ratioMap = new Map(settings.goal_monthly_ratios.map((item) => [item.goal_id, item.ratio]));
-      const ratioList = ratiosByGoal(activeGoals, ratioMap);
       const cashRatio = Math.max(settings.cash_allocatable_ratio, minCashRatio(goalsSummary));
       setGoals(mappedGoals);
       setGoalSummary(goalsSummary);
       setAllocatableRatio(cashRatio);
       setMonthlyAllocatableRatio(settings.monthly_allocatable_ratio);
       setMonthlyAllocation(settings.monthly_allocation);
-      setMonthlyRatios(ratioList);
       window.dispatchEvent(new Event("financeai:goals-updated"));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load goals.");
@@ -124,7 +110,12 @@ export default function MyGoals() {
 
   function applyMonthlyRatios(ratios: number[]) {
     const normalized = ratios.map((ratio) => Math.min(Math.max(ratio || 0, 0), 100));
-    setMonthlyRatios(normalized);
+    setMonthlyAllocation(monthlyAllocationFromRatios(
+      goalSummary.monthly_net_income,
+      monthlyAllocatableRatio,
+      allocationGoals,
+      normalized,
+    ));
     void saveAllocationSettings(allocatableRatio, monthlyAllocatableRatio, normalized, allocationGoals);
   }
 
@@ -132,7 +123,7 @@ export default function MyGoals() {
     setError("");
     try {
       if (ratioGoals.length && !ratios.length) return;
-      const goalRatios = ratioGoals.map((goal, index) => ({ goal_id: Number(goal.id), ratio: roundMoney(ratios[index] ?? 0) }));
+      const goalRatios = ratioGoals.map((goal, index) => ({ goal_id: Number(goal.id), ratio: roundRatio(ratios[index] ?? 0) }));
       const settings = await updateGoalAllocationSettings({
         cash_allocatable_ratio: cashRatio,
         monthly_allocatable_ratio: monthlyRatio,
@@ -141,8 +132,6 @@ export default function MyGoals() {
       const [records, nextSummary] = await Promise.all([getGoals(), getGoalSummary()]);
       setGoals(records.map(goalFromApi)); setGoalSummary(nextSummary);
       setMonthlyAllocation(settings.monthly_allocation);
-      const ratioMap = new Map(goalRatios.map((item) => [item.goal_id, item.ratio]));
-      setMonthlyRatios(ratiosByGoal(records.map(goalFromApi).filter((goal) => goalStatus(goal) !== "Completed"), ratioMap));
       window.dispatchEvent(new Event("financeai:goals-updated"));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to save allocation.");
@@ -157,11 +146,16 @@ export default function MyGoals() {
 
   function changeMonthlyRatio(value: number) {
     setMonthlyAllocatableRatio(value);
-    setMonthlyAllocation(monthlyFromRatios(goalSummary.monthly_net_income, value, allocationGoals, monthlyRatios));
+    setMonthlyAllocation(monthlyAllocationFromRatios(
+      goalSummary.monthly_net_income,
+      value,
+      allocationGoals,
+      monthlyRatios,
+    ));
   }
 
-  function commitMonthlyRatio() {
-    void saveAllocationSettings(allocatableRatio, monthlyAllocatableRatio, monthlyRatios, allocationGoals);
+  function commitMonthlyRatio(value: number) {
+    void saveAllocationSettings(allocatableRatio, value, monthlyRatios, allocationGoals);
   }
 
   function askAdvisor(goal: Goal) {
@@ -226,7 +220,7 @@ export default function MyGoals() {
             minAllocatableRatio={minimumCashRatio}
             monthlyAllocatableRatio={monthlyAllocatableRatio}
             monthlyNetIncome={goalSummary.monthly_net_income}
-            monthlyAllocatable={goalSummary.monthly_allocatable}
+            monthlyAllocatable={monthlyAllocatable}
             monthlyAssigned={monthlyAssigned}
             expanded={summaryExpanded}
             onToggle={() => setSummaryExpanded((value) => !value)}

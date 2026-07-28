@@ -6,6 +6,8 @@ import {
   archiveGoal,
   getGoalNotifications,
   readGoalNotification,
+  type GoalNotification,
+  type GoalRecord,
 } from "../../api/goals";
 
 const clearUser = jest.fn();
@@ -90,11 +92,45 @@ const mockedGetGoalNotifications = jest.mocked(getGoalNotifications);
 const mockedArchiveGoal = jest.mocked(archiveGoal);
 const mockedReadGoalNotification = jest.mocked(readGoalNotification);
 
+const archivedGoal: GoalRecord = {
+  id: 7,
+  name: "Emergency Fund",
+  category: "Emergency Fund",
+  target_amount: 10000,
+  current_amount: 10000,
+  monthly_contribution: 0,
+  target_date: "2026-07-22",
+  priority: 1,
+  category_details: {},
+  created_at: "2026-01-01T00:00:00Z",
+  updated_at: "2026-07-22T00:00:00Z",
+  status: "completed",
+  progress_percentage: 100,
+  allocated_monthly: 0,
+  cash_allocation: 10000,
+  archived: true,
+};
+
+const completedGoalNotification: GoalNotification = {
+  id: 11,
+  goal_id: 7,
+  title: "Emergency Fund completed",
+  message: "You reached your emergency fund target.",
+  notification_type: "goal_completed",
+  read: false,
+  archived: false,
+  created_at: "2026-07-22T00:00:00Z",
+  updated_at: "2026-07-22T00:00:00Z",
+};
+
 beforeEach(() => {
   jest.clearAllMocks();
   mockedGetGoalNotifications.mockResolvedValue([]);
-  mockedArchiveGoal.mockResolvedValue(undefined);
-  mockedReadGoalNotification.mockResolvedValue(undefined);
+  mockedArchiveGoal.mockResolvedValue(archivedGoal);
+  mockedReadGoalNotification.mockResolvedValue({
+    ...completedGoalNotification,
+    read: true,
+  });
   userState = {
     user: {
       id: 1,
@@ -157,17 +193,7 @@ test("shows onboarding for incomplete regular users", async () => {
 
 test("shows goal notifications and confirms a completed goal", async () => {
   mockedGetGoalNotifications
-    .mockResolvedValueOnce([
-      {
-        id: 11,
-        goal_id: 7,
-        title: "Emergency Fund completed",
-        message: "You reached your emergency fund target.",
-        notification_type: "goal_completed",
-        read: false,
-        created_at: "2026-07-22T00:00:00Z",
-      },
-    ])
+    .mockResolvedValueOnce([completedGoalNotification])
     .mockResolvedValueOnce([]);
   const user = userEvent.setup();
 

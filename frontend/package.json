@@ -4,6 +4,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview --host 0.0.0.0",
     "test": "jest",
+    "test:goal-allocation": "node --test --experimental-strip-types tests/*.test.ts",
     "test:coverage": "jest --coverage",
     "test:report": "jest --coverage --json --outputFile=coverage/jest-results.json"
   },
