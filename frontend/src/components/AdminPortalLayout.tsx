@@ -1,5 +1,5 @@
 import { Bot } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { Navigate, useNavigate } from "react-router-dom";
 import { avatarUrl } from "../api/auth";
 import { adminNavigation } from "../config/adminNavigation";
 import { useUser } from "../store/UserProvider";
@@ -8,6 +8,8 @@ import AppLayout from "./AppLayout";
 export default function AdminPortalLayout() {
   const navigate = useNavigate();
   const { user, clearUser } = useUser();
+
+  if (!user) return <Navigate to="/login" replace />;
 
   function signOut() {
     clearUser();

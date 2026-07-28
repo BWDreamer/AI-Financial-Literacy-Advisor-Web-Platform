@@ -2,6 +2,8 @@
 
 import { getToken } from "../store/tokenService";
 
+export const AUTH_UNAUTHORIZED_EVENT = "auth:unauthorized";
+
 function resolveApiBaseUrl() {
   const configured = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api";
   const browserHost = window.location.hostname;
@@ -42,7 +44,10 @@ export async function apiResponse(path: string, options: ApiOptions = {}) {
   if (options.body && !(options.body instanceof FormData)) headers.set("Content-Type", "application/json");
   if (options.authenticated) {
     const token = getToken();
-    if (!token) throw new ApiError("Your session has expired. Please sign in again.", 401);
+    if (!token) {
+      window.dispatchEvent(new Event(AUTH_UNAUTHORIZED_EVENT));
+      throw new ApiError("Your session has expired. Please sign in again.", 401);
+    }
     headers.set("Authorization", `Bearer ${token}`);
   }
   let response: Response;
@@ -62,6 +67,12 @@ export async function apiRequest<T>(path: string, options: ApiOptions = {}): Pro
   const response = await apiResponse(path, options);
   if (response.status === 204) return undefined as T;
   const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    if (options.authenticated && response.status === 401) {
+      window.dispatchEvent(new Event(AUTH_UNAUTHORIZED_EVENT));
+    }
+    throw new ApiError(errorMessage(data.detail), response.status);
+  }
   return data as T;
 }
 

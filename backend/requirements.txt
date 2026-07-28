@@ -19,3 +19,4 @@ PyMuPDF
 pytesseract
 Pillow
 httpx2
+pytest-cov
