@@ -106,11 +106,15 @@ beforeEach(() => {
     return {
       answer: "Educational response.",
       model: "test-model",
+      memory_updated: false,
+      memory_update_count: 0,
     };
   });
   mockedSendAdvisorPdfMessage.mockResolvedValue({
     answer: "Educational response.",
     model: "test-model",
+    memory_updated: false,
+    memory_update_count: 0,
     imported_records: [],
     low_confidence: false,
     extracted_text_characters: 128,
@@ -159,6 +163,38 @@ test("sends a suggested question in the active conversation and refreshes it", a
     expect.any(AbortSignal),
   ));
   await waitFor(() => expect(mockedGetConversation).toHaveBeenCalledTimes(2));
+  expect(screen.queryByText("Memory updated")).not.toBeInTheDocument();
+});
+
+test("shows a dismissible notice after memory is updated", async () => {
+  mockedStreamAdvisorMessage.mockImplementationOnce(
+    async (_message, _conversationId, onDelta) => {
+      onDelta("I have updated your details.");
+      return {
+        answer: "I have updated your details.",
+        model: "test-model",
+        memory_updated: true,
+        memory_update_count: 2,
+      };
+    },
+  );
+  const user = userEvent.setup();
+  renderAdvisorChat();
+
+  await screen.findByText("What is budgeting?");
+  await user.click(
+    screen.getByRole("button", { name: /suggested budgeting question/i }),
+  );
+
+  expect(await screen.findByText("Memory updated")).toBeInTheDocument();
+  expect(
+    screen.getByText("2 details saved to your memories."),
+  ).toBeInTheDocument();
+
+  await user.click(
+    screen.getByRole("button", { name: /dismiss memory update/i }),
+  );
+  expect(screen.queryByText("Memory updated")).not.toBeInTheDocument();
 });
 
 test("creates a conversation before sending from an empty chat", async () => {
@@ -254,7 +290,12 @@ test("removes an uploaded PDF before sending", async () => {
 });
 
 test("renders streamed advisor deltas while a response is pending", async () => {
-  let resolveStream: ((value: { answer: string; model: string }) => void) | undefined;
+  let resolveStream: ((value: {
+    answer: string;
+    model: string;
+    memory_updated: boolean;
+    memory_update_count: number;
+  }) => void) | undefined;
   mockedStreamAdvisorMessage.mockImplementationOnce(async (_message, _conversationId, onDelta) => {
     onDelta("First ");
     onDelta("second");
@@ -274,6 +315,8 @@ test("renders streamed advisor deltas while a response is pending", async () => 
   resolveStream?.({
     answer: "First second",
     model: "test-model",
+    memory_updated: false,
+    memory_update_count: 0,
   });
   await waitFor(() => expect(mockedGetConversation).toHaveBeenCalledTimes(2));
 });

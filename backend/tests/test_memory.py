@@ -285,6 +285,10 @@ def test_ai_recalls_memory_across_conversations(client):
 
     assert first_response.status_code == 200
     assert second_response.status_code == 200
+    assert first_response.json()["memory_updated"] is True
+    assert first_response.json()["memory_update_count"] == 1
+    assert second_response.json()["memory_updated"] is False
+    assert second_response.json()["memory_update_count"] == 0
     assert len(service.messages) == 2
     assert "Long-term user memory" in service.messages[1]
     assert "I have a $500 monthly car loan" in service.messages[1]
@@ -295,6 +299,34 @@ def test_ai_recalls_memory_across_conversations(client):
         item for item in memories if "car loan" in item["fact"]
     )
     assert car_loan_memory["last_used_at"] is not None
+
+
+def test_repeated_fact_does_not_report_a_memory_update(client):
+    headers = create_authorization_headers(client)
+    service = CapturingTestAdvisorService()
+    app.dependency_overrides[get_ai_advisor_service] = lambda: service
+
+    try:
+        first_response = client.post(
+            "/api/ai/chat",
+            headers=headers,
+            json={"message": "I have a $500 monthly car loan."},
+        )
+        repeated_response = client.post(
+            "/api/ai/chat",
+            headers=headers,
+            json={"message": "I have a $500 monthly car loan."},
+        )
+    finally:
+        app.dependency_overrides.pop(get_ai_advisor_service, None)
+
+    assert first_response.status_code == 200
+    assert first_response.json()["memory_updated"] is True
+    assert first_response.json()["memory_update_count"] == 1
+    assert repeated_response.status_code == 200
+    assert repeated_response.json()["memory_updated"] is False
+    assert repeated_response.json()["memory_update_count"] == 0
+    assert len(client.get("/api/memory", headers=headers).json()) == 1
 
 
 def test_memory_extraction_preserves_decimals_and_declarative_question_prefix():

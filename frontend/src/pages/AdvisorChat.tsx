@@ -16,6 +16,7 @@ import GoalReviewCard, {
   type GoalReviewCardData,
 } from "../components/chat/GoalReviewCard";
 import FormattedChatMessage from "../components/chat/FormattedChatMessage";
+import MemoryUpdateToast from "../components/chat/MemoryUpdateToast";
 import SuggestedQuestions, { rememberSuggestedQuestions, selectSuggestedQuestions } from "../components/chat/SuggestedQuestions";
 import { useUser } from "../store/UserProvider";
 
@@ -265,7 +266,9 @@ export default function AdvisorChat() {
   const [goalPlanningPending, setGoalPlanningPending] = useState(false);
   const [pendingExchange, setPendingExchange] = useState<PendingExchange | null>(null);
   const [pendingGoalReview, setPendingGoalReview] = useState<GoalReviewCardData | null>(null);
+  const [memoryUpdateCount, setMemoryUpdateCount] = useState(0);
   const activeRequestControllerRef = useRef<AbortController | null>(null);
+  const memoryToastTimerRef = useRef<number | null>(null);
   const requestedGoalReview = useMemo(
     () => goalReviewRouteState(location.state),
     [location.state],
@@ -299,7 +302,12 @@ export default function AdvisorChat() {
   }, [suggestedQuestions]);
 
   useEffect(
-    () => () => activeRequestControllerRef.current?.abort(),
+    () => () => {
+      activeRequestControllerRef.current?.abort();
+      if (memoryToastTimerRef.current !== null) {
+        window.clearTimeout(memoryToastTimerRef.current);
+      }
+    },
     [],
   );
 
@@ -388,6 +396,26 @@ export default function AdvisorChat() {
     setLocalAttachments((current) => ({ ...current, [latest.id]: files }));
   }
 
+  function showMemoryUpdateToast(updateCount: number) {
+    const visibleCount = Math.max(1, Math.trunc(updateCount));
+    setMemoryUpdateCount(visibleCount);
+    if (memoryToastTimerRef.current !== null) {
+      window.clearTimeout(memoryToastTimerRef.current);
+    }
+    memoryToastTimerRef.current = window.setTimeout(() => {
+      setMemoryUpdateCount(0);
+      memoryToastTimerRef.current = null;
+    }, 4_000);
+  }
+
+  function dismissMemoryUpdateToast() {
+    setMemoryUpdateCount(0);
+    if (memoryToastTimerRef.current !== null) {
+      window.clearTimeout(memoryToastTimerRef.current);
+      memoryToastTimerRef.current = null;
+    }
+  }
+
   async function refreshActiveConversation(
     conversationId: number,
     files: AttachmentPreview[] = [],
@@ -439,6 +467,9 @@ export default function AdvisorChat() {
           assistantContent: response.answer,
           thinking: false,
         }));
+        if (response.memory_updated) {
+          showMemoryUpdateToast(response.memory_update_count);
+        }
       } else {
         const response = await streamAdvisorMessage(
           message,
@@ -457,6 +488,9 @@ export default function AdvisorChat() {
           assistantContent: response.answer,
           thinking: false,
         }));
+        if (response.memory_updated) {
+          showMemoryUpdateToast(response.memory_update_count);
+        }
       }
       await refreshActiveConversation(conversation.conversation_id, files);
     } catch (caught) {
@@ -526,6 +560,9 @@ export default function AdvisorChat() {
         assistantContent: response.answer,
         thinking: false,
       }));
+      if (response.memory_updated) {
+        showMemoryUpdateToast(response.memory_update_count);
+      }
       await refreshActiveConversation(conversationId);
     } catch (caught) {
       if (conversationId !== null) {
@@ -661,6 +698,12 @@ export default function AdvisorChat() {
           <ChatComposer sending={sending} onSubmit={sendMessage} onSetGoal={startGoalPlanning} />
         </div>
       </section>
+      {memoryUpdateCount > 0 && (
+        <MemoryUpdateToast
+          count={memoryUpdateCount}
+          onDismiss={dismissMemoryUpdateToast}
+        />
+      )}
     </main>
   );
 }

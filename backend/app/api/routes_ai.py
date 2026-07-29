@@ -553,7 +553,7 @@ async def _advisor_chat_events(
     db: Session,
     *,
     stream_response: bool,
-) -> AsyncIterator[dict[str, str | int]]:
+) -> AsyncIterator[dict[str, str | int | bool]]:
     """Run one chat turn and emit events from a shared business workflow."""
     try:
         advisory_topic_instructions = build_advisory_topic_instructions(
@@ -567,6 +567,7 @@ async def _advisor_chat_events(
         goal_review = None
         confirmed_goal_plan = None
         confirmed_intent_memory: ExtractedMemory | None = None
+        memory_update_ids: set[int] = set()
         rule_context = None
         conversation = None
         last_assistant_message = None
@@ -675,6 +676,8 @@ async def _advisor_chat_events(
                 "type": "done",
                 "answer": answer,
                 "model": advisor_service.model,
+                "memory_updated": False,
+                "memory_update_count": 0,
             }
             return
 
@@ -703,6 +706,8 @@ async def _advisor_chat_events(
                     "type": "done",
                     "answer": answer,
                     "model": advisor_service.model,
+                    "memory_updated": False,
+                    "memory_update_count": 0,
                 }
                 return
             if (
@@ -715,12 +720,15 @@ async def _advisor_chat_events(
                     fact=clarification.confirmed_fact,
                     category=clarification.memory_category,
                 )
-                remember_from_conversation_turn(
+                confirmed_updates = remember_from_conversation_turn(
                     db,
                     current_user.id,
                     user_message="",
                     assistant_message="",
                     structured_memories=[confirmed_intent_memory],
+                )
+                memory_update_ids.update(
+                    memory.id for memory in confirmed_updates
                 )
                 memory_context = build_memory_context(
                     retrieve_relevant_memories(
@@ -850,7 +858,7 @@ async def _advisor_chat_events(
             if confirmed_intent_memory is not None:
                 structured_memories.append(confirmed_intent_memory)
 
-            remember_from_conversation_turn(
+            updated_memories = remember_from_conversation_turn(
                 db,
                 current_user.id,
                 user_message=(
@@ -862,6 +870,9 @@ async def _advisor_chat_events(
                 conversation_context=conversation_context,
                 structured_memories=structured_memories,
             )
+            memory_update_ids.update(
+                memory.id for memory in updated_memories
+            )
         except Exception:
             db.rollback()
             logger.exception(
@@ -872,6 +883,8 @@ async def _advisor_chat_events(
             "type": "done",
             "answer": answer,
             "model": advisor_service.model,
+            "memory_updated": bool(memory_update_ids),
+            "memory_update_count": len(memory_update_ids),
         }
     except (
         LLMConfigurationError,
@@ -905,6 +918,8 @@ async def chat_with_advisor(
             return AIChatResponse(
                 answer=str(event["answer"]),
                 model=str(event["model"]),
+                memory_updated=bool(event.get("memory_updated", False)),
+                memory_update_count=int(event.get("memory_update_count", 0)),
             )
 
     _raise_llm_http_error(

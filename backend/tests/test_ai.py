@@ -1311,6 +1311,8 @@ def test_chat_returns_advisor_response(client):
             "What is compound interest?"
         ),
         "model": "test-model",
+        "memory_updated": False,
+        "memory_update_count": 0,
     }
 
 
@@ -1392,7 +1394,13 @@ def test_chat_stream_redirects_unlaunched_goal_intent_to_set_a_goal(client):
     assert response.status_code == 200
     assert events == [
         {"type": "delta", "content": reminder},
-        {"type": "done", "answer": reminder, "model": "test-model"},
+        {
+            "type": "done",
+            "answer": reminder,
+            "model": "test-model",
+            "memory_updated": False,
+            "memory_update_count": 0,
+        },
     ]
     assert service.messages == []
 
@@ -1437,6 +1445,8 @@ def test_chat_stream_returns_incremental_events_and_persists_answer(client):
             "type": "done",
             "answer": "Streamed **financial guidance**.",
             "model": "test-model",
+            "memory_updated": False,
+            "memory_update_count": 0,
         },
     ]
 
@@ -1451,6 +1461,46 @@ def test_chat_stream_returns_incremental_events_and_persists_answer(client):
     assert detail["messages"][-1]["content"] == (
         "Streamed **financial guidance**."
     )
+
+
+def test_chat_stream_reports_a_real_memory_update(client):
+    headers = create_authorization_headers(client)
+    conversation_id = client.post(
+        "/api/chat/conversations",
+        headers=headers,
+        json={},
+    ).json()["conversation_id"]
+    app.dependency_overrides[
+        get_ai_advisor_service
+    ] = lambda: StreamingTestAdvisorService()
+
+    try:
+        response = client.post(
+            "/api/ai/chat/stream",
+            headers=headers,
+            json={
+                "message": "My monthly income is $3,000.",
+                "conversation_id": conversation_id,
+            },
+        )
+    finally:
+        app.dependency_overrides.pop(get_ai_advisor_service, None)
+
+    events = [
+        json.loads(line)
+        for line in response.text.splitlines()
+        if line
+    ]
+    assert events[-1] == {
+        "type": "done",
+        "answer": "Streamed **financial guidance**.",
+        "model": "test-model",
+        "memory_updated": True,
+        "memory_update_count": 1,
+    }
+    memories = client.get("/api/memory", headers=headers).json()
+    assert len(memories) == 1
+    assert memories[0]["fact"] == "My monthly income is $3,000"
 
 
 def test_chat_stream_keeps_completed_answer_when_memory_update_fails(
@@ -1496,6 +1546,8 @@ def test_chat_stream_keeps_completed_answer_when_memory_update_fails(
         "type": "done",
         "answer": "Streamed **financial guidance**.",
         "model": "test-model",
+        "memory_updated": False,
+        "memory_update_count": 0,
     }
 
     detail = client.get(
