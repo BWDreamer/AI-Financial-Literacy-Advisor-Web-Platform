@@ -14,6 +14,54 @@
 }
 
 @layer components {
+  .auth-form-surface label {
+    @apply text-white/90;
+  }
+
+  .auth-form-surface label > span:first-child {
+    @apply !text-white/90;
+  }
+
+  .auth-form-surface input {
+    @apply !border-white/35 !bg-white/10 !text-white !shadow-none backdrop-blur transition placeholder:!text-white/55;
+  }
+
+  .auth-form-surface input:focus {
+    @apply !border-blue-200 !bg-white/15 outline-none !ring-4 !ring-blue-300/20;
+  }
+
+  .auth-form-surface button[type="button"] {
+    @apply !text-white/85 hover:!text-white;
+  }
+
+  .auth-form-surface label button[type="button"] {
+    @apply hover:!bg-white/10;
+  }
+
+  .auth-form-surface [role="dialog"] label > span:first-child {
+    @apply !text-slate-700;
+  }
+
+  .auth-form-surface [role="dialog"] input {
+    @apply !border-slate-300 !bg-white !text-slate-900 placeholder:!text-slate-400;
+  }
+
+  .auth-form-surface [role="dialog"] input:focus {
+    @apply !border-blue-500 !bg-white !ring-4 !ring-blue-100;
+  }
+
+  .auth-form-surface [role="dialog"] button[type="button"] {
+    @apply !text-slate-700;
+  }
+
+  .auth-form-surface p[role="alert"] {
+    @apply bg-red-500/15 text-red-100 ring-1 ring-red-200/30;
+  }
+
+  .auth-form-surface p[role="status"] {
+    @apply bg-emerald-500/15 text-emerald-100 ring-1 ring-emerald-200/30;
+  }
+
   .article-content p {
     @apply my-5;
   }
