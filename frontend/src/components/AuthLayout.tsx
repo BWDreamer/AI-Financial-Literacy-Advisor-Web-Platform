@@ -32,7 +32,7 @@ export default function AuthLayout({ activeTab, children, subtitle, title }: Aut
                 FinanceAI
               </p>
               <h2 className="max-w-xl bg-gradient-to-r from-white via-blue-100 to-sky-200 bg-clip-text text-6xl font-black leading-[0.95] tracking-[-0.05em] text-transparent drop-shadow-2xl">
-                Smarter money decisions start here
+                Smarter money decisions start here.
               </h2>
               <div className="mt-7 h-1 w-24 rounded-full bg-blue-400/90 shadow-lg shadow-blue-500/40" />
               <p className="mt-7 max-w-lg text-xl font-medium leading-8 text-slate-100 drop-shadow">

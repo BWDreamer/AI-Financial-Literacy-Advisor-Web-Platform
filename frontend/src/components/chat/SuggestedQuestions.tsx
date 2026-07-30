@@ -114,8 +114,8 @@ export default function SuggestedQuestions({
 }) {
   return (
     <section aria-label="Suggested questions" className="mb-3">
-      <div className="mb-2 flex items-center gap-2 px-1 text-sm font-bold text-slate-700">
-        <Sparkles size={17} className="text-blue-600" aria-hidden="true" />
+      <div className="mb-2 flex items-center gap-2 px-1 text-xs font-bold text-slate-700 sm:text-sm">
+        <Sparkles size={15} className="text-blue-600 sm:size-[17px]" aria-hidden="true" />
         <h2>You might want to ask</h2>
       </div>
       <div className="grid gap-2 lg:grid-cols-3">
@@ -125,7 +125,7 @@ export default function SuggestedQuestions({
             type="button"
             disabled={disabled}
             onClick={() => onSelect(item.question)}
-            className="min-h-16 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left text-sm font-semibold leading-5 text-slate-700 shadow-sm transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-800 focus:outline-none focus:ring-4 focus:ring-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
+            className="min-h-0 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-left text-xs font-semibold leading-5 text-slate-700 shadow-sm transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-800 focus:outline-none focus:ring-4 focus:ring-blue-100 disabled:cursor-not-allowed disabled:opacity-60 sm:min-h-16 sm:rounded-2xl sm:px-4 sm:py-3 sm:text-sm"
           >
             {item.question}
           </button>

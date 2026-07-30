@@ -142,17 +142,17 @@ function snapshotHasValues(snapshot: SnapshotValues) {
 }
 
 function Chip({ label, selected, onClick }: { label: string; selected: boolean; onClick: () => void }) {
-  return <button type="button" onClick={onClick} className={`rounded-2xl border px-4 py-3 text-left text-sm font-semibold transition ${selected ? "border-blue-600 bg-blue-600 text-white shadow-sm" : "border-slate-200 bg-white text-slate-700 hover:border-blue-200 hover:bg-blue-50"}`}>{label}</button>;
+  return <button type="button" onClick={onClick} className={`rounded-xl border px-3 py-2 text-left text-xs font-semibold leading-5 transition sm:rounded-2xl sm:px-4 sm:py-3 sm:text-sm ${selected ? "border-blue-600 bg-blue-600 text-white shadow-sm" : "border-slate-200 bg-white text-slate-700 hover:border-blue-200 hover:bg-blue-50"}`}>{label}</button>;
 }
 
 function OtherInput({ value, onChange }: { value: string; onChange: (value: string) => void }) {
-  return <input value={value} onChange={(event) => onChange(event.target.value)} placeholder="Please tell us more..." className="mt-3 w-full rounded-xl border border-blue-200 bg-blue-50/40 px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100" />;
+  return <input value={value} onChange={(event) => onChange(event.target.value)} placeholder="Please tell us more..." className="mt-3 w-full rounded-xl border border-blue-200 bg-blue-50/40 px-4 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100 sm:py-3" />;
 }
 
 function MultiChoice({ options, answer, onChange }: { options: string[]; answer: AnswerSet; onChange: (answer: AnswerSet) => void }) {
   const otherSelected = answer.selected.includes("Other");
   return <>
-    <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+    <div className="mt-4 grid gap-2.5 sm:mt-5 sm:grid-cols-2 sm:gap-3 lg:grid-cols-3">
       {[...options, "Other"].map((option) => <Chip key={option} label={option} selected={answer.selected.includes(option)} onClick={() => onChange({ ...answer, selected: toggleValue(answer.selected, option) })} />)}
     </div>
     {otherSelected && <OtherInput value={answer.other} onChange={(other) => onChange({ ...answer, other })} />}
@@ -161,7 +161,7 @@ function MultiChoice({ options, answer, onChange }: { options: string[]; answer:
 
 function SingleChoice({ options, answer, onChange }: { options: string[]; answer: SingleAnswer; onChange: (answer: SingleAnswer) => void }) {
   return <>
-    <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+    <div className="mt-4 grid gap-2.5 sm:mt-5 sm:grid-cols-2 sm:gap-3 lg:grid-cols-3">
       {[...options, "Other"].map((option) => <Chip key={option} label={option} selected={answer.selected === option} onClick={() => onChange({ ...answer, selected: option })} />)}
     </div>
     {answer.selected === "Other" && <OtherInput value={answer.other} onChange={(other) => onChange({ ...answer, other })} />}
@@ -173,11 +173,11 @@ function AmountInput({ label, value, onChange }: { label: string; value: string;
 }
 
 function PrimaryAction({ children, onClick, disabled = false }: { children: ReactNode; onClick: () => void; disabled?: boolean }) {
-  return <button type="button" onClick={onClick} disabled={disabled} className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400">{children}</button>;
+  return <button type="button" onClick={onClick} disabled={disabled} className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-xs font-bold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 sm:w-auto sm:px-5 sm:py-3 sm:text-sm">{children}</button>;
 }
 
 function SecondaryAction({ children, onClick, disabled = false }: { children: ReactNode; onClick: () => void; disabled?: boolean }) {
-  return <button type="button" onClick={onClick} disabled={disabled} className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-bold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60">{children}</button>;
+  return <button type="button" onClick={onClick} disabled={disabled} className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto sm:px-5 sm:py-3 sm:text-sm">{children}</button>;
 }
 
 async function saveMemoryFacts(state: OnboardingState) {
@@ -271,28 +271,28 @@ export default function OnboardingOverlay({ user, onFinished }: OnboardingOverla
     }
   }
 
-  return <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/20 px-4 py-6 backdrop-blur-sm">
-    <section className="mx-auto max-w-4xl animate-[slideDownFade_420ms_ease-out] rounded-3xl border border-slate-200 bg-white shadow-2xl">
-      <header className="rounded-t-3xl bg-slate-950 p-5 text-white sm:p-6">
-        <div className="flex items-start justify-between gap-4">
+  return <div className="fixed inset-0 z-[80] grid place-items-center overflow-hidden bg-slate-950/20 px-3 py-3 backdrop-blur-sm sm:px-4 sm:py-6">
+    <section className="mx-auto flex h-[calc(100dvh-1.5rem)] w-full max-w-4xl animate-[slideDownFade_420ms_ease-out] flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl sm:h-auto sm:max-h-[calc(100dvh-3rem)]">
+      <header className="shrink-0 rounded-t-3xl bg-slate-950 p-3.5 text-white sm:p-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <p className="inline-flex items-center gap-2 rounded-full bg-blue-500/20 px-3 py-1 text-xs font-bold uppercase tracking-[0.2em] text-blue-100"><Sparkles size={14} /> FinanceAI Setup</p>
-            <h1 className="mt-4 text-2xl font-bold tracking-tight sm:text-3xl">Welcome to FinanceAI</h1>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-300">A few quick questions help us make your dashboard and advisor feel more useful from the start.</p>
+            <p className="inline-flex items-center gap-2 rounded-full bg-blue-500/20 px-3 py-1 text-[0.65rem] font-bold uppercase tracking-[0.2em] text-blue-100 sm:text-xs"><Sparkles size={13} /> FinanceAI Setup</p>
+            <h1 className="mt-3 text-xl font-bold tracking-tight sm:mt-4 sm:text-3xl">Welcome to FinanceAI</h1>
+            <p className="mt-1.5 max-w-2xl text-xs leading-5 text-slate-300 sm:mt-2 sm:text-sm sm:leading-6">A few quick questions help us make your dashboard and advisor feel more useful from the start.</p>
           </div>
-          <div className="flex shrink-0 flex-col items-end gap-2">
+          <div className="flex shrink-0 items-center justify-between gap-3 sm:flex-col sm:items-end sm:gap-2">
             <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-bold text-slate-200">{step === 0 ? "Welcome" : `Step ${step} of 5`}</span>
             <button type="button" onClick={() => void skipSetup()} disabled={saving} className="text-xs font-semibold text-slate-300 underline-offset-4 hover:text-white hover:underline disabled:cursor-not-allowed disabled:opacity-60">
               Skip setup
             </button>
           </div>
         </div>
-        <div className="mt-5 h-2 overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-blue-500 transition-all" style={{ width: `${progress}%` }} /></div>
+        <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/10 sm:mt-5 sm:h-2"><div className="h-full rounded-full bg-blue-500 transition-all" style={{ width: `${progress}%` }} /></div>
       </header>
 
-      <div className="max-h-[calc(100vh-12rem)] overflow-y-auto p-5 sm:p-7">
+      <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-7">
         {error && <p className="mb-5 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
-        {step === 0 && <section><p className="text-sm font-bold uppercase tracking-[0.18em] text-blue-600">Quick start</p><h2 className="mt-3 text-2xl font-bold text-slate-950">Let's make FinanceAI useful for your real life.</h2><p className="mt-4 max-w-2xl leading-7 text-slate-600">You can share rough preferences and estimates. We will not ask you to set goals or deadlines here.</p><div className="mt-8 flex justify-end"><PrimaryAction onClick={() => setStep(1)}>Start Setup <ArrowRight size={18} /></PrimaryAction></div></section>}
+        {step === 0 && <section><p className="text-xs font-bold uppercase tracking-[0.18em] text-blue-600 sm:text-sm">Quick start</p><h2 className="mt-3 text-xl font-bold leading-snug text-slate-950 sm:text-2xl">Let's make FinanceAI useful for your real life.</h2><p className="mt-4 max-w-2xl text-base leading-7 text-slate-600 sm:text-lg">You can share rough preferences and estimates. We will not ask you to set goals or deadlines here.</p><div className="mt-8 flex justify-end"><button type="button" onClick={() => setStep(1)} className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-blue-700">Start Setup <ArrowRight size={16} /></button></div></section>}
         {step === 1 && <section><h2 className="text-2xl font-bold text-slate-950">What brings you to FinanceAI?</h2><p className="mt-2 text-slate-500">Pick the reasons that feel closest to what you need right now.</p><MultiChoice options={focusOptions} answer={state.focusAreas} onChange={(focusAreas) => setState({ ...state, focusAreas })} /></section>}
         {step === 2 && <section><h2 className="text-2xl font-bold text-slate-950">How should FinanceAI explain things?</h2><h3 className="mt-5 font-bold text-slate-900">How familiar do you feel with money topics?</h3><SingleChoice options={confidenceOptions} answer={state.confidence} onChange={(confidence) => setState({ ...state, confidence })} /><h3 className="mt-7 font-bold text-slate-900">What makes advice easier to use?</h3><MultiChoice options={explanationOptions} answer={state.explanationStyle} onChange={(explanationStyle) => setState({ ...state, explanationStyle })} /></section>}
         {step === 3 && <section><h2 className="text-2xl font-bold text-slate-950">What feels most pressing?</h2><p className="mt-2 text-slate-500">This helps the advisor avoid generic advice and focus on what matters.</p><h3 className="mt-5 font-bold text-slate-900">What is on your mind right now?</h3><MultiChoice options={concernOptions} answer={state.concerns} onChange={(concerns) => setState({ ...state, concerns })} /><h3 className="mt-7 font-bold text-slate-900">How should plans feel?</h3><SingleChoice options={planningOptions} answer={state.planningStyle} onChange={(planningStyle) => setState({ ...state, planningStyle })} /></section>}
@@ -300,7 +300,7 @@ export default function OnboardingOverlay({ user, onFinished }: OnboardingOverla
         {step === 5 && <section><h2 className="text-2xl font-bold text-slate-950">Review and finish</h2><div className="mt-5 grid gap-4 md:grid-cols-2">{[["Why you're here", review.focus], ["Guidance style", review.style], ["What's pressing", review.concerns], ["Plan preferences", review.advisor], ["Financial snapshot", review.snapshot]].map(([label, value]) => <article key={label} className="rounded-2xl border border-slate-200 bg-slate-50 p-5"><p className="text-xs font-bold uppercase tracking-[0.18em] text-blue-600">{label}</p><p className="mt-3 text-sm leading-6 text-slate-700">{value}</p></article>)}</div></section>}
       </div>
 
-      {step > 0 && <footer className="flex flex-col-reverse gap-3 border-t border-slate-100 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6"><div className="flex flex-col gap-3 sm:flex-row"><SecondaryAction onClick={() => setStep((current) => Math.max(current - 1, 0))} disabled={saving}><ArrowLeft size={18} /> Back</SecondaryAction>{step < 5 && <SecondaryAction onClick={() => setStep((current) => Math.min(current + 1, 5))} disabled={saving}>Skip this step</SecondaryAction>}</div>{step < 5 ? <PrimaryAction onClick={() => setStep((current) => Math.min(current + 1, 5))} disabled={!canContinue || saving}>Next <ChevronRight size={18} /></PrimaryAction> : <PrimaryAction onClick={() => void finishSetup()} disabled={saving}>{saving ? "Saving..." : "Finish Setup"} <Check size={18} /></PrimaryAction>}</footer>}
+      {step > 0 && <footer className="shrink-0 border-t border-slate-100 bg-white p-2.5 sm:p-6"><div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between"><div className="flex flex-col gap-2 sm:flex-row sm:gap-3"><SecondaryAction onClick={() => setStep((current) => Math.max(current - 1, 0))} disabled={saving}><ArrowLeft size={16} /> Back</SecondaryAction>{step < 5 && <SecondaryAction onClick={() => setStep((current) => Math.min(current + 1, 5))} disabled={saving}>Skip this step</SecondaryAction>}</div>{step < 5 ? <PrimaryAction onClick={() => setStep((current) => Math.min(current + 1, 5))} disabled={!canContinue || saving}>Next <ChevronRight size={16} /></PrimaryAction> : <PrimaryAction onClick={() => void finishSetup()} disabled={saving}>{saving ? "Saving..." : "Finish Setup"} <Check size={16} /></PrimaryAction>}</div></footer>}
     </section>
   </div>;
 }

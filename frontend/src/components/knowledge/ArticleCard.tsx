@@ -30,19 +30,19 @@ function metricButtonClass(active: boolean) {
 export default function ArticleCard({ article, liked, saved, onToggleLike, onToggleSave }: ArticleCardProps) {
   const coverImageUrl = resolveImageUrl(article.coverImageUrl);
 
-  return <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-blue-200 hover:shadow-md">
-    <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_11rem]">
+  return <article className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm transition hover:border-blue-200 hover:shadow-md sm:p-4">
+    <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_11rem] sm:gap-4">
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-slate-500">
           <span className="rounded-full bg-blue-50 px-2.5 py-1 text-blue-700">{article.category}</span>
           <span>{article.sourceName}</span>
           <span>{formatDate(article.publishedAt)}</span>
         </div>
-        <Link to={`/knowledge-hub/${article.id}`} className="mt-3 block text-xl font-bold leading-snug text-slate-950 hover:text-blue-700">
+        <Link to={`/knowledge-hub/${article.id}`} className="mt-2 block text-lg font-bold leading-snug text-slate-950 hover:text-blue-700 sm:mt-3 sm:text-xl">
           {article.title}
         </Link>
-        <p className="mt-2 line-clamp-2 text-sm leading-6 text-slate-600">{article.summary}</p>
-        <div className="mt-4 flex flex-wrap items-center gap-4 text-sm text-slate-500">
+        <p className="mt-1.5 line-clamp-2 text-xs leading-5 text-slate-600 sm:mt-2 sm:text-sm sm:leading-6">{article.summary}</p>
+        <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-slate-500 sm:mt-4 sm:gap-4 sm:text-sm">
           <span>{article.authorName}</span>
           <span className="inline-flex items-center gap-1"><Eye size={15} />{compactNumber(article.views)}</span>
           <button type="button" onClick={() => onToggleLike(article)} className={metricButtonClass(liked)} aria-pressed={liked}>
@@ -54,7 +54,7 @@ export default function ArticleCard({ article, liked, saved, onToggleLike, onTog
         </div>
       </div>
       {coverImageUrl && <Link to={`/knowledge-hub/${article.id}`} aria-label={`Read ${article.title}`}>
-        <img src={coverImageUrl} alt={article.title} className="h-36 w-full rounded-xl object-cover sm:h-32" />
+        <img src={coverImageUrl} alt={article.title} className="h-28 w-full rounded-xl object-cover sm:h-32" />
       </Link>}
     </div>
   </article>;
