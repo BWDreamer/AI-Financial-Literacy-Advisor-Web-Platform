@@ -198,8 +198,8 @@ export default function MyGoals() {
     <main className="min-h-screen space-y-6 bg-slate-50 p-4 sm:p-6 lg:p-8">
       <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-slate-900">My Goals</h1>
-          <p className="mt-2 text-slate-500">Allocate current cash savings and future monthly net income toward your goals.</p>
+          <h1 className="page-title">My Goals</h1>
+          <p className="page-subtitle">Allocate current cash savings and future monthly net income toward your goals.</p>
         </div>
         <PrimaryButton type="button" onClick={() => setCreating(true)} className="w-full sm:w-auto">
           <span className="inline-flex items-center justify-center gap-2"><Plus size={18} />Create Goal</span>

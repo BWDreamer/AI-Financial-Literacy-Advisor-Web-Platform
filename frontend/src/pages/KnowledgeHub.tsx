@@ -46,7 +46,7 @@ function emptyStateForTab(tab: KnowledgeTab) {
 }
 
 function ArticlePersonalTabs({ selectedTab, onChange }: { selectedTab: KnowledgeTab; onChange: (tab: KnowledgeTab) => void }) {
-  return <div className="inline-flex rounded-2xl border border-slate-200 bg-white p-1.5 shadow-sm" role="tablist" aria-label="Knowledge article views">
+  return <div className="inline-flex w-full rounded-2xl border border-slate-200 bg-white p-1 shadow-sm sm:w-auto sm:p-1.5" role="tablist" aria-label="Knowledge article views">
     {knowledgeTabs.map((tab) => {
       const active = selectedTab === tab.id;
       return <button
@@ -54,7 +54,7 @@ function ArticlePersonalTabs({ selectedTab, onChange }: { selectedTab: Knowledge
         type="button"
         onClick={() => onChange(tab.id)}
         className={[
-          "rounded-xl px-4 py-2.5 text-sm font-bold transition sm:px-5",
+          "flex-1 rounded-xl px-3 py-2 text-xs font-bold transition sm:flex-none sm:px-5 sm:py-2.5 sm:text-sm",
           active ? "bg-blue-600 text-white shadow-sm shadow-blue-200" : "text-slate-700 hover:bg-slate-50 hover:text-blue-600",
         ].join(" ")}
       >
@@ -77,7 +77,7 @@ function ArticleSortControl({ sortBy, onChange }: { sortBy: ArticleSortBy; onCha
     <button
       type="button"
       onClick={() => setOpen((current) => !current)}
-      className="flex w-full items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-500 shadow-sm hover:border-blue-200 sm:w-auto"
+      className="flex w-full items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500 shadow-sm hover:border-blue-200 sm:w-auto sm:px-4 sm:py-3 sm:text-sm"
     >
       <span className="font-semibold">Sort by</span>
       <span className="flex items-center gap-2 font-bold text-slate-900">
@@ -106,7 +106,7 @@ function ArticleSortControl({ sortBy, onChange }: { sortBy: ArticleSortBy; onCha
 }
 
 function ArticleCategoryChips({ categories, selectedCategory, onChange }: { categories: string[]; selectedCategory: string; onChange: (category: string) => void }) {
-  return <nav className="-mx-4 mt-4 overflow-x-auto px-4 pb-1 sm:mx-0 sm:px-0" aria-label="Article categories">
+  return <nav className="-mx-4 mt-3 overflow-x-auto px-4 pb-1 sm:mx-0 sm:mt-4 sm:px-0" aria-label="Article categories">
     <div className="flex min-w-max gap-2">
       {["All", ...categories].map((category) => {
         const active = selectedCategory === category;
@@ -115,7 +115,7 @@ function ArticleCategoryChips({ categories, selectedCategory, onChange }: { cate
           type="button"
           onClick={() => onChange(category)}
           className={[
-            "shrink-0 rounded-full border px-3.5 py-1.5 text-sm font-semibold transition",
+            "shrink-0 rounded-full border px-3 py-1 text-xs font-semibold transition sm:px-3.5 sm:py-1.5 sm:text-sm",
             active ? "border-blue-600 bg-blue-600 text-white shadow-sm shadow-blue-100" : "border-slate-200 bg-white text-slate-600 hover:border-blue-200 hover:text-blue-600",
           ].join(" ")}
         >
@@ -140,7 +140,7 @@ function FeaturedHero({ featuredArticles }: { featuredArticles: Article[] }) {
 
   if (!activeArticle) return null;
 
-  return <header className="relative overflow-hidden rounded-[2rem] bg-slate-950 shadow-xl shadow-slate-300/60">
+  return <header className="relative overflow-hidden rounded-3xl bg-slate-950 shadow-xl shadow-slate-300/60 sm:rounded-[2rem]">
     <div className="absolute inset-0">
       {featuredArticles.map((article, index) => {
         const coverImageUrl = resolveImageUrl(article.coverImageUrl);
@@ -158,17 +158,17 @@ function FeaturedHero({ featuredArticles }: { featuredArticles: Article[] }) {
       <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-transparent to-slate-950/40" />
     </div>
 
-    <div className="relative grid min-h-[13rem] gap-5 p-4 text-white sm:p-5 lg:grid-cols-[minmax(0,1fr)_16rem] lg:p-6">
-      <div className="flex max-w-3xl flex-col justify-between gap-4">
-        <p className="text-sm font-bold uppercase tracking-[0.22em] text-blue-200">Daily Knowledge Mix</p>
+    <div className="relative grid min-h-[9.5rem] gap-3 p-4 text-white sm:min-h-[13rem] sm:gap-5 sm:p-5 lg:grid-cols-[minmax(0,1fr)_16rem] lg:p-6">
+      <div className="flex max-w-3xl flex-col justify-end gap-3 sm:justify-between sm:gap-4">
+        <p className="hidden text-sm font-bold uppercase tracking-[0.22em] text-blue-200 sm:block">Daily Knowledge Mix</p>
         <section className="max-w-2xl">
-          <div className="flex flex-wrap items-center gap-3 text-sm font-semibold text-blue-100">
-            <span className="rounded-full bg-blue-500 px-3 py-1 text-white">{activeArticle.category}</span>
-            <span>{activeArticle.sourceName}</span>
+          <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-blue-100 sm:gap-3 sm:text-sm">
+            <span className="rounded-full bg-blue-500 px-2.5 py-1 text-white sm:px-3">{activeArticle.category}</span>
+            <span className="hidden sm:inline">{activeArticle.sourceName}</span>
             <span>{formatDate(activeArticle.publishedAt)}</span>
           </div>
-          <Link to={`/knowledge-hub/${activeArticle.id}`} className="mt-3 block text-2xl font-black leading-tight tracking-tight text-white hover:text-blue-200 sm:text-3xl">{activeArticle.title}</Link>
-          <p className="mt-2 line-clamp-2 max-w-xl text-sm leading-6 text-slate-200">{activeArticle.summary}</p>
+          <Link to={`/knowledge-hub/${activeArticle.id}`} className="mt-2 block line-clamp-2 text-lg font-black leading-tight tracking-tight text-white hover:text-blue-200 sm:mt-3 sm:text-3xl">{activeArticle.title}</Link>
+          <p className="mt-1 line-clamp-1 max-w-xl text-xs leading-5 text-slate-200 sm:mt-2 sm:line-clamp-2 sm:text-sm sm:leading-6">{activeArticle.summary}</p>
         </section>
       </div>
 
@@ -305,16 +305,16 @@ export default function KnowledgeBasePage() {
     }
   }
 
-  return <main className="min-h-screen bg-slate-50 px-4 py-6 sm:px-6 lg:px-8">
+  return <main className="min-h-screen bg-slate-50 px-4 py-4 pb-24 sm:px-6 sm:py-6 lg:px-8">
     <section className="mx-auto max-w-6xl">
       <FeaturedHero featuredArticles={featuredArticles} />
 
-      <div className="mt-8 grid gap-4 lg:grid-cols-[minmax(0,1fr)_26rem] lg:items-end">
+      <div className="mt-4 grid gap-3 sm:mt-8 sm:gap-4 lg:grid-cols-[minmax(0,1fr)_26rem] lg:items-end">
         <div>
-          <p className="text-sm font-bold uppercase tracking-[0.2em] text-blue-600">Latest Articles</p>
-          <h2 className="mt-2 text-2xl font-bold text-slate-950">Explore the full knowledge base</h2>
+          <p className="text-xs font-bold uppercase tracking-[0.2em] text-blue-600 sm:text-sm">Latest Articles</p>
+          <h2 className="page-title mt-1 sm:mt-2">Explore the full knowledge base</h2>
         </div>
-        <label className="rounded-full border border-slate-200 bg-white px-4 py-3 text-slate-500 shadow-sm focus-within:border-blue-300 focus-within:ring-4 focus-within:ring-blue-100">
+        <label className="rounded-full border border-slate-200 bg-white px-3 py-2 text-slate-500 shadow-sm focus-within:border-blue-300 focus-within:ring-4 focus-within:ring-blue-100 sm:px-4 sm:py-3">
           <span className="flex items-center gap-3">
             <Search size={18} />
             <input
@@ -330,14 +330,14 @@ export default function KnowledgeBasePage() {
         </label>
       </div>
 
-      <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="mt-4 flex flex-col gap-2.5 sm:mt-6 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
         <ArticlePersonalTabs selectedTab={selectedTab} onChange={setSelectedTab} />
         <ArticleSortControl sortBy={sortBy} onChange={setSortBy} />
       </div>
 
       <ArticleCategoryChips categories={categories} selectedCategory={selectedCategory} onChange={setSelectedCategory} />
 
-      <div className="mt-5">
+      <div className="mt-4 sm:mt-5">
         {loading && <section className="rounded-2xl border border-slate-200 bg-white p-8 text-center text-slate-500">Loading articles...</section>}
         {!loading && error && <section className="rounded-2xl border border-red-100 bg-red-50 p-8 text-center text-red-600">{error}</section>}
         {!loading && !error && <ArticleList

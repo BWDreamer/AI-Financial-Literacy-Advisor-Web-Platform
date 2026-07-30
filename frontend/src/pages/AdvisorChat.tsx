@@ -92,8 +92,8 @@ function MobileHistoryHandle({ open, onClick }: { open: boolean; onClick: () => 
 
 function EmptyConversationWelcome({ userName }: { userName: string }) {
   return (
-    <div className="grid min-h-0 flex-1 place-items-center px-4 py-12 text-center">
-      <h2 className="text-3xl font-extrabold tracking-tight text-slate-950 sm:text-4xl">
+    <div className="grid min-h-0 flex-1 place-items-center px-3 py-6 text-center sm:px-4 sm:py-12">
+      <h2 className="text-xl font-bold tracking-tight text-slate-950 sm:text-4xl">
         How can I help, <span className="text-slate-950">{userName}</span>?
       </h2>
     </div>
@@ -651,7 +651,7 @@ export default function AdvisorChat() {
           onDelete={(id) => void removeConversation(id)}
         />
       )}
-      <section className="flex min-w-0 flex-1 flex-col p-5 sm:p-8">
+      <section className="flex min-w-0 flex-1 flex-col p-4 pb-24 sm:p-8">
         <div className="flex flex-wrap items-start gap-4">
           <button
             type="button"
@@ -662,8 +662,8 @@ export default function AdvisorChat() {
             <PanelLeft size={22} aria-hidden="true" />
           </button>
           <div className="min-w-0 flex-1">
-            <h1 className="text-3xl font-bold tracking-tight">Advisor Chat</h1>
-            <p className="mt-2 text-slate-500">
+            <h1 className="page-title">Advisor Chat</h1>
+            <p className="page-subtitle">
               Ask educational questions about personal finance.
             </p>
           </div>
