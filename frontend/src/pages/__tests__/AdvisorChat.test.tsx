@@ -134,7 +134,20 @@ test("loads conversations and opens the latest conversation", async () => {
   expect(screen.getByText("Loading conversations...")).toBeInTheDocument();
   expect(await screen.findByRole("heading", { name: /advisor chat/i })).toBeInTheDocument();
   expect(screen.getByText("What is budgeting?")).toBeInTheDocument();
-  expect(screen.getByText(/Budgeting means planning your money/i)).toBeInTheDocument();
+  const assistantReply = screen
+    .getByText(/Budgeting means planning your money/i)
+    .closest("article");
+  expect(assistantReply).toHaveClass(
+    "w-full",
+    "bg-transparent",
+    "lg:w-fit",
+    "lg:max-w-[61.8%]",
+    "lg:rounded-2xl",
+    "lg:bg-white",
+    "lg:p-4",
+    "lg:shadow-sm",
+  );
+  expect(assistantReply).not.toHaveAttribute("style");
   expect(mockedGetConversations).toHaveBeenCalledTimes(1);
   expect(mockedGetConversation).toHaveBeenCalledWith(1);
 });
@@ -310,7 +323,14 @@ test("renders streamed advisor deltas while a response is pending", async () => 
   await user.type(screen.getByPlaceholderText(/ask anything about personal finance/i), "Explain cash flow");
   await user.click(screen.getByTitle("Send message"));
 
-  expect(await screen.findByText("First second")).toBeInTheDocument();
+  const streamingReply = (await screen.findByText("First second"))
+    .closest("article");
+  expect(streamingReply).toHaveClass(
+    "w-full",
+    "bg-transparent",
+    "lg:max-w-[61.8%]",
+  );
+  expect(streamingReply).not.toHaveAttribute("style");
 
   resolveStream?.({
     answer: "First second",
