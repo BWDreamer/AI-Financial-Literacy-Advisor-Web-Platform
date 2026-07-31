@@ -1,7 +1,7 @@
 import json
 import logging
 import re
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 
 from fastapi import (
     APIRouter,
@@ -25,6 +25,7 @@ from app.ai.prompts import build_advisory_topic_instructions
 from app.api.dependencies import get_current_user
 from app.core.database import get_db
 from app.core.config import settings
+from app.models.chat import ChatMessage
 from app.models.financial_rule import FinancialRule
 from app.models.user import User
 from app.repositories.financial_repository import (
@@ -77,7 +78,6 @@ from app.services.goal_planning_service import (
     build_goal_state_correction_prompt,
     build_goal_state_extraction_prompt,
     goal_state_payload_is_complete,
-    is_goal_planning_follow_up,
     normalize_goal_planning_state,
 )
 from app.services.goal_service import (
@@ -131,14 +131,33 @@ from app.services.rule_lookup_service import (
 router = APIRouter()
 logger = logging.getLogger(__name__)
 PDF_MODEL_CONTEXT = "pdf-financial-parser"
-GOAL_PLANNING_PATTERN = re.compile(
-    r"\b(?:my|our|financial|money)\s+goals?\b|"
-    r"\b(?:i want|i need|i would like|i'd like|help me|plan|planning)\b"
-    r".{0,80}\b(?:save|saving|buy|purchase|emergency fund|pay off|repay|"
-    r"debt|home deposit|retire|retirement|budget|cash flow)\b|"
-    r"\b(?:save|saving) for\b|\bbuild an? emergency fund\b|"
-    r"\bpay off (?:my |our )?debt\b",
+GOAL_PLANNING_METADATA_PATTERN = re.compile(
+    r"\[Financial goal planning mode: "
+    r"(?:choose_category|category=[a-z_]+)\]",
+    re.IGNORECASE,
+)
+GOAL_SETTING_INTENT_PATTERN = re.compile(
+    r"(?:\b(?:i|we)\s+(?:want|need|would like|plan|am planning|"
+    r"are planning|hope|aim|intend)|\b(?:i|we)['’]d like)\s+to\s+"
+    r"(?:save|buy|purchase|build|create|set|pay off|repay|retire)\b|"
+    r"(?:\b(?:i|we)\s+(?:want|need|would like)|"
+    r"\b(?:i|we)['’]d like)\s+"
+    r"(?:a|an|some|new|my|our)?\s*(?:financial|saving|savings|money)?"
+    r"\s*goals?\b|"
+    r"\b(?:help|guide)\s+(?:me|us)\s+(?:to\s+)?"
+    r"(?:set|create|build|save for|pay off|repay)\b|"
+    r"\b(?:help|guide)\s+(?:me|us)\s+plan\s+"
+    r"(?:for|to\s+(?:save|buy|purchase|pay off|repay))\b|"
+    r"\b(?:set|create|start|build)\s+(?:a|an|my|our|new)\s+"
+    r"(?:financial|saving|savings|money)?\s*goals?\b|"
+    r"\b(?:make|create|build)\s+(?:me|us)\s+(?:a\s+)?plan\b|"
+    r"\bmy goal is to\b|\bour goal is to\b",
     re.IGNORECASE | re.DOTALL,
+)
+GOAL_PLANNING_ENTRY_REMINDER = (
+    "## Set a Goal\n\n"
+    "It sounds like you want to create a new financial goal. Click "
+    "**Set a Goal** below to start the guided Goal Planning flow."
 )
 
 
@@ -231,19 +250,18 @@ def _financial_context_from_snapshot(
     return build_financial_planning_context(snapshot)
 
 
-def _is_goal_planning_discussion(
-    user_message: str,
-    conversation_context: str | None,
+def _goal_planning_was_launched(
+    messages: Sequence[ChatMessage],
 ) -> bool:
-    discussion = "\n".join(
-        context
-        for context in (conversation_context, user_message)
-        if context
+    return any(
+        message.role == "assistant"
+        and GOAL_PLANNING_METADATA_PATTERN.search(message.content) is not None
+        for message in messages
     )
-    return (
-        GOAL_PLANNING_PATTERN.search(discussion) is not None
-        or is_goal_planning_follow_up(conversation_context)
-    )
+
+
+def _has_unlaunched_goal_setting_intent(user_message: str) -> bool:
+    return GOAL_SETTING_INTENT_PATTERN.search(user_message) is not None
 
 
 async def _extract_goal_planning_state(
@@ -535,7 +553,7 @@ async def _advisor_chat_events(
     db: Session,
     *,
     stream_response: bool,
-) -> AsyncIterator[dict[str, str | int]]:
+) -> AsyncIterator[dict[str, str | int | bool]]:
     """Run one chat turn and emit events from a shared business workflow."""
     try:
         advisory_topic_instructions = build_advisory_topic_instructions(
@@ -549,6 +567,7 @@ async def _advisor_chat_events(
         goal_review = None
         confirmed_goal_plan = None
         confirmed_intent_memory: ExtractedMemory | None = None
+        memory_update_ids: set[int] = set()
         rule_context = None
         conversation = None
         last_assistant_message = None
@@ -586,10 +605,14 @@ async def _advisor_chat_events(
                 last_assistant_message = conversation.messages[-1].content
         goal_discussion = (
             request.goal_id is None
-            and _is_goal_planning_discussion(
-                request.message,
-                conversation_context,
+            and _goal_planning_was_launched(
+                conversation.messages if conversation is not None else (),
             )
+        )
+        goal_entry_reminder = (
+            request.goal_id is None
+            and not goal_discussion
+            and _has_unlaunched_goal_setting_intent(request.message)
         )
         financial_snapshot = _financial_snapshot_for_user(
             db, current_user.id
@@ -640,6 +663,24 @@ async def _advisor_chat_events(
                 stored_user_message,
             )
 
+        if goal_entry_reminder:
+            answer = GOAL_PLANNING_ENTRY_REMINDER
+            if conversation is not None:
+                add_message(db, conversation, "assistant", answer)
+            if stream_response:
+                yield {
+                    "type": "delta",
+                    "content": answer,
+                }
+            yield {
+                "type": "done",
+                "answer": answer,
+                "model": advisor_service.model,
+                "memory_updated": False,
+                "memory_update_count": 0,
+            }
+            return
+
         reply_json = getattr(advisor_service, "reply_json", None)
         if goal_discussion:
             clarification = await _clarify_goal_intent(
@@ -665,6 +706,8 @@ async def _advisor_chat_events(
                     "type": "done",
                     "answer": answer,
                     "model": advisor_service.model,
+                    "memory_updated": False,
+                    "memory_update_count": 0,
                 }
                 return
             if (
@@ -677,12 +720,15 @@ async def _advisor_chat_events(
                     fact=clarification.confirmed_fact,
                     category=clarification.memory_category,
                 )
-                remember_from_conversation_turn(
+                confirmed_updates = remember_from_conversation_turn(
                     db,
                     current_user.id,
                     user_message="",
                     assistant_message="",
                     structured_memories=[confirmed_intent_memory],
+                )
+                memory_update_ids.update(
+                    memory.id for memory in confirmed_updates
                 )
                 memory_context = build_memory_context(
                     retrieve_relevant_memories(
@@ -812,7 +858,7 @@ async def _advisor_chat_events(
             if confirmed_intent_memory is not None:
                 structured_memories.append(confirmed_intent_memory)
 
-            remember_from_conversation_turn(
+            updated_memories = remember_from_conversation_turn(
                 db,
                 current_user.id,
                 user_message=(
@@ -824,6 +870,9 @@ async def _advisor_chat_events(
                 conversation_context=conversation_context,
                 structured_memories=structured_memories,
             )
+            memory_update_ids.update(
+                memory.id for memory in updated_memories
+            )
         except Exception:
             db.rollback()
             logger.exception(
@@ -834,6 +883,8 @@ async def _advisor_chat_events(
             "type": "done",
             "answer": answer,
             "model": advisor_service.model,
+            "memory_updated": bool(memory_update_ids),
+            "memory_update_count": len(memory_update_ids),
         }
     except (
         LLMConfigurationError,
@@ -867,6 +918,8 @@ async def chat_with_advisor(
             return AIChatResponse(
                 answer=str(event["answer"]),
                 model=str(event["model"]),
+                memory_updated=bool(event.get("memory_updated", False)),
+                memory_update_count=int(event.get("memory_update_count", 0)),
             )
 
     _raise_llm_http_error(
@@ -1054,9 +1107,12 @@ async def chat_with_pdf_upload(
             user_message,
         )
     )
-    goal_discussion = _is_goal_planning_discussion(
-        user_message,
-        conversation_context,
+    goal_discussion = _goal_planning_was_launched(
+        conversation.messages if conversation is not None else (),
+    )
+    goal_entry_reminder = (
+        not goal_discussion
+        and _has_unlaunched_goal_setting_intent(user_message)
     )
     financial_snapshot = _financial_snapshot_for_user(
         db, current_user.id
@@ -1067,52 +1123,55 @@ async def chat_with_pdf_upload(
     )
     goal_planning_context = None
     confirmed_goal_plan = None
-    try:
-        if goal_discussion:
-            goal_state = await _extract_goal_planning_state(
-                advisor_service,
-                goal_conversation_context,
-                user_message,
-                memory_context,
-                financial_context,
+    if goal_entry_reminder:
+        answer = GOAL_PLANNING_ENTRY_REMINDER
+    else:
+        try:
+            if goal_discussion:
+                goal_state = await _extract_goal_planning_state(
+                    advisor_service,
+                    goal_conversation_context,
+                    user_message,
+                    memory_context,
+                    financial_context,
+                )
+                confirmed_goal_plan = _prepare_confirmed_goal_plan(
+                    goal_state,
+                    current_user.id,
+                    conversation.id if conversation is not None else None,
+                    financial_snapshot,
+                )
+                goal_planning_context = _build_goal_workflow_context(
+                    goal_state,
+                    financial_snapshot,
+                    confirmed_goals_available=confirmed_goal_plan is not None,
+                )
+            context = _build_grounded_message(
+                user_message=pdf_context,
+                memory_context=memory_context,
+                conversation_context=conversation_context,
+                financial_context=financial_context,
+                goal_planning_context=goal_planning_context,
+                rule_context=None,
             )
-            confirmed_goal_plan = _prepare_confirmed_goal_plan(
-                goal_state,
-                current_user.id,
-                conversation.id if conversation is not None else None,
-                financial_snapshot,
+            answer = _formatted_answer(
+                await advisor_service.reply(context)
             )
-            goal_planning_context = _build_goal_workflow_context(
-                goal_state,
-                financial_snapshot,
-                confirmed_goals_available=confirmed_goal_plan is not None,
-            )
-        context = _build_grounded_message(
-            user_message=pdf_context,
-            memory_context=memory_context,
-            conversation_context=conversation_context,
-            financial_context=financial_context,
-            goal_planning_context=goal_planning_context,
-            rule_context=None,
-        )
-        answer = _formatted_answer(
-            await advisor_service.reply(context)
-        )
-        if confirmed_goal_plan is not None and conversation is not None:
-            save_confirmed_goal_plan(
-                db,
-                conversation.id,
-                confirmed_goal_plan.fingerprint,
-                confirmed_goal_plan.goals,
-                confirmed_goal_plan.one_off_allocations,
-                confirmed_goal_plan.monthly_ratios,
-            )
-    except (
-        LLMConfigurationError,
-        LLMRateLimitError,
-        LLMServiceError,
-    ) as error:
-        _raise_llm_http_error(error)
+            if confirmed_goal_plan is not None and conversation is not None:
+                save_confirmed_goal_plan(
+                    db,
+                    conversation.id,
+                    confirmed_goal_plan.fingerprint,
+                    confirmed_goal_plan.goals,
+                    confirmed_goal_plan.one_off_allocations,
+                    confirmed_goal_plan.monthly_ratios,
+                )
+        except (
+            LLMConfigurationError,
+            LLMRateLimitError,
+            LLMServiceError,
+        ) as error:
+            _raise_llm_http_error(error)
 
     if conversation is not None:
         add_message(

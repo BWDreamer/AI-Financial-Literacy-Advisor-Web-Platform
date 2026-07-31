@@ -282,7 +282,7 @@ export default function AdminDashboard() {
   }, [articles, users]);
 
   return (
-    <section className="p-5 sm:p-8 lg:p-12">
+    <section className="px-5 pb-5 pt-20 sm:p-8 lg:p-12">
       <header className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="text-sm font-bold uppercase tracking-wide text-violet-600">Administration</p>

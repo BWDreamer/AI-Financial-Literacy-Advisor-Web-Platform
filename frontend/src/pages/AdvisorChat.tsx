@@ -16,6 +16,7 @@ import GoalReviewCard, {
   type GoalReviewCardData,
 } from "../components/chat/GoalReviewCard";
 import FormattedChatMessage from "../components/chat/FormattedChatMessage";
+import MemoryUpdateToast from "../components/chat/MemoryUpdateToast";
 import SuggestedQuestions, { rememberSuggestedQuestions, selectSuggestedQuestions } from "../components/chat/SuggestedQuestions";
 import { useUser } from "../store/UserProvider";
 
@@ -74,7 +75,7 @@ function readImage(file: File) {
 }
 
 function HistoryItem({ item, activeId, disabled, onSelect, onDelete }: { item: Conversation; activeId?: number; disabled: boolean; onSelect: () => void; onDelete: () => void }) {
-  return <button type="button" disabled={disabled} onClick={onSelect} title={item.title} className={`group flex w-full items-center gap-3 rounded-2xl p-3 text-left transition disabled:cursor-not-allowed disabled:opacity-60 ${activeId === item.conversation_id ? "bg-blue-50 text-slate-900" : "text-slate-600 hover:bg-slate-50"}`}><span className="min-w-0 flex-1 truncate text-sm font-semibold">{item.title}</span><span onClick={(event) => { event.stopPropagation(); onDelete(); }} className="grid size-8 shrink-0 place-items-center rounded-xl text-red-500 hover:bg-red-50"><Trash2 size={16} /></span></button>;
+  return <button type="button" disabled={disabled} onClick={onSelect} title={item.title} className={`group flex w-full items-center gap-3 rounded-2xl p-3 text-left transition disabled:cursor-not-allowed disabled:opacity-60 ${activeId === item.conversation_id ? "bg-blue-50 text-slate-900" : "text-slate-600 hover:bg-slate-50"}`}><span className="min-w-0 flex-1 truncate text-sm font-semibold">{item.title}</span><span role="button" tabIndex={disabled ? -1 : 0} aria-label={`Delete ${item.title}`} onClick={(event) => { event.stopPropagation(); if (!disabled) onDelete(); }} onKeyDown={(event) => { if (disabled || (event.key !== "Enter" && event.key !== " ")) return; event.preventDefault(); event.stopPropagation(); onDelete(); }} className="grid size-8 shrink-0 place-items-center rounded-xl text-red-500 hover:bg-red-50"><Trash2 size={16} /></span></button>;
 }
 
 function ConversationSidebar({ conversations, activeId, disabled, mobile = false, open = true, onClose, onNew, onSelect, onDelete }: { conversations: Conversation[]; activeId?: number; disabled: boolean; mobile?: boolean; open?: boolean; onClose?: () => void; onNew: () => void; onSelect: (id: number) => void; onDelete: (id: number) => void }) {
@@ -91,8 +92,8 @@ function MobileHistoryHandle({ open, onClick }: { open: boolean; onClick: () => 
 
 function EmptyConversationWelcome({ userName }: { userName: string }) {
   return (
-    <div className="grid min-h-0 flex-1 place-items-center px-4 py-12 text-center">
-      <h2 className="text-3xl font-extrabold tracking-tight text-slate-950 sm:text-4xl">
+    <div className="grid min-h-0 flex-1 place-items-center px-3 py-6 text-center sm:px-4 sm:py-12">
+      <h2 className="text-xl font-bold tracking-tight text-slate-950 sm:text-4xl">
         How can I help, <span className="text-slate-950">{userName}</span>?
       </h2>
     </div>
@@ -265,7 +266,9 @@ export default function AdvisorChat() {
   const [goalPlanningPending, setGoalPlanningPending] = useState(false);
   const [pendingExchange, setPendingExchange] = useState<PendingExchange | null>(null);
   const [pendingGoalReview, setPendingGoalReview] = useState<GoalReviewCardData | null>(null);
+  const [memoryUpdateCount, setMemoryUpdateCount] = useState(0);
   const activeRequestControllerRef = useRef<AbortController | null>(null);
+  const memoryToastTimerRef = useRef<number | null>(null);
   const requestedGoalReview = useMemo(
     () => goalReviewRouteState(location.state),
     [location.state],
@@ -299,7 +302,12 @@ export default function AdvisorChat() {
   }, [suggestedQuestions]);
 
   useEffect(
-    () => () => activeRequestControllerRef.current?.abort(),
+    () => () => {
+      activeRequestControllerRef.current?.abort();
+      if (memoryToastTimerRef.current !== null) {
+        window.clearTimeout(memoryToastTimerRef.current);
+      }
+    },
     [],
   );
 
@@ -364,19 +372,48 @@ export default function AdvisorChat() {
   }
 
   async function removeConversation(id: number) {
-    await deleteConversation(id);
-    const items = await loadList();
-    setActive(
-      items[0]
-        ? await getConversation(items[0].conversation_id)
-        : null,
-    );
+    try {
+      setError("");
+      await deleteConversation(id);
+      const items = await loadList();
+      setActive(
+        items[0]
+          ? await getConversation(items[0].conversation_id)
+          : null,
+      );
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "Unable to delete conversation.",
+      );
+    }
   }
 
   function attachToLatestUserMessage(next: ConversationDetail, files: AttachmentPreview[]) {
     const userMessages = next.messages.filter((item) => item.role === "user");
     const latest = userMessages[userMessages.length - 1]; if (!latest || !files.length) return;
     setLocalAttachments((current) => ({ ...current, [latest.id]: files }));
+  }
+
+  function showMemoryUpdateToast(updateCount: number) {
+    const visibleCount = Math.max(1, Math.trunc(updateCount));
+    setMemoryUpdateCount(visibleCount);
+    if (memoryToastTimerRef.current !== null) {
+      window.clearTimeout(memoryToastTimerRef.current);
+    }
+    memoryToastTimerRef.current = window.setTimeout(() => {
+      setMemoryUpdateCount(0);
+      memoryToastTimerRef.current = null;
+    }, 4_000);
+  }
+
+  function dismissMemoryUpdateToast() {
+    setMemoryUpdateCount(0);
+    if (memoryToastTimerRef.current !== null) {
+      window.clearTimeout(memoryToastTimerRef.current);
+      memoryToastTimerRef.current = null;
+    }
   }
 
   async function refreshActiveConversation(
@@ -430,6 +467,9 @@ export default function AdvisorChat() {
           assistantContent: response.answer,
           thinking: false,
         }));
+        if (response.memory_updated) {
+          showMemoryUpdateToast(response.memory_update_count);
+        }
       } else {
         const response = await streamAdvisorMessage(
           message,
@@ -448,6 +488,9 @@ export default function AdvisorChat() {
           assistantContent: response.answer,
           thinking: false,
         }));
+        if (response.memory_updated) {
+          showMemoryUpdateToast(response.memory_update_count);
+        }
       }
       await refreshActiveConversation(conversation.conversation_id, files);
     } catch (caught) {
@@ -517,6 +560,9 @@ export default function AdvisorChat() {
         assistantContent: response.answer,
         thinking: false,
       }));
+      if (response.memory_updated) {
+        showMemoryUpdateToast(response.memory_update_count);
+      }
       await refreshActiveConversation(conversationId);
     } catch (caught) {
       if (conversationId !== null) {
@@ -605,7 +651,7 @@ export default function AdvisorChat() {
           onDelete={(id) => void removeConversation(id)}
         />
       )}
-      <section className="flex min-w-0 flex-1 flex-col p-5 sm:p-8">
+      <section className="flex min-w-0 flex-1 flex-col p-4 pb-24 sm:p-8">
         <div className="flex flex-wrap items-start gap-4">
           <button
             type="button"
@@ -616,8 +662,8 @@ export default function AdvisorChat() {
             <PanelLeft size={22} aria-hidden="true" />
           </button>
           <div className="min-w-0 flex-1">
-            <h1 className="text-3xl font-bold tracking-tight">Advisor Chat</h1>
-            <p className="mt-2 text-slate-500">
+            <h1 className="page-title">Advisor Chat</h1>
+            <p className="page-subtitle">
               Ask educational questions about personal finance.
             </p>
           </div>
@@ -652,6 +698,12 @@ export default function AdvisorChat() {
           <ChatComposer sending={sending} onSubmit={sendMessage} onSetGoal={startGoalPlanning} />
         </div>
       </section>
+      {memoryUpdateCount > 0 && (
+        <MemoryUpdateToast
+          count={memoryUpdateCount}
+          onDismiss={dismissMemoryUpdateToast}
+        />
+      )}
     </main>
   );
 }

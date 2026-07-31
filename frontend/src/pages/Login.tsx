@@ -79,14 +79,18 @@ function useForgotPassword(onClose: () => void) {
 function ForgotPasswordModal({ onClose }: { onClose: () => void }) {
   const form = useForgotPassword(onClose);
   return <Modal title="Reset Password" onClose={onClose}><form onSubmit={form.submit} className="grid gap-4">
-    <p className="text-sm text-slate-500">Enter your account email, then use the verification code to set a new password.</p>
-    <FormInput id="reset-email" label="Email address" type="email" value={form.email} onChange={(event) => { form.setEmail(event.target.value); }} required />
-    <button type="button" onClick={() => void form.sendCode()} disabled={form.sending || !form.email.trim()} className="h-12 rounded-xl border border-blue-300 px-4 text-sm font-semibold text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50">{form.sending ? "Sending..." : form.sent ? "Resend code" : "Send verification code"}</button>
-    <FormInput id="reset-code" name="code" label="Verification code" inputMode="numeric" pattern="[0-9]{6}" minLength={6} maxLength={6} autoComplete="one-time-code" required />
-    <PasswordInput id="reset-password" label="New password" autoComplete="new-password" value={form.password} onChange={(event) => form.setPassword(event.target.value)} minLength={10} required />
-    <PasswordChecklist password={form.password} />
-    <PasswordInput id="reset-confirm" name="confirm" label="Confirm new password" autoComplete="new-password" minLength={10} required />
+    <p className="text-sm leading-6 text-slate-500">Enter your email, then use the verification code to set a new password.</p>
+    <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+      <FormInput id="reset-email" name="email" label="Email address" type="email" value={form.email} onChange={(event) => { form.setEmail(event.target.value); }} required />
+      <button type="button" onClick={() => void form.sendCode()} disabled={form.sending || !form.email.trim()} className="h-12 rounded-xl border border-blue-300 px-4 text-sm font-semibold !text-blue-700 transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50">{form.sending ? "Sending..." : form.sent ? "Resend" : "Send code"}</button>
+    </div>
+    {form.sent && <>
+      <FormInput id="reset-code" name="code" label="Verification code" inputMode="numeric" pattern="[0-9]{6}" minLength={6} maxLength={6} autoComplete="one-time-code" placeholder="6-digit code" required />
+      <PasswordInput id="reset-password" label="New password" autoComplete="new-password" value={form.password} onChange={(event) => form.setPassword(event.target.value)} minLength={10} required />
+      <PasswordChecklist password={form.password} />
+      <PasswordInput id="reset-confirm" name="confirm" label="Confirm new password" autoComplete="new-password" minLength={10} required />
+    </>}
     {form.error && <p className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">{form.error}</p>}{form.message && <p className="rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{form.message}</p>}
-    <div className="flex justify-end gap-3"><button type="button" onClick={onClose} className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">Cancel</button><PrimaryButton className="w-auto" disabled={form.loading || !form.sent || !isStrongPassword(form.password)}>{form.loading ? "Saving..." : "Reset Password"}</PrimaryButton></div>
+    <div className="flex justify-end gap-3 pt-2"><button type="button" onClick={onClose} className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50">Cancel</button><PrimaryButton className="w-auto" disabled={form.loading || !form.sent || !isStrongPassword(form.password)}>{form.loading ? "Saving..." : "Reset Password"}</PrimaryButton></div>
   </form></Modal>;
 }

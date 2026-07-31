@@ -116,13 +116,19 @@ for a structured intent classification (`knowledge_base_status`,
 database retrieval and tax calculations from verified rules before sending
 grounded context back to the LLM for the final plain-English answer.
 Relevant long-term memories are retrieved before the AI drafts a response.
+The response includes `memory_updated` and `memory_update_count`. These fields
+describe actual committed memory changes, so repeated unchanged facts report
+`false` and `0`.
 
 `POST /api/ai/chat/stream` accepts the same JSON body and runs the same chat
 workflow. It returns newline-delimited JSON using `application/x-ndjson`:
 zero or more `delta` events followed by one `done` event. Failures that happen
 inside the streaming workflow, including validation and provider failures, are
 returned as an in-band `error` event after the HTTP 200 stream has opened. The
-frontend buffers received deltas and renders them incrementally without slowing
+`done` event includes `memory_updated` and `memory_update_count`, matching the
+non-streaming response. The frontend uses these fields to show the
+`Memory updated` notice only after a real memory change.
+The frontend buffers received deltas and renders them incrementally without slowing
 the provider connection or leaving long responses in a display queue
 indefinitely.
 
@@ -164,7 +170,9 @@ This lets short answers inherit the subject of the preceding question and lets
 personalized AI recommendations or confirmations become memory. A new value for
 an existing subject updates that memory in place and removes older conflicting
 duplicates. Memory extraction failure never prevents the completed chat reply
-from being returned.
+from being returned. Structured extraction receives only relevant candidate
+memories instead of unrelated recent facts, reducing prompt size and the chance
+of replacing an unrelated memory.
 
 ## Account deletion
 

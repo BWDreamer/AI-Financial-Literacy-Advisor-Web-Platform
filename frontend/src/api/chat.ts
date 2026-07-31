@@ -11,19 +11,23 @@ export type ImportedFinancialRecord = {
   flow_type?: string | null;
   date?: string | null;
 };
-export type PdfAdvisorResponse = {
+export type AdvisorResponse = {
   answer: string;
   model: string;
+  memory_updated: boolean;
+  memory_update_count: number;
+};
+export type PdfAdvisorResponse = AdvisorResponse & {
   low_confidence: boolean;
   extracted_text_characters: number;
   imported_records: ImportedFinancialRecord[];
   fallback_reason?: string | null;
 };
-export type AdvisorStreamResponse = { answer: string; model: string };
+export type AdvisorStreamResponse = AdvisorResponse;
 
 type AdvisorStreamEvent =
   | { type: "delta"; content: string }
-  | { type: "done"; answer: string; model: string }
+  | ({ type: "done" } & AdvisorResponse)
   | { type: "error"; message: string; status: number };
 
 const STREAM_RENDER_INTERVAL_MS = 35;
@@ -53,7 +57,20 @@ function parseAdvisorStreamEvent(line: string): AdvisorStreamEvent {
     && typeof payload.answer === "string"
     && typeof payload.model === "string"
   ) {
-    return { type: "done", answer: payload.answer, model: payload.model };
+    const memoryUpdateCount = (
+      typeof payload.memory_update_count === "number"
+      && Number.isInteger(payload.memory_update_count)
+      && payload.memory_update_count >= 0
+    )
+      ? payload.memory_update_count
+      : 0;
+    return {
+      type: "done",
+      answer: payload.answer,
+      model: payload.model,
+      memory_updated: payload.memory_updated === true,
+      memory_update_count: memoryUpdateCount,
+    };
   }
   if (
     payload.type === "error"
@@ -198,7 +215,7 @@ export const sendAdvisorMessage = (
   conversationId: number,
   ruleId?: number,
   goalId?: number,
-) => apiRequest<{ answer: string; model: string }>("/ai/chat", {
+) => apiRequest<AdvisorResponse>("/ai/chat", {
   method: "POST", authenticated: true,
   body: JSON.stringify({
     message,
@@ -247,6 +264,8 @@ export async function streamAdvisorMessage(
       completedResponse = {
         answer: event.answer,
         model: event.model,
+        memory_updated: event.memory_updated,
+        memory_update_count: event.memory_update_count,
       };
     } else {
       throw new ApiError(event.message, event.status);

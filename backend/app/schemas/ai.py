@@ -33,6 +33,8 @@ class AIChatRequest(BaseModel):
 class AIChatResponse(BaseModel):
     answer: str
     model: str
+    memory_updated: bool = False
+    memory_update_count: int = Field(default=0, ge=0)
 
 
 class ImportedFinancialRecordResponse(BaseModel):

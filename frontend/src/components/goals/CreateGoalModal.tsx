@@ -116,10 +116,22 @@ function validateStep(step: Step, category: GoalCategory, answers: Answers) {
   if (step === 0) return next;
   const scope = step === 1 ? questions[category].details : questions[category].finances;
   scope.forEach((question) => validateQuestion(question, answers, next));
+  if (step === 1 && category === "Home Deposit") validateHomeDepositDetails(answers, next);
   if (step >= 2 && String(answers.deadline || "") <= new Date().toISOString().slice(0, 10)) {
     next.deadline = "Target date must be in the future.";
   }
   return next;
+}
+
+function positiveNumber(value: AnswerValue | undefined) {
+  return value !== undefined && value !== "" && Number(value) > 0;
+}
+
+function validateHomeDepositDetails(answers: Answers, errors: Errors) {
+  const hasPropertyEstimate = positiveNumber(answers.property_price) && positiveNumber(answers.deposit_percent);
+  const hasDirectTarget = positiveNumber(answers.deposit_target);
+  if (hasPropertyEstimate || hasDirectTarget) return;
+  errors.deposit_target = "Enter either a property price and deposit percentage, or a direct deposit target.";
 }
 
 function validateQuestion(question: Question, answers: Answers, errors: Errors) {
@@ -169,7 +181,11 @@ function QuestionsStep({ title, category, scope, answers, errors, update }: { ti
 function QuestionField({ question, value, error, onChange }: { question: Question; value: AnswerValue | undefined; error?: string; onChange: (id: string, value: AnswerValue) => void }) {
   if (question.type === "date") return <Field error={error}><DatePicker id={question.id} label={question.label} value={String(value || tomorrowValue())} min={tomorrowValue()} max="2100-12-31" placement="top" onChange={(next) => onChange(question.id, next)} /></Field>;
   if (question.type === "select") return <SelectField question={question} value={String(value || "")} error={error} onChange={onChange} />;
-  return <Field error={error}><FormInput id={question.id} label={question.label} type={question.type || "text"} min={question.type === "number" ? "0" : undefined} placeholder={question.placeholder} value={value || ""} onChange={(event) => onChange(question.id, question.type === "number" ? Number(event.target.value) : event.target.value)} /></Field>;
+  return <Field error={error}><FormInput id={question.id} label={question.label} type={question.type || "text"} min={question.type === "number" ? "0" : undefined} placeholder={question.placeholder} value={value ?? ""} onChange={(event) => onChange(question.id, question.type === "number" ? numberInputValue(event.target.value) : event.target.value)} /></Field>;
+}
+
+function numberInputValue(value: string) {
+  return value === "" ? "" : Number(value);
 }
 
 function SelectField({ question, value, error, onChange }: { question: Question; value: string; error?: string; onChange: (id: string, value: AnswerValue) => void }) {

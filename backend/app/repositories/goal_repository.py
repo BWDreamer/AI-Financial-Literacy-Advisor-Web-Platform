@@ -1,3 +1,4 @@
+import re
 from datetime import date
 from decimal import Decimal
 
@@ -14,6 +15,15 @@ from app.models.goal import (
 )
 from app.schemas.goal import AllocationSettingsRequest, GoalProgressRequest, GoalRequest
 from app.services.goal_ratio_service import normalize_goal_ratio_rows
+
+
+GOAL_NAME_PREFIXES = frozenset({"my", "our"})
+GOAL_NAME_SUFFIXES = frozenset(
+    {"fund", "goal", "goals", "plan", "saving", "savings"}
+)
+AI_CONFIRMED_GOAL_DETAIL_KEYS = frozenset(
+    {"confirmed_monthly_allocation", "confirmed_one_off_allocation"}
+)
 
 
 def list_goals(db: Session, user_id: int) -> list[Goal]:
@@ -45,6 +55,167 @@ def goal_plan_confirmation_exists(
     ).first() is not None
 
 
+def _canonical_goal_name(name: str) -> str:
+    tokens = re.sub(r"[\W_]+", " ", name.casefold()).split()
+    while len(tokens) > 1 and tokens[0] in GOAL_NAME_PREFIXES:
+        tokens.pop(0)
+    while len(tokens) > 1 and tokens[-1] in GOAL_NAME_SUFFIXES:
+        tokens.pop()
+    return " ".join(tokens)
+
+
+def _goal_identity(goal: Goal) -> tuple[str, str]:
+    return (
+        " ".join(goal.category.split()).casefold(),
+        _canonical_goal_name(goal.name),
+    )
+
+
+def _is_ai_confirmed_goal(goal: Goal) -> bool:
+    return bool(
+        AI_CONFIRMED_GOAL_DETAIL_KEYS.intersection(
+            (goal.category_details or {}).keys()
+        )
+    )
+
+
+def _delete_duplicate_ai_goal(db: Session, goal: Goal) -> None:
+    db.query(CashBucket).filter(
+        CashBucket.goal_id == goal.id
+    ).delete(synchronize_session=False)
+    db.query(GoalProgress).filter(
+        GoalProgress.goal_id == goal.id
+    ).delete(synchronize_session=False)
+    db.query(GoalNotification).filter(
+        GoalNotification.goal_id == goal.id
+    ).delete(synchronize_session=False)
+    db.delete(goal)
+
+
+def _reconcile_confirmed_goals(
+    db: Session,
+    user_id: int,
+    proposed_goals: tuple[Goal, ...],
+    proposed_one_off_allocations: tuple[Decimal, ...],
+) -> tuple[tuple[Goal, ...], tuple[Decimal, ...], frozenset[int]]:
+    """Reuse matching active goals without reducing their saved progress."""
+    active_goals = db.query(Goal).filter(
+        Goal.user_id == user_id,
+        Goal.archived.is_(False),
+        Goal.status.notin_(("completed", "pending_archive")),
+        Goal.current_amount < Goal.target_amount,
+    ).order_by(Goal.id).all()
+    active_goals_by_identity: dict[tuple[str, str], list[Goal]] = {}
+    for active_goal in active_goals:
+        active_goals_by_identity.setdefault(
+            _goal_identity(active_goal),
+            [],
+        ).append(active_goal)
+    reconciled_goals: list[Goal] = []
+    applied_one_off_allocations: list[Decimal] = []
+    removed_duplicate_goal_ids: set[int] = set()
+
+    for proposed_goal, proposed_one_off in zip(
+        proposed_goals,
+        proposed_one_off_allocations,
+        strict=True,
+    ):
+        matching_goals = active_goals_by_identity.get(
+            _goal_identity(proposed_goal),
+            [],
+        )
+        if not matching_goals:
+            reconciled_goals.append(proposed_goal)
+            applied_one_off_allocations.append(proposed_one_off)
+            continue
+
+        existing_goal = matching_goals[0]
+        for duplicate_goal in matching_goals[1:]:
+            if not _is_ai_confirmed_goal(duplicate_goal):
+                continue
+            existing_goal.current_amount = max(
+                Decimal(existing_goal.current_amount),
+                Decimal(duplicate_goal.current_amount),
+            )
+            removed_duplicate_goal_ids.add(duplicate_goal.id)
+            _delete_duplicate_ai_goal(db, duplicate_goal)
+
+        previous_current_amount = Decimal(existing_goal.current_amount)
+        reconciled_current_amount = max(
+            previous_current_amount,
+            Decimal(proposed_goal.current_amount),
+        )
+        reconciled_target_amount = max(
+            Decimal(proposed_goal.target_amount),
+            reconciled_current_amount,
+        )
+        applied_one_off = min(
+            proposed_one_off,
+            max(
+                reconciled_current_amount - previous_current_amount,
+                Decimal("0"),
+            ),
+        )
+        category_details = dict(proposed_goal.category_details or {})
+        for current_amount_field in ("current_amount", "current_super"):
+            if current_amount_field in category_details:
+                category_details[current_amount_field] = format(
+                    reconciled_current_amount,
+                    "f",
+                )
+        if "confirmed_one_off_allocation" in category_details:
+            category_details["confirmed_one_off_allocation"] = format(
+                applied_one_off,
+                "f",
+            )
+
+        existing_goal.target_amount = reconciled_target_amount
+        existing_goal.current_amount = reconciled_current_amount
+        existing_goal.monthly_contribution = (
+            proposed_goal.monthly_contribution
+        )
+        existing_goal.target_date = proposed_goal.target_date
+        existing_goal.priority = proposed_goal.priority
+        existing_goal.status = (
+            "pending_archive"
+            if reconciled_current_amount >= reconciled_target_amount
+            else proposed_goal.status
+        )
+        existing_goal.category_details = category_details
+        db.add(existing_goal)
+        reconciled_goals.append(existing_goal)
+        applied_one_off_allocations.append(applied_one_off)
+
+    return (
+        tuple(reconciled_goals),
+        tuple(applied_one_off_allocations),
+        frozenset(removed_duplicate_goal_ids),
+    )
+
+
+def _sync_confirmed_goal_cash_bucket(
+    db: Session,
+    user_id: int,
+    goal: Goal,
+) -> None:
+    if goal.current_amount <= 0:
+        return
+    bucket = db.query(CashBucket).filter(
+        CashBucket.user_id == user_id,
+        CashBucket.goal_id == goal.id,
+        CashBucket.bucket_type == "goal_reserved",
+    ).first()
+    if bucket is None:
+        bucket = CashBucket(
+            user_id=user_id,
+            goal_id=goal.id,
+            bucket_type="goal_reserved",
+        )
+    bucket.name = goal.name
+    bucket.amount = goal.current_amount
+    db.add(bucket)
+
+
 def save_confirmed_goal_plan(
     db: Session,
     conversation_id: int,
@@ -74,6 +245,16 @@ def save_confirmed_goal_plan(
     try:
         db.add(confirmation)
         db.flush()
+        (
+            goals,
+            one_off_allocations,
+            removed_duplicate_goal_ids,
+        ) = _reconcile_confirmed_goals(
+            db,
+            user_id,
+            goals,
+            one_off_allocations,
+        )
         db.add_all(goals)
         db.flush()
 
@@ -82,16 +263,7 @@ def save_confirmed_goal_plan(
             one_off_allocations,
             strict=True,
         ):
-            if goal.current_amount > 0:
-                db.add(
-                    CashBucket(
-                        user_id=user_id,
-                        goal_id=goal.id,
-                        bucket_type="goal_reserved",
-                        name=goal.name,
-                        amount=goal.current_amount,
-                    )
-                )
+            _sync_confirmed_goal_cash_bucket(db, user_id, goal)
             if one_off_amount > 0:
                 db.add(
                     GoalProgress(
@@ -104,7 +276,8 @@ def save_confirmed_goal_plan(
                     )
                 )
 
-        if any(ratio > 0 for ratio in monthly_ratios):
+        has_monthly_ratios = any(ratio > 0 for ratio in monthly_ratios)
+        if has_monthly_ratios or removed_duplicate_goal_ids:
             settings = db.query(GoalAllocationSettings).filter(
                 GoalAllocationSettings.user_id == user_id
             ).first()
@@ -113,11 +286,14 @@ def save_confirmed_goal_plan(
                     user_id=user_id,
                     goal_monthly_ratios=[],
                 )
-            new_goal_ids = {goal.id for goal in goals}
+            replaced_goal_ids = {
+                goal.id
+                for goal in goals
+            } | removed_duplicate_goal_ids
             ratio_rows = [
                 item
                 for item in (settings.goal_monthly_ratios or [])
-                if int(item["goal_id"]) not in new_goal_ids
+                if int(item["goal_id"]) not in replaced_goal_ids
             ]
             ratio_rows.extend(
                 {
@@ -131,7 +307,8 @@ def save_confirmed_goal_plan(
                 )
                 if ratio > 0
             )
-            settings.monthly_allocatable_ratio = Decimal("100")
+            if has_monthly_ratios:
+                settings.monthly_allocatable_ratio = Decimal("100")
             settings.goal_monthly_ratios = normalize_goal_ratio_rows(
                 ratio_rows
             )

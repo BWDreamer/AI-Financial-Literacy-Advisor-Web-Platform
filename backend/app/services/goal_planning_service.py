@@ -455,19 +455,6 @@ def build_goal_state_correction_prompt(
     )
 
 
-def is_goal_planning_follow_up(conversation_context: str | None) -> bool:
-    if conversation_context is None:
-        return False
-    lowered_context = conversation_context.lower()
-    workflow_phrases = (
-        "does this overall plan work for you?",
-        "what should the revised plan optimise for at a high level",
-        "complete goal recommendation",
-        "confirmed goal plan",
-    )
-    return any(phrase in lowered_context for phrase in workflow_phrases)
-
-
 def _decimal_value(value: Any) -> Decimal | None:
     if value is None or value == "" or isinstance(value, bool):
         return None

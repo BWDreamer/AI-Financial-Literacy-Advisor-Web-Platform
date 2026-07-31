@@ -7,7 +7,10 @@ from sqlalchemy.exc import IntegrityError
 
 from app.models.goal import GoalAllocationSettings
 from app.models.user import User
-from app.repositories.goal_repository import get_allocation_settings
+from app.repositories.goal_repository import (
+    _canonical_goal_name,
+    get_allocation_settings,
+)
 from app.services.financial_service import FinancialPlanningSnapshot
 from app.services.goal_planning_service import normalize_goal_planning_state
 from app.services.goal_service import build_confirmed_goal_plan
@@ -27,6 +30,20 @@ def payload(**overrides):
     data = {"name": "Emergency fund", "category": "savings", "target_amount": "10000.00", "current_amount": "1000.00", "monthly_contribution": "500.00", "target_date": (date.today() + timedelta(days=365)).isoformat(), "priority": 1}
     data.update(overrides)
     return data
+
+
+def test_goal_name_aliases_share_a_stable_identity():
+    assert {
+        _canonical_goal_name(name)
+        for name in (
+            "Car",
+            "car saving",
+            "Car Savings",
+            "My Car Savings Goal",
+            "Our Car Savings Plan",
+        )
+    } == {"car"}
+    assert _canonical_goal_name("Car repair savings") == "car repair"
 
 
 def test_allocation_settings_recovers_from_concurrent_default_creation():

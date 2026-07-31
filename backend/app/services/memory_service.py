@@ -615,15 +615,15 @@ def get_memory_snapshot(
     message: str,
     limit: int = 20,
 ) -> list[UserMemory]:
-    relevant = search_memories(
+    keywords = _keywords_from_message(message)
+    if not keywords:
+        return []
+    return search_memories(
         db,
         user_id,
-        _keywords_from_message(message),
+        keywords,
         limit=limit,
     )
-    if relevant:
-        return relevant
-    return list_memories(db, user_id)[:5]
 
 
 def build_memory_extraction_prompt(
