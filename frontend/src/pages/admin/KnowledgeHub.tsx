@@ -419,7 +419,7 @@ function ArticleEditor({
   }
 
   return (
-    <section className="min-h-screen bg-slate-50 p-5 sm:p-8 lg:p-10">
+    <section className="min-h-screen bg-slate-50 px-5 pb-5 pt-24 sm:p-8 lg:p-10">
       <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <button type="button" onClick={onBack} disabled={disabled} className="inline-flex items-center gap-3 text-sm font-semibold text-slate-600 hover:text-slate-950 disabled:opacity-60">
           <ArrowLeft size={19} /> Back to Knowledge Hub
