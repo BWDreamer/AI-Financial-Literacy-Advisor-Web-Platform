@@ -23,6 +23,10 @@ const DEFAULT_PASSWORD = "11111111";
 const PAGE_SIZE = 10;
 const emptyInviteForm = (): UserForm => ({ firstName: "", lastName: "", email: "", password: DEFAULT_PASSWORD });
 
+function nameOrDefault(value: string, fallback: string) {
+  return value.trim() || fallback;
+}
+
 function errorMessage(caught: unknown) {
   return caught instanceof Error ? caught.message : "Something went wrong. Please try again.";
 }
@@ -104,8 +108,8 @@ function UserFields({
 }) {
   return <div className="space-y-5">
     <div className="grid gap-5 sm:grid-cols-2">
-      <FormInput id="first-name" label="First Name" value={form.firstName} maxLength={50} required onChange={(event) => setForm({ ...form, firstName: event.target.value })} />
-      <FormInput id="last-name" label="Last Name" value={form.lastName} maxLength={50} required onChange={(event) => setForm({ ...form, lastName: event.target.value })} />
+      <FormInput id="first-name" label="First Name" value={form.firstName} maxLength={50} onChange={(event) => setForm({ ...form, firstName: event.target.value })} />
+      <FormInput id="last-name" label="Last Name" value={form.lastName} maxLength={50} onChange={(event) => setForm({ ...form, lastName: event.target.value })} />
     </div>
     <FormInput id="email" label="Email Address" type="email" value={form.email} required onChange={(event) => setForm({ ...form, email: event.target.value })} />
     {includePassword && (
@@ -209,7 +213,7 @@ export default function UserManagement() {
     event.preventDefault();
     setSubmitting(true); setFormError("");
     try {
-      const created = await inviteAdminUser({ first_name: inviteForm.firstName.trim(), last_name: inviteForm.lastName.trim(), email: inviteForm.email.trim().toLowerCase(), password: inviteForm.password });
+      const created = await inviteAdminUser({ first_name: nameOrDefault(inviteForm.firstName, "Unknown"), last_name: nameOrDefault(inviteForm.lastName, "User"), email: inviteForm.email.trim().toLowerCase(), password: inviteForm.password });
       setUsers((current) => [...current, created].sort((a, b) => a.id - b.id));
       setSuccessMessage(`User ${created.email} was invited successfully.`);
       setInviteOpen(false);
@@ -233,8 +237,8 @@ export default function UserManagement() {
     setSubmitting(true); setFormError("");
     try {
       const request = {
-        first_name: editForm.firstName.trim(),
-        last_name: editForm.lastName.trim(),
+        first_name: nameOrDefault(editForm.firstName, "Unknown"),
+        last_name: nameOrDefault(editForm.lastName, "User"),
         email: editForm.email.trim().toLowerCase(),
       };
       const updated = await updateAdminUser(editingUser.id, request);

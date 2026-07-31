@@ -155,6 +155,25 @@ test("opens invite user form with default password and submits a new user", asyn
   expect(await screen.findByRole("status")).toHaveTextContent("User test@example.com was invited successfully.");
 });
 
+test("invites a user without collecting their name", async () => {
+  const user = userEvent.setup();
+  render(<UserManagement />);
+
+  await screen.findByText("mike@example.com");
+  await user.click(screen.getByRole("button", { name: /invite user/i }));
+  await user.type(screen.getByLabelText(/email address/i), "private@example.com");
+  await user.click(screen.getByRole("button", { name: /add user/i }));
+
+  await waitFor(() => {
+    expect(mockedInviteAdminUser).toHaveBeenCalledWith({
+      first_name: "Unknown",
+      last_name: "User",
+      email: "private@example.com",
+      password: "11111111",
+    });
+  });
+});
+
 test("edits a normal user's basic profile fields", async () => {
   const user = userEvent.setup();
   render(<UserManagement />);
