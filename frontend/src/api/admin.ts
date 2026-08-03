@@ -60,6 +60,10 @@ export function getAdminUsers() {
   return apiGet<AdminUser[]>("/admin/users", true);
 }
 
+export function getAdminUser(id: number) {
+  return apiGet<AdminUser>(`/admin/users/${id}`, true);
+}
+
 export function inviteAdminUser(request: AdminUserCreate) {
   return apiRequest<AdminUser>("/admin/users", {
     method: "POST",
@@ -85,6 +89,25 @@ export function deleteAdminUser(id: number) {
 
 export type AdminArticleContentBlocks = ArticleContentBlocks;
 
+export type AdminArticleStatus = "draft" | "published" | "archived";
+
+export type AdminArticle = Article & {
+  status: AdminArticleStatus;
+  updatedAt: string;
+};
+
+export type AdminArticleDetail = ArticleDetail & {
+  status: AdminArticleStatus;
+  updatedAt: string;
+};
+
+export type AdminArticlePage = {
+  items: AdminArticle[];
+  page: number;
+  pageSize: number;
+  total: number;
+};
+
 export type AdminArticleRequest = {
   id?: string;
   title: string;
@@ -92,26 +115,39 @@ export type AdminArticleRequest = {
   coverImageUrl: string | null;
   authorName: string;
   sourceName: string;
+  sourceUrl?: string | null;
   category: string;
-  status?: "published";
+  status?: AdminArticleStatus;
   publishedAt?: string | null;
   contentBlocks: AdminArticleContentBlocks;
 };
 
-export function getPublishedAdminArticles() {
-  return apiRequest<{ items: Article[]; page: number; pageSize: number; total: number }>("/articles?page=1&page_size=50&sort_by=latest", {
+export function getAdminArticles(params: {
+  keyword?: string;
+  category?: string;
+  status?: AdminArticleStatus;
+  page?: number;
+  pageSize?: number;
+} = {}) {
+  const query = new URLSearchParams();
+  if (params.keyword) query.set("keyword", params.keyword);
+  if (params.category && params.category !== "All") query.set("category", params.category);
+  if (params.status) query.set("status", params.status);
+  query.set("page", String(params.page ?? 1));
+  query.set("page_size", String(params.pageSize ?? 100));
+  return apiRequest<AdminArticlePage>(`/admin/articles?${query}`, {
     authenticated: true,
   });
 }
 
-export function getPublishedAdminArticle(id: string) {
-  return apiRequest<ArticleDetail>(`/articles/${id}`, {
+export function getAdminArticle(id: string) {
+  return apiRequest<AdminArticleDetail>(`/admin/articles/${id}`, {
     authenticated: true,
   });
 }
 
 export function createAdminArticle(request: Required<Pick<AdminArticleRequest, "id">> & Omit<AdminArticleRequest, "id">) {
-  return apiRequest<ArticleDetail>("/admin/articles", {
+  return apiRequest<AdminArticleDetail>("/admin/articles", {
     method: "POST",
     authenticated: true,
     body: JSON.stringify(request),
@@ -119,7 +155,7 @@ export function createAdminArticle(request: Required<Pick<AdminArticleRequest, "
 }
 
 export function updateAdminArticle(id: string, request: AdminArticleRequest) {
-  return apiRequest<ArticleDetail>(`/admin/articles/${id}`, {
+  return apiRequest<AdminArticleDetail>(`/admin/articles/${id}`, {
     method: "PUT",
     authenticated: true,
     body: JSON.stringify(request),
@@ -129,6 +165,20 @@ export function updateAdminArticle(id: string, request: AdminArticleRequest) {
 export function deleteAdminArticle(id: string) {
   return apiRequest<void>(`/admin/articles/${id}`, {
     method: "DELETE",
+    authenticated: true,
+  });
+}
+
+export function publishAdminArticle(id: string) {
+  return apiRequest<AdminArticleDetail>(`/admin/articles/${id}/publish`, {
+    method: "POST",
+    authenticated: true,
+  });
+}
+
+export function unpublishAdminArticle(id: string) {
+  return apiRequest<AdminArticleDetail>(`/admin/articles/${id}/unpublish`, {
+    method: "POST",
     authenticated: true,
   });
 }

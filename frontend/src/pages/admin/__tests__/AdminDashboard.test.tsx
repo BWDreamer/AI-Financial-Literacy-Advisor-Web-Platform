@@ -1,15 +1,15 @@
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import AdminDashboard from "../AdminDashboard";
-import { getAdminUsers, getPublishedAdminArticles } from "../../../api/admin";
+import { getAdminArticles, getAdminUsers } from "../../../api/admin";
 
 jest.mock("../../../api/admin", () => ({
   getAdminUsers: jest.fn(),
-  getPublishedAdminArticles: jest.fn(),
+  getAdminArticles: jest.fn(),
 }));
 
 const mockedGetAdminUsers = jest.mocked(getAdminUsers);
-const mockedGetPublishedAdminArticles = jest.mocked(getPublishedAdminArticles);
+const mockedGetAdminArticles = jest.mocked(getAdminArticles);
 
 const users = [
   {
@@ -75,6 +75,8 @@ const articles = [
     views: 100,
     likes: 12,
     saves: 8,
+    status: "published" as const,
+    updatedAt: "2026-07-02T00:00:00Z",
   },
   {
     id: "saving-1",
@@ -88,13 +90,15 @@ const articles = [
     views: 250,
     likes: 30,
     saves: 15,
+    status: "published" as const,
+    updatedAt: "2026-07-03T00:00:00Z",
   },
 ];
 
 beforeEach(() => {
   jest.clearAllMocks();
   mockedGetAdminUsers.mockResolvedValue(users);
-  mockedGetPublishedAdminArticles.mockResolvedValue({
+  mockedGetAdminArticles.mockResolvedValue({
     items: articles,
     page: 1,
     pageSize: 50,
@@ -111,7 +115,7 @@ test("renders dashboard metrics and quick actions from admin API data", async ()
 
   expect(await screen.findByRole("heading", { name: /dashboard/i })).toBeInTheDocument();
   expect(mockedGetAdminUsers).toHaveBeenCalledTimes(1);
-  expect(mockedGetPublishedAdminArticles).toHaveBeenCalledTimes(1);
+  expect(mockedGetAdminArticles).toHaveBeenCalledWith({ status: "published" });
 
   expect(screen.getByText("Total Users")).toBeInTheDocument();
   expect(screen.getByText("Published Articles")).toBeInTheDocument();

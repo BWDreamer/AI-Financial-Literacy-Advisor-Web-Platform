@@ -30,6 +30,7 @@ export type Article = {
   coverImageUrl: string | null;
   authorName: string;
   sourceName: string;
+  sourceUrl?: string | null;
   publishedAt: string | null;
   category: ArticleCategory;
   views: number;

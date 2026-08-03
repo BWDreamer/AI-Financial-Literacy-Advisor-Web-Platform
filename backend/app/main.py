@@ -18,11 +18,37 @@ from app.api import (
     routes_rules,
 )
 from app.core.config import settings
+from app.schemas.system import ApiIndexResponse, HealthResponse
+
+
+API_VERSION = "0.2.0"
+
+OPENAPI_TAGS = [
+    {"name": "Auth", "description": "Registration, verification, sessions and account settings."},
+    {"name": "Profile", "description": "Authenticated user's financial profile."},
+    {"name": "Financials", "description": "Assets, debts, cash flows and dashboard summaries."},
+    {"name": "Goals", "description": "Goal planning, progress, notifications and allocations."},
+    {"name": "Articles", "description": "Published Knowledge Hub content and engagement."},
+    {"name": "Long-term Memory", "description": "User-controlled context for personalised guidance."},
+    {"name": "AI Advisor", "description": "Grounded chat, streaming and supported PDF analysis."},
+    {"name": "Chat History", "description": "Persistent advisor conversations and messages."},
+    {"name": "Calculator", "description": "Deterministic financial calculations."},
+    {"name": "Rules", "description": "Versioned financial rules with source attribution."},
+    {"name": "Admin", "description": "Administrator-only users, advisory settings and articles."},
+    {"name": "System", "description": "API discovery and service health."},
+]
 
 
 app = FastAPI(
     title="AI Financial Literacy Advisor API",
-    version="0.1.0",
+    summary="Backend API for FinanceAI",
+    description=(
+        "Public article reads require no token. Personal endpoints require "
+        "`Authorization: Bearer <access_token>`; Admin endpoints also require "
+        "an account with the `admin` role."
+    ),
+    version=API_VERSION,
+    openapi_tags=OPENAPI_TAGS,
 )
 
 
@@ -129,8 +155,38 @@ app.include_router(
 )
 
 
-@app.get("/api/health")
+@app.get(
+    "/api",
+    response_model=ApiIndexResponse,
+    tags=["System"],
+    summary="Discover API documentation and health endpoints",
+)
+def api_index():
+    return {
+        "name": app.title,
+        "version": API_VERSION,
+        "docs_url": "/docs",
+        "openapi_url": "/openapi.json",
+        "health_url": "/api/health",
+        "groups": {
+            "authentication": ["/api/auth"],
+            "financials": ["/api/profile", "/api/financials", "/api/goals"],
+            "advice": ["/api/rules", "/api/ai", "/api/chat", "/api/memory"],
+            "knowledge_hub": ["/api/articles"],
+            "administration": ["/api/admin/users", "/api/admin/articles"],
+        },
+    }
+
+
+@app.get(
+    "/api/health",
+    response_model=HealthResponse,
+    tags=["System"],
+    summary="Check whether the API process is running",
+)
 def health_check():
     return {
         "status": "ok",
+        "service": "financeai-api",
+        "version": API_VERSION,
     }

@@ -31,6 +31,7 @@ def create_article(db_session, article_id="budget-start", status="published", **
         cover_image_url=overrides.get("cover_image_url", "https://example.com/cover.jpg"),
         author_name=overrides.get("author_name", "FinanceAI Learning Team"),
         source_name=overrides.get("source_name", "Knowledge Base"),
+        source_url=overrides.get("source_url", "https://example.gov.au/source"),
         category=overrides.get("category", "Budgeting"),
         status=status,
         published_at=overrides.get("published_at", datetime(2026, 7, 2, tzinfo=timezone.utc)),
@@ -75,6 +76,7 @@ def test_article_detail_returns_content_without_incrementing_views(client, db_se
     assert data["id"] == "budget-start"
     assert data["views"] == 10
     assert data["contentBlocks"][0]["type"] == "paragraph"
+    assert data["sourceUrl"] == "https://example.gov.au/source"
     assert data["likedByMe"] is False
     assert data["savedByMe"] is False
 
@@ -195,6 +197,7 @@ def test_admin_can_create_publish_update_and_delete_article(client, db_session):
         "coverImageUrl": "https://example.com/new.jpg",
         "authorName": "Admin",
         "sourceName": "Knowledge Base",
+        "sourceUrl": "https://example.gov.au/new-article",
         "category": "Saving",
         "status": "draft",
         "contentBlocks": [{"type": "paragraph", "text": "Draft body."}],
@@ -203,6 +206,23 @@ def test_admin_can_create_publish_update_and_delete_article(client, db_session):
     created = client.post("/api/admin/articles", headers=headers, json=payload)
     assert created.status_code == 201
     assert created.json()["id"] == "new-article"
+    assert created.json()["status"] == "draft"
+
+    admin_list = client.get(
+        "/api/admin/articles?status=draft&keyword=New",
+        headers=headers,
+    )
+    assert admin_list.status_code == 200
+    assert admin_list.json()["total"] == 1
+    assert admin_list.json()["items"][0]["id"] == "new-article"
+
+    admin_detail = client.get(
+        "/api/admin/articles/new-article",
+        headers=headers,
+    )
+    assert admin_detail.status_code == 200
+    assert admin_detail.json()["contentBlocks"][0]["text"] == "Draft body."
+    assert admin_detail.json()["sourceUrl"] == "https://example.gov.au/new-article"
 
     assert client.get("/api/articles/new-article").status_code == 404
 
@@ -242,3 +262,4 @@ def test_regular_user_cannot_manage_articles(client, db_session):
         },
     )
     assert response.status_code == 403
+    assert client.get("/api/admin/articles", headers=headers).status_code == 403
