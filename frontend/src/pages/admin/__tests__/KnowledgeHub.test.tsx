@@ -4,12 +4,11 @@ import AdminKnowledgeHub from "../KnowledgeHub";
 import {
   createAdminArticle,
   deleteAdminArticle,
-  getPublishedAdminArticle,
-  getPublishedAdminArticles,
+  getAdminArticle,
+  getAdminArticles,
   updateAdminArticle,
   uploadAdminArticleImage,
 } from "../../../api/admin";
-import type { Article, ArticleDetail } from "../../../api/articles";
 
 let mockTipTapEditor: ReturnType<typeof createEditorMock>;
 
@@ -27,16 +26,16 @@ jest.mock("../../../api/client", () => ({
 }));
 
 jest.mock("../../../api/admin", () => ({
-  getPublishedAdminArticles: jest.fn(),
-  getPublishedAdminArticle: jest.fn(),
+  getAdminArticles: jest.fn(),
+  getAdminArticle: jest.fn(),
   createAdminArticle: jest.fn(),
   updateAdminArticle: jest.fn(),
   deleteAdminArticle: jest.fn(),
   uploadAdminArticleImage: jest.fn(),
 }));
 
-const mockedGetPublishedAdminArticles = jest.mocked(getPublishedAdminArticles);
-const mockedGetPublishedAdminArticle = jest.mocked(getPublishedAdminArticle);
+const mockedGetAdminArticles = jest.mocked(getAdminArticles);
+const mockedGetAdminArticle = jest.mocked(getAdminArticle);
 const mockedCreateAdminArticle = jest.mocked(createAdminArticle);
 const mockedUpdateAdminArticle = jest.mocked(updateAdminArticle);
 const mockedDeleteAdminArticle = jest.mocked(deleteAdminArticle);
@@ -81,7 +80,7 @@ function createEditorMock(
   };
 }
 
-const articles: Article[] = [
+const articles = [
   {
     id: "budgeting-article",
     title: "Budgeting Basics",
@@ -94,6 +93,8 @@ const articles: Article[] = [
     views: 100,
     likes: 10,
     saves: 5,
+    status: "published" as const,
+    updatedAt: "2026-07-02T00:00:00Z",
   },
   {
     id: "saving-article",
@@ -107,6 +108,8 @@ const articles: Article[] = [
     views: 250,
     likes: 20,
     saves: 12,
+    status: "published" as const,
+    updatedAt: "2026-07-04T00:00:00Z",
   },
   {
     id: "tax-article",
@@ -120,10 +123,12 @@ const articles: Article[] = [
     views: 50,
     likes: 30,
     saves: 2,
+    status: "published" as const,
+    updatedAt: "2026-07-03T00:00:00Z",
   },
 ];
 
-const articleDetail = (article: Article): ArticleDetail => ({
+const articleDetail = (article: (typeof articles)[number]) => ({
   ...article,
   contentBlocks: {
     type: "doc",
@@ -141,13 +146,13 @@ const articleDetail = (article: Article): ArticleDetail => ({
 beforeEach(() => {
   jest.clearAllMocks();
   mockTipTapEditor = createEditorMock();
-  mockedGetPublishedAdminArticles.mockResolvedValue({
+  mockedGetAdminArticles.mockResolvedValue({
     items: articles,
     page: 1,
     pageSize: 50,
     total: articles.length,
   });
-  mockedGetPublishedAdminArticle.mockImplementation(async (id) => articleDetail(articles.find((article) => article.id === id) ?? articles[0]));
+  mockedGetAdminArticle.mockImplementation(async (id) => articleDetail(articles.find((article) => article.id === id) ?? articles[0]));
   mockedCreateAdminArticle.mockResolvedValue(articleDetail(articles[0]));
   mockedUpdateAdminArticle.mockResolvedValue(articleDetail(articles[1]));
   mockedDeleteAdminArticle.mockResolvedValue(undefined);
@@ -159,7 +164,7 @@ test("loads and displays published articles from the admin article API", async (
 
   expect(await screen.findByRole("heading", { name: /knowledge hub/i })).toBeInTheDocument();
   expect(await screen.findByText("Saving Habits")).toBeInTheDocument();
-  expect(mockedGetPublishedAdminArticles).toHaveBeenCalledTimes(1);
+  expect(mockedGetAdminArticles).toHaveBeenCalledTimes(1);
   expect(screen.getByText("3 published")).toBeInTheDocument();
   expect(screen.getByText("Budgeting Basics")).toBeInTheDocument();
   expect(screen.getByText("Tax Time Checklist")).toBeInTheDocument();
@@ -267,7 +272,7 @@ test("loads article details and saves edited article changes", async () => {
   await user.click(screen.getAllByRole("button", { name: /edit/i })[0]);
 
   expect(await screen.findByRole("button", { name: /save changes/i })).toBeInTheDocument();
-  expect(mockedGetPublishedAdminArticle).toHaveBeenCalledWith("saving-article");
+  expect(mockedGetAdminArticle).toHaveBeenCalledWith("saving-article");
 
   const titleInput = screen.getByLabelText(/^title$/i);
   await user.clear(titleInput);
@@ -308,7 +313,7 @@ test("uploads cover images and inline article images", async () => {
 });
 
 test("shows an error if article details cannot be loaded for editing", async () => {
-  mockedGetPublishedAdminArticle.mockRejectedValueOnce(new Error("Unable to load article details."));
+  mockedGetAdminArticle.mockRejectedValueOnce(new Error("Unable to load article details."));
   const user = userEvent.setup();
   render(<AdminKnowledgeHub />);
 
@@ -333,7 +338,7 @@ test("keeps the delete dialog open and reports an error when deletion fails", as
 });
 
 test("shows a list loading error and retries successfully", async () => {
-  mockedGetPublishedAdminArticles.mockRejectedValueOnce(new Error("Unable to load articles."));
+  mockedGetAdminArticles.mockRejectedValueOnce(new Error("Unable to load articles."));
   const user = userEvent.setup();
   render(<AdminKnowledgeHub />);
 
@@ -343,7 +348,7 @@ test("shows a list loading error and retries successfully", async () => {
   await user.click(screen.getByRole("button", { name: /try again/i }));
 
   expect(await screen.findByText("Saving Habits")).toBeInTheDocument();
-  expect(mockedGetPublishedAdminArticles).toHaveBeenCalledTimes(2);
+  expect(mockedGetAdminArticles).toHaveBeenCalledTimes(2);
 });
 
 test("shows the empty state when search filters out every article", async () => {
@@ -353,12 +358,12 @@ test("shows the empty state when search filters out every article", async () => 
   await screen.findByText("Budgeting Basics");
   await user.type(screen.getByLabelText(/search articles by title/i), "does not exist");
 
-  expect(screen.getByText("No published articles match the current filters.")).toBeInTheDocument();
+  expect(screen.getByText("No articles match the current filters.")).toBeInTheDocument();
   expect(screen.queryByText("Budgeting Basics")).not.toBeInTheDocument();
 });
 
 test("shows the empty state when the article API returns no items", async () => {
-  mockedGetPublishedAdminArticles.mockResolvedValueOnce({
+  mockedGetAdminArticles.mockResolvedValueOnce({
     items: [],
     page: 1,
     pageSize: 50,
@@ -368,7 +373,7 @@ test("shows the empty state when the article API returns no items", async () => 
   render(<AdminKnowledgeHub />);
 
   expect(screen.getByText("0 published")).toBeInTheDocument();
-  expect(await screen.findByText("No published articles match the current filters.")).toBeInTheDocument();
+  expect(await screen.findByText("No articles match the current filters.")).toBeInTheDocument();
 });
 
 test("closes the delete dialog without deleting when cancelled", async () => {

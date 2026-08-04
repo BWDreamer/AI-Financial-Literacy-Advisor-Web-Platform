@@ -6,7 +6,12 @@ from sqlalchemy.orm import Session
 
 from app.models.article import Article, ArticleLike, ArticleSave
 from app.models.memory import UserMemory
-from app.schemas.article import ArticleCreateRequest, ArticleSortBy, ArticleUpdateRequest
+from app.schemas.article import (
+    ArticleCreateRequest,
+    ArticleSortBy,
+    ArticleStatus,
+    ArticleUpdateRequest,
+)
 
 
 MEMORY_INTEREST_KEYWORDS = {
@@ -92,6 +97,52 @@ def list_published_articles(
 
     items = query.offset((page - 1) * page_size).limit(page_size).all()
     return items, total
+
+
+def list_articles_for_admin(
+    db: Session,
+    keyword: str | None = None,
+    category: str | None = None,
+    article_status: ArticleStatus | None = None,
+    sort_by: ArticleSortBy = "latest",
+    page: int = 1,
+    page_size: int = 20,
+) -> tuple[list[Article], int]:
+    query = db.query(Article)
+
+    if keyword:
+        pattern = f"%{keyword.strip()}%"
+        query = query.filter(
+            or_(
+                Article.title.ilike(pattern),
+                Article.summary.ilike(pattern),
+                Article.author_name.ilike(pattern),
+                Article.source_name.ilike(pattern),
+                Article.category.ilike(pattern),
+            )
+        )
+    if category:
+        query = query.filter(Article.category == category)
+    if article_status:
+        query = query.filter(Article.status == article_status)
+
+    total = query.count()
+    if sort_by == "most_viewed":
+        query = query.order_by(Article.views.desc(), Article.updated_at.desc())
+    elif sort_by == "most_liked":
+        query = query.order_by(Article.likes.desc(), Article.updated_at.desc())
+    elif sort_by == "most_saved":
+        query = query.order_by(Article.saves.desc(), Article.updated_at.desc())
+    else:
+        query = query.order_by(
+            Article.published_at.desc().nullslast(),
+            Article.updated_at.desc(),
+        )
+
+    return (
+        query.offset((page - 1) * page_size).limit(page_size).all(),
+        total,
+    )
 
 
 def list_featured_articles(db: Session, limit: int = 5) -> list[Article]:
@@ -217,6 +268,7 @@ def create_article(db: Session, request: ArticleCreateRequest) -> Article:
         cover_image_url=request.cover_image_url,
         author_name=request.author_name,
         source_name=request.source_name,
+        source_url=request.source_url,
         category=request.category,
         status=request.status,
         published_at=request.published_at,

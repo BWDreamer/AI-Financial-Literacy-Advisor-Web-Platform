@@ -213,6 +213,13 @@ def test_memory_crud_and_export(client):
     assert list_response.status_code == 200
     assert len(list_response.json()) == 1
 
+    detail_response = client.get(
+        f"/api/memory/{memory['id']}",
+        headers=headers,
+    )
+    assert detail_response.status_code == 200
+    assert detail_response.json()["id"] == memory["id"]
+
     update_response = client.put(
         f"/api/memory/{memory['id']}",
         headers=headers,
@@ -240,6 +247,10 @@ def test_memory_crud_and_export(client):
 
     assert delete_response.status_code == 204
     assert client.get("/api/memory", headers=headers).json() == []
+    assert client.get(
+        f"/api/memory/{memory['id']}",
+        headers=headers,
+    ).status_code == 404
 
 
 def test_ai_recalls_memory_across_conversations(client):

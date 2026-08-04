@@ -101,6 +101,7 @@ CREATE TABLE IF NOT EXISTS articles (
     cover_image_url TEXT,
     author_name VARCHAR(100) NOT NULL,
     source_name VARCHAR(100) NOT NULL,
+    source_url TEXT,
     category VARCHAR(50) NOT NULL,
     status VARCHAR(20) NOT NULL DEFAULT 'draft',
     published_at TIMESTAMPTZ,

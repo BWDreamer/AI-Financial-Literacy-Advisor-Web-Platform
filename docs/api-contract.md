@@ -1,4 +1,36 @@
-# Initial API Contract
+# API Contract
+
+The running FastAPI OpenAPI document at `/openapi.json` and interactive UI at
+`/docs` are the authoritative endpoint and schema references. This document
+summarizes conventions and cross-endpoint workflows for frontend and backend
+development.
+
+All application routes use the `/api` prefix. Protected routes require
+`Authorization: Bearer <access_token>`. Resource lookup is scoped to the
+authenticated user; a missing resource and another user's resource both return
+`404`. Successful deletion normally returns `204 No Content`.
+
+## Discovery and health
+
+- GET /api
+- GET /api/health
+
+`GET /api` returns the service name, current API version, documentation URLs,
+and major endpoint groups. `GET /api/health` is suitable for container and
+deployment health checks.
+
+## Authentication and account lifecycle
+
+- POST /api/auth/register
+- POST /api/auth/register/verification-code
+- POST /api/auth/email/verification-code
+- POST /api/auth/login
+- GET /api/auth/me
+- POST /api/auth/heartbeat
+- POST /api/auth/password-reset/request-code
+- POST /api/auth/password-reset/verify-code
+- POST /api/auth/password-reset/reset
+- DELETE /api/auth/me
 
 ## Goals
 
@@ -40,7 +72,6 @@ does not include one-off cash-flow components. Ratios retain enough precision
 for confirmed cent-level monthly amounts to round-trip without drift.
 The former `/monthly-allocation` write route is retired.
 
-- GET /api/health
 - GET /api/auth/ping
 - GET /api/profile/ping
 - GET /api/calculator/ping
@@ -55,6 +86,7 @@ The former `/monthly-allocation` write route is retired.
 - POST /api/ai/chat/stream
 - POST /api/ai/chat/pdf
 - GET /api/memory
+- GET /api/memory/{memory_id}
 - POST /api/memory
 - PUT /api/memory/{memory_id}
 - DELETE /api/memory/{memory_id}
@@ -62,6 +94,7 @@ The former `/monthly-allocation` write route is retired.
 - GET /api/goals/ping
 - GET /api/admin/ping
 - GET /api/admin/users (admin only)
+- GET /api/admin/users/{id} (admin only)
 - POST /api/admin/users (admin only)
 - PATCH /api/admin/users/{id} (admin only)
 - DELETE /api/admin/users/{id} (admin only)
@@ -87,10 +120,15 @@ so an admin update applies to the next chat request without a service restart.
 
 - GET /api/financials
 - GET /api/financials/summary
+- GET /api/financials/assets
 - POST /api/financials/assets
+- GET /api/financials/assets/{asset_id}
 - PUT /api/financials/assets/{asset_id}
 - DELETE /api/financials/assets/{asset_id}
+- GET /api/financials/cash-buckets/{bucket_id}
+- GET /api/financials/cash-flows
 - POST /api/financials/cash-flows
+- GET /api/financials/cash-flows/{cash_flow_id}
 - PUT /api/financials/cash-flows/{cash_flow_id}
 - DELETE /api/financials/cash-flows/{cash_flow_id}
 
@@ -182,10 +220,12 @@ of replacing an unrelated memory.
 
 - GET /api/financials/debts
 - POST /api/financials/debts
+- GET /api/financials/debts/{debt_id}
 - PUT /api/financials/debts/{debt_id}
 - DELETE /api/financials/debts/{debt_id}
 - GET /api/financials/recurring-cash-flows
 - POST /api/financials/recurring-cash-flows
+- GET /api/financials/recurring-cash-flows/{id}
 - PUT /api/financials/recurring-cash-flows/{id}
 - DELETE /api/financials/recurring-cash-flows/{id}
 
@@ -204,3 +244,58 @@ components as monthly capacity and derive one-off amounts as
 `amount - ongoing_amount`. When the same flow type is also represented by an
 active recurring schedule, the larger supported monthly total is used instead
 of summing duplicate evidence.
+
+## Knowledge Hub
+
+Published content is available to authenticated users through the public
+article API:
+
+- GET /api/articles
+- GET /api/articles/categories
+- GET /api/articles/featured
+- GET /api/articles/recommended
+- GET /api/articles/{article_id}
+- POST /api/articles/{article_id}/view
+- POST /api/articles/{article_id}/like
+- DELETE /api/articles/{article_id}/like
+- POST /api/articles/{article_id}/save
+- DELETE /api/articles/{article_id}/save
+- GET /api/articles/me/liked
+- GET /api/articles/me/saved
+
+The article list accepts `keyword`, `category`, `sort_by`, `page`, and
+`page_size`. Detail responses include article content, source metadata,
+engagement totals, and the current user's helpful/bookmark state. Public routes
+never expose draft or archived articles. Article source fields (`source_name`,
+`source_url`, and `published_at`) are part of the API contract so references can
+be rendered as usable links rather than embedded presentation-only text.
+
+## Administration
+
+All routes below require an administrator token.
+
+### Users and advisory settings
+
+- GET /api/admin/users
+- POST /api/admin/users
+- GET /api/admin/users/{user_id}
+- PATCH /api/admin/users/{user_id}
+- DELETE /api/admin/users/{user_id}
+- GET /api/admin/advisory-settings
+- PATCH /api/admin/advisory-settings
+
+### Article lifecycle
+
+- GET /api/admin/articles
+- POST /api/admin/articles
+- GET /api/admin/articles/{article_id}
+- PUT /api/admin/articles/{article_id}
+- DELETE /api/admin/articles/{article_id}
+- POST /api/admin/articles/{article_id}/publish
+- POST /api/admin/articles/{article_id}/unpublish
+
+Unlike `/api/articles`, the admin list and detail endpoints expose all allowed
+states (`draft`, `published`, and `archived`). The list supports `keyword`,
+`category`, `status`, `sort_by`, `page`, and `page_size`, and returns pagination
+metadata. This separation lets the admin frontend retrieve and edit drafts
+without weakening the published-only public interface.

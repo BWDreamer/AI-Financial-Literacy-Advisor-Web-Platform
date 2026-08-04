@@ -164,7 +164,11 @@ function FeaturedHero({ featuredArticles }: { featuredArticles: Article[] }) {
         <section className="max-w-2xl">
           <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-blue-100 sm:gap-3 sm:text-sm">
             <span className="rounded-full bg-blue-500 px-2.5 py-1 text-white sm:px-3">{activeArticle.category}</span>
-            <span className="hidden sm:inline">{activeArticle.sourceName}</span>
+            {activeArticle.sourceUrl ? (
+              <a href={activeArticle.sourceUrl} target="_blank" rel="noreferrer" className="hidden hover:underline sm:inline">
+                {activeArticle.sourceName}
+              </a>
+            ) : <span className="hidden sm:inline">{activeArticle.sourceName}</span>}
             <span>{formatDate(activeArticle.publishedAt)}</span>
           </div>
           <Link to={`/knowledge-hub/${activeArticle.id}`} className="mt-2 block line-clamp-2 text-lg font-black leading-tight tracking-tight text-white hover:text-blue-200 sm:mt-3 sm:text-3xl">{activeArticle.title}</Link>
