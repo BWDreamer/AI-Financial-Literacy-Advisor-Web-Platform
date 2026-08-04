@@ -36,6 +36,9 @@ export const getMemories = () =>
 export const exportMemories = () =>
   apiRequest<MemoryExport>("/memory/export", { authenticated: true });
 
+export const getMemory = (id: number) =>
+  apiRequest<Memory>(`/memory/${id}`, { authenticated: true });
+
 export const createMemory = (payload: MemoryPayload) =>
   apiRequest<Memory>("/memory", {
     method: "POST",

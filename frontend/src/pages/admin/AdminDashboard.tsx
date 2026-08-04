@@ -12,8 +12,7 @@ import {
   Users,
   UserPlus,
 } from "lucide-react";
-import { getAdminUsers, type AdminUser, getPublishedAdminArticles } from "../../api/admin";
-import type { Article } from "../../api/articles";
+import { getAdminArticles, getAdminUsers, type AdminArticle, type AdminUser } from "../../api/admin";
 
 function errorMessage(caught: unknown) {
   return caught instanceof Error ? caught.message : "Something went wrong. Please try again.";
@@ -162,7 +161,7 @@ function SectionCard({ title, children, action, className = "" }: { title: strin
   );
 }
 
-function TopArticleRow({ label, article, metric }: { label: string; article: Article | null; metric: "views" | "likes" | "saves" }) {
+function TopArticleRow({ label, article, metric }: { label: string; article: AdminArticle | null; metric: "views" | "likes" | "saves" }) {
   if (!article) {
     return <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">No article data yet.</p>;
   }
@@ -200,7 +199,7 @@ function QuickAction({ to, icon, title }: { to: string; icon: React.ReactNode; t
 
 export default function AdminDashboard() {
   const [users, setUsers] = useState<AdminUser[]>([]);
-  const [articles, setArticles] = useState<Article[]>([]);
+  const [articles, setArticles] = useState<AdminArticle[]>([]);
   const [loading, setLoading] = useState(true);
   const [pageError, setPageError] = useState("");
 
@@ -209,7 +208,7 @@ export default function AdminDashboard() {
     try {
       const [adminUsers, articlePage] = await Promise.all([
         getAdminUsers(),
-        getPublishedAdminArticles(),
+        getAdminArticles({ status: "published" }),
       ]);
       setUsers(adminUsers);
       setArticles(articlePage.items);

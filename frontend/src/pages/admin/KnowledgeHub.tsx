@@ -29,11 +29,12 @@ import { API_ORIGIN } from "../../api/client";
 import Modal from "../../components/Modal";
 import { RichTextBlockStyle, fontSizeOptions, spacingOptions } from "../../components/knowledge/richTextExtensions";
 import {
+  AdminArticle,
   AdminArticleContentBlocks,
   createAdminArticle,
   deleteAdminArticle,
-  getPublishedAdminArticle,
-  getPublishedAdminArticles,
+  getAdminArticle,
+  getAdminArticles,
   updateAdminArticle,
   uploadAdminArticleImage,
 } from "../../api/admin";
@@ -46,6 +47,7 @@ type ArticleForm = {
   category: string;
   authorName: string;
   sourceName: string;
+  sourceUrl: string;
   coverImageUrl: string | null;
 };
 
@@ -69,6 +71,7 @@ const emptyForm = (): ArticleForm => ({
   category: "Budgeting",
   authorName: "FinanceAI Learning Team",
   sourceName: "Knowledge Base",
+  sourceUrl: "",
   coverImageUrl: null,
 });
 
@@ -217,6 +220,7 @@ function articleDetailToForm(article: ArticleDetail): ArticleForm {
     category: article.category,
     authorName: article.authorName,
     sourceName: article.sourceName,
+    sourceUrl: article.sourceUrl ?? "",
     coverImageUrl: article.coverImageUrl,
   };
 }
@@ -465,6 +469,8 @@ function ArticleEditor({
             <input id="article-author" value={form.authorName} disabled={disabled} onChange={(event) => setForm({ ...form, authorName: event.target.value })} className="mt-2 w-full rounded-xl border-0 bg-slate-100 px-4 py-3 text-slate-950 outline-none focus:ring-4 focus:ring-violet-100 disabled:opacity-70" />
             <label htmlFor="article-source" className="mt-6 block text-sm font-semibold text-slate-500">Source</label>
             <input id="article-source" value={form.sourceName} disabled={disabled} onChange={(event) => setForm({ ...form, sourceName: event.target.value })} className="mt-2 w-full rounded-xl border-0 bg-slate-100 px-4 py-3 text-slate-950 outline-none focus:ring-4 focus:ring-violet-100 disabled:opacity-70" />
+            <label htmlFor="article-source-url" className="mt-4 block text-sm font-semibold text-slate-500">Source URL</label>
+            <input id="article-source-url" type="url" value={form.sourceUrl} disabled={disabled} onChange={(event) => setForm({ ...form, sourceUrl: event.target.value })} placeholder="https://example.gov.au/source" className="mt-2 w-full rounded-xl border-0 bg-slate-100 px-4 py-3 text-slate-950 outline-none focus:ring-4 focus:ring-violet-100 disabled:opacity-70" />
             <span className={`mt-6 inline-flex rounded-full px-3 py-1 text-sm font-medium ${categoryTone(form.category)}`}>{form.category}</span>
           </div>
           {metrics && (
@@ -484,24 +490,24 @@ function ArticleEditor({
 }
 
 export default function AdminKnowledgeHub() {
-  const [articles, setArticles] = useState<Article[]>([]);
+  const [articles, setArticles] = useState<AdminArticle[]>([]);
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [searchTerm, setSearchTerm] = useState("");
   const [sortBy, setSortBy] = useState<SortOption>("published-desc");
   const [editorMode, setEditorMode] = useState<"list" | "new" | "edit">("list");
-  const [editingArticle, setEditingArticle] = useState<Article | null>(null);
+  const [editingArticle, setEditingArticle] = useState<AdminArticle | null>(null);
   const [form, setForm] = useState<ArticleForm>(emptyForm);
   const [loading, setLoading] = useState(true);
   const [pageError, setPageError] = useState("");
   const [saving, setSaving] = useState(false);
-  const [deletingArticle, setDeletingArticle] = useState<Article | null>(null);
+  const [deletingArticle, setDeletingArticle] = useState<AdminArticle | null>(null);
   const [page, setPage] = useState(1);
   const mobileList = useMobileListView();
 
   const loadArticles = useCallback(async () => {
     setLoading(true);
     try {
-      const page = await getPublishedAdminArticles();
+      const page = await getAdminArticles();
       setArticles(page.items);
       setPageError("");
     } catch (caught) {
@@ -559,11 +565,11 @@ export default function AdminKnowledgeHub() {
     setEditorMode("new");
   }
 
-  async function openEditArticle(article: Article) {
+  async function openEditArticle(article: AdminArticle) {
     setSaving(true);
     setPageError("");
     try {
-      const detail = await getPublishedAdminArticle(article.id);
+      const detail = await getAdminArticle(article.id);
       setForm(articleDetailToForm(detail));
       setEditingArticle(detail);
       setEditorMode("edit");
@@ -575,6 +581,7 @@ export default function AdminKnowledgeHub() {
   }
 
   function requestFromForm(id?: string, contentBlocks = form.contentBlocks) {
+    const status = editingArticle?.status ?? "published";
     return {
       ...(id ? { id } : {}),
       title: form.title.trim(),
@@ -582,9 +589,12 @@ export default function AdminKnowledgeHub() {
       coverImageUrl: form.coverImageUrl,
       authorName: form.authorName.trim() || "FinanceAI Learning Team",
       sourceName: form.sourceName.trim() || "Knowledge Base",
+      sourceUrl: form.sourceUrl.trim() || null,
       category: form.category,
-      status: "published" as const,
-      publishedAt: new Date().toISOString(),
+      status,
+      publishedAt: status === "published"
+        ? editingArticle?.publishedAt ?? new Date().toISOString()
+        : editingArticle?.publishedAt ?? null,
       contentBlocks,
     };
   }
@@ -650,7 +660,8 @@ export default function AdminKnowledgeHub() {
         <div>
           <h1 className="text-3xl font-semibold tracking-tight text-slate-950 sm:text-4xl">Knowledge Hub</h1>
           <div className="mt-3 flex flex-wrap gap-3 text-sm font-medium">
-            <span className="rounded-full bg-emerald-50 px-4 py-1.5 text-emerald-700">{articles.length} published</span>
+            <span className="rounded-full bg-emerald-50 px-4 py-1.5 text-emerald-700">{articles.filter((article) => article.status === "published").length} published</span>
+            <span className="rounded-full bg-amber-50 px-4 py-1.5 text-amber-700">{articles.filter((article) => article.status === "draft").length} drafts</span>
           </div>
         </div>
         <button type="button" onClick={openNewArticle} disabled={saving} className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-950 px-6 py-3.5 font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60">
@@ -729,7 +740,7 @@ export default function AdminKnowledgeHub() {
               </div>
             </div>
             <div><span className={`inline-flex max-w-[7rem] truncate rounded-full px-3 py-1 text-sm font-medium ${categoryTone(article.category)}`}>{article.category}</span></div>
-            <div><span className="rounded-full bg-emerald-50 px-3 py-1 text-sm font-semibold text-emerald-700">Published</span></div>
+            <div><span className={`rounded-full px-3 py-1 text-sm font-semibold ${article.status === "published" ? "bg-emerald-50 text-emerald-700" : article.status === "draft" ? "bg-amber-50 text-amber-700" : "bg-slate-100 text-slate-600"}`}>{article.status[0].toUpperCase() + article.status.slice(1)}</span></div>
             <div className="text-sm text-slate-500">{formatPublishedDate(article.publishedAt)}</div>
             <div className="text-sm text-slate-600"><span className="inline-flex items-center gap-1.5"><Eye size={16} className="text-slate-400" />{article.views.toLocaleString()}</span></div>
             <div className="text-sm text-slate-600"><span className="inline-flex items-center gap-1.5"><Heart size={16} className="text-red-500" />{article.likes.toLocaleString()}</span></div>
@@ -758,7 +769,7 @@ export default function AdminKnowledgeHub() {
                     <p className="mt-1 line-clamp-2 text-sm leading-5 text-slate-500">{shortText(article.summary, 68)}</p>
                     <div className="mt-3 flex flex-wrap gap-2">
                       <span className={`inline-flex max-w-full truncate rounded-full px-3 py-1 text-xs font-semibold ${categoryTone(article.category)}`}>{article.category}</span>
-                      <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">Published</span>
+                      <span className={`rounded-full px-3 py-1 text-xs font-semibold ${article.status === "published" ? "bg-emerald-50 text-emerald-700" : article.status === "draft" ? "bg-amber-50 text-amber-700" : "bg-slate-100 text-slate-600"}`}>{article.status[0].toUpperCase() + article.status.slice(1)}</span>
                     </div>
                   </div>
                 </div>
@@ -785,7 +796,7 @@ export default function AdminKnowledgeHub() {
         )}
 
         {!loading && visibleArticles.length === 0 && !pageError && (
-          <div className="px-6 py-16 text-center text-slate-500">No published articles match the current filters.</div>
+          <div className="px-6 py-16 text-center text-slate-500">No articles match the current filters.</div>
         )}
 
         {!loading && visibleArticles.length > PAGE_SIZE && (

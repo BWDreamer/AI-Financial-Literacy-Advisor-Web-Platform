@@ -34,21 +34,28 @@ export type FinancialSummary = {
 
 export const getFinancials = () => apiRequest<Financials>("/financials", { authenticated: true });
 export const getFinancialSummary = () => apiRequest<FinancialSummary>("/financials/summary", { authenticated: true });
+export const getAssets = () => apiRequest<Asset[]>("/financials/assets", { authenticated: true });
+export const getAsset = (id: number) => apiRequest<Asset>(`/financials/assets/${id}`, { authenticated: true });
 export const createAsset = (input: AssetInput) => apiRequest<Asset>("/financials/assets", { method: "POST", authenticated: true, body: JSON.stringify(input) });
 export const updateAsset = (id: number, input: AssetInput) => apiRequest<Asset>(`/financials/assets/${id}`, { method: "PUT", authenticated: true, body: JSON.stringify(input) });
 export const deleteAsset = (id: number) => apiRequest<void>(`/financials/assets/${id}`, { method: "DELETE", authenticated: true });
 export const createCashFlow = (input: CashFlowInput) => apiRequest<CashFlow>("/financials/cash-flows", { method: "POST", authenticated: true, body: JSON.stringify(input) });
+export const getCashFlows = () => apiRequest<CashFlow[]>("/financials/cash-flows", { authenticated: true });
+export const getCashFlow = (id: number) => apiRequest<CashFlow>(`/financials/cash-flows/${id}`, { authenticated: true });
 export const updateCashFlow = (id: number, input: CashFlowInput) => apiRequest<CashFlow>(`/financials/cash-flows/${id}`, { method: "PUT", authenticated: true, body: JSON.stringify(input) });
 export const deleteCashFlow = (id: number) => apiRequest<void>(`/financials/cash-flows/${id}`, { method: "DELETE", authenticated: true });
 export const createDebt = (input: DebtInput) => apiRequest<Debt>("/financials/debts", { method: "POST", authenticated: true, body: JSON.stringify(input) });
 export const getDebts = () => apiRequest<Debt[]>("/financials/debts", { authenticated: true });
+export const getDebt = (id: number) => apiRequest<Debt>(`/financials/debts/${id}`, { authenticated: true });
 export const updateDebt = (id: number, input: DebtInput) => apiRequest<Debt>(`/financials/debts/${id}`, { method: "PUT", authenticated: true, body: JSON.stringify(input) });
 export const deleteDebt = (id: number) => apiRequest<void>(`/financials/debts/${id}`, { method: "DELETE", authenticated: true });
 export const createRecurringCashFlow = (input: RecurringCashFlowInput) => apiRequest<RecurringCashFlow>("/financials/recurring-cash-flows", { method: "POST", authenticated: true, body: JSON.stringify(input) });
 export const getRecurringCashFlows = () => apiRequest<RecurringCashFlow[]>("/financials/recurring-cash-flows", { authenticated: true });
+export const getRecurringCashFlow = (id: number) => apiRequest<RecurringCashFlow>(`/financials/recurring-cash-flows/${id}`, { authenticated: true });
 export const updateRecurringCashFlow = (id: number, input: RecurringCashFlowInput) => apiRequest<RecurringCashFlow>(`/financials/recurring-cash-flows/${id}`, { method: "PUT", authenticated: true, body: JSON.stringify(input) });
 export const deleteRecurringCashFlow = (id: number) => apiRequest<void>(`/financials/recurring-cash-flows/${id}`, { method: "DELETE", authenticated: true });
 export const getCashBuckets = () => apiRequest<CashBucket[]>("/financials/cash-buckets", { authenticated: true });
+export const getCashBucket = (id: number) => apiRequest<CashBucket>(`/financials/cash-buckets/${id}`, { authenticated: true });
 export const createCashBucket = (input: CashBucketInput) => apiRequest<CashBucket>("/financials/cash-buckets", { method: "POST", authenticated: true, body: JSON.stringify(input) });
 export const updateCashBucket = (id: number, input: CashBucketInput) => apiRequest<CashBucket>(`/financials/cash-buckets/${id}`, { method: "PUT", authenticated: true, body: JSON.stringify(input) });
 export const deleteCashBucket = (id: number) => apiRequest<void>(`/financials/cash-buckets/${id}`, { method: "DELETE", authenticated: true });

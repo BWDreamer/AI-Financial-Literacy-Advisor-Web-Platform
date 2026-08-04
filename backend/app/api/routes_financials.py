@@ -77,6 +77,14 @@ def get_cash_buckets(current_user: User = Depends(get_current_user), db: Session
     return list_cash_buckets(db, current_user.id)
 
 
+@router.get("/cash-buckets/{bucket_id}", response_model=CashBucketResponse)
+def get_cash_bucket_detail(bucket_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    bucket = get_cash_bucket(db, current_user.id, bucket_id)
+    if bucket is None:
+        raise HTTPException(status_code=404, detail="Cash bucket was not found.")
+    return bucket
+
+
 @router.post("/cash-buckets", response_model=CashBucketResponse, status_code=status.HTTP_201_CREATED)
 def create_cash_bucket(request: CashBucketRequest, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     return save_cash_bucket(db, current_user.id, request)
@@ -97,6 +105,19 @@ def remove_cash_bucket(bucket_id: int, current_user: User = Depends(get_current_
         raise HTTPException(status_code=404, detail="Cash bucket was not found.")
     delete_cash_bucket(db, bucket)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/assets", response_model=list[AssetResponse])
+def get_assets(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return list_assets(db, current_user.id)
+
+
+@router.get("/assets/{asset_id}", response_model=AssetResponse)
+def get_asset_detail(asset_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    asset = get_asset(db, current_user.id, asset_id)
+    if asset is None:
+        raise HTTPException(status_code=404, detail="Asset was not found.")
+    return asset
 
 
 @router.post("/assets", response_model=AssetResponse, status_code=status.HTTP_201_CREATED)
@@ -132,6 +153,19 @@ def remove_asset(
         raise HTTPException(status_code=404, detail="Asset was not found.")
     delete_asset(db, asset)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/cash-flows", response_model=list[CashFlowResponse])
+def get_cash_flows(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return list_cash_flows(db, current_user.id)
+
+
+@router.get("/cash-flows/{cash_flow_id}", response_model=CashFlowResponse)
+def get_cash_flow_detail(cash_flow_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    cash_flow = get_cash_flow(db, current_user.id, cash_flow_id)
+    if cash_flow is None:
+        raise HTTPException(status_code=404, detail="Cash flow was not found.")
+    return cash_flow
 
 
 @router.post(
@@ -178,6 +212,14 @@ def get_debts(current_user: User = Depends(get_current_user), db: Session = Depe
     return list_debts(db, current_user.id)
 
 
+@router.get("/debts/{debt_id}", response_model=DebtResponse)
+def get_debt_detail(debt_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    debt = get_debt(db, current_user.id, debt_id)
+    if debt is None:
+        raise HTTPException(status_code=404, detail="Debt was not found.")
+    return debt
+
+
 @router.post("/debts", response_model=DebtResponse, status_code=status.HTTP_201_CREATED)
 def create_debt(request: DebtRequest, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     return save_debt(db, current_user.id, request)
@@ -203,6 +245,14 @@ def remove_debt(debt_id: int, current_user: User = Depends(get_current_user), db
 @router.get("/recurring-cash-flows", response_model=list[RecurringCashFlowResponse])
 def get_recurring_flows(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     return list_recurring_cash_flows(db, current_user.id)
+
+
+@router.get("/recurring-cash-flows/{recurring_id}", response_model=RecurringCashFlowResponse)
+def get_recurring_flow_detail(recurring_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    recurring = get_recurring_cash_flow(db, current_user.id, recurring_id)
+    if recurring is None:
+        raise HTTPException(status_code=404, detail="Recurring cash flow was not found.")
+    return recurring
 
 
 @router.post("/recurring-cash-flows", response_model=RecurringCashFlowResponse, status_code=status.HTTP_201_CREATED)

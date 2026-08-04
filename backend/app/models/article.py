@@ -22,6 +22,7 @@ class Article(Base):
     cover_image_url = Column(Text, nullable=True)
     author_name = Column(String(100), nullable=False)
     source_name = Column(String(100), nullable=False)
+    source_url = Column(Text, nullable=True)
     category = Column(String(50), nullable=False, index=True)
     status = Column(String(20), nullable=False, default="draft", index=True)
     published_at = Column(DateTime(timezone=True), nullable=True, index=True)

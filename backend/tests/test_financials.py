@@ -38,6 +38,12 @@ def test_financial_assets_and_cash_flows_crud(client):
     )
     assert updated_asset.status_code == 200
     assert updated_asset.json()["asset_type"] == "stocks"
+    assert client.get(
+        f"/api/financials/assets/{asset_id}", headers=headers
+    ).json()["name"] == "ETF"
+    assert len(client.get(
+        "/api/financials/assets", headers=headers
+    ).json()) == 1
 
     flow = client.post(
         "/api/financials/cash-flows",
@@ -64,6 +70,12 @@ def test_financial_assets_and_cash_flows_crud(client):
     )
     assert updated_flow.status_code == 200
     assert updated_flow.json()["flow_type"] == "expense"
+    assert client.get(
+        f"/api/financials/cash-flows/{flow_id}", headers=headers
+    ).json()["name"] == "Rent"
+    assert len(client.get(
+        "/api/financials/cash-flows", headers=headers
+    ).json()) == 1
 
     financials = client.get("/api/financials", headers=headers).json()
     assert len(financials["assets"]) == 1
@@ -211,6 +223,9 @@ def test_financial_debts_and_recurring_cash_flows_crud(client):
     assert updated_debt.status_code == 200
     assert updated_debt.json()["balance"] == "590000.00"
     assert len(client.get("/api/financials/debts", headers=headers).json()) == 1
+    assert client.get(
+        f"/api/financials/debts/{debt_id}", headers=headers
+    ).json()["name"] == "Home loan"
 
     flow = client.post(
         "/api/financials/recurring-cash-flows",
@@ -241,6 +256,9 @@ def test_financial_debts_and_recurring_cash_flows_crud(client):
     assert updated_flow.status_code == 200
     assert updated_flow.json()["amount"] == "2100.00"
     assert len(client.get("/api/financials/recurring-cash-flows", headers=headers).json()) == 1
+    assert client.get(
+        f"/api/financials/recurring-cash-flows/{flow_id}", headers=headers
+    ).json()["frequency"] == "fortnightly"
 
     assert client.delete(f"/api/financials/debts/{debt_id}", headers=headers).status_code == 204
     assert client.delete(f"/api/financials/recurring-cash-flows/{flow_id}", headers=headers).status_code == 204
@@ -256,6 +274,9 @@ def test_financial_ownership_and_validation(client):
     ).json()
 
     assert client.delete(
+        f"/api/financials/assets/{asset['id']}", headers=second
+    ).status_code == 404
+    assert client.get(
         f"/api/financials/assets/{asset['id']}", headers=second
     ).status_code == 404
     cash_flow = client.post(
