@@ -2,6 +2,93 @@
 
 This project is an AI Financial Literacy Advisor Web Platform developed for COMP9900.
 
+## Handover Summary
+
+FinanceAI is a responsive financial literacy web platform for everyday money
+education and planning. It combines a user dashboard, AI advisor, long-term
+memory, goal planning, educational articles, and an admin console for platform
+management.
+
+### Main Modules
+
+* Authentication: user registration, login, password reset, JWT sessions, and
+  role-based navigation.
+* Homepage dashboard: financial overview for cash savings, income, expenses,
+  debt, net worth, asset allocation, monthly cash flow, and recent cash flow.
+* New-user onboarding: a lightweight setup flow that captures user preferences
+  and optional financial snapshot information.
+* Advisor Chat: AI-supported financial education with memory, financial
+  records, goals, and verified rule context.
+* My Goals: goal creation, editing, progress tracking, allocation summaries,
+  and AI goal review support.
+* Memory: user-managed long-term facts and preferences that can be reused by
+  the advisor.
+* Knowledge Hub: article browsing, detail pages, categories, search, sorting,
+  saved/liked views, rich article content, and personalised recommendations.
+* Admin Console: admin dashboard, user management, advisory settings, and
+  Knowledge Hub article management.
+
+### User and Admin Entry Points
+
+* Public login and registration: http://localhost:5173/login
+* Regular user area after login: http://localhost:5173/home
+* User Knowledge Hub: http://localhost:5173/knowledge-hub
+* Admin console after admin login: http://localhost:5173/admin
+* Admin Knowledge Hub management: http://localhost:5173/admin/knowledge
+* Backend API documentation: http://localhost:8000/docs
+
+### Demo Accounts
+
+This repository does not commit real demo credentials. For local handover or
+assessment, create a regular user through the registration page, then create a
+local admin account from `.env`:
+
+```text
+ADMIN_EMAIL=admin@example.com
+ADMIN_PASSWORD=replace_with_a_secure_password
+ADMIN_NAME=Admin
+```
+
+Then run:
+
+```bash
+docker compose up -d db backend
+docker compose exec backend python scripts/create_admin.py
+```
+
+Send any real demo account credentials to the client or tutor separately from
+the GitHub repository.
+
+### AI and Email Configuration
+
+The application can run locally without real AI or SMTP credentials, but some
+features will be unavailable:
+
+* AI advisor responses require either `OPENROUTER_API_KEY` or `GEMINI_API_KEY`.
+* Email verification and password reset emails require SMTP settings such as
+  `SMTP_HOST`, `SMTP_USERNAME`, `SMTP_PASSWORD`, and `SMTP_FROM_EMAIL`.
+
+Use `.env.example` as the template and place real secrets only in the untracked
+local `.env` file. Do not commit API keys, SMTP credentials, or real admin
+passwords.
+
+### Known Issues and Limitations
+
+* The AI advisor provides financial education and planning support only. It
+  must not be treated as professional financial, investment, legal, or tax
+  advice.
+* AI and email features depend on external provider credentials configured in
+  `.env`.
+* Local Docker data is stored in the `postgres_data` volume. Existing local
+  data remains unless the volume is explicitly removed.
+* The project is a course prototype. Production deployment would require
+  stronger secret management, monitoring, backups, HTTPS configuration, and
+  production database hosting.
+* Bank-account integration is not included. Users provide financial information
+  through manual entry and supported PDF upload flows.
+
+For a client handover checklist, see [`docs/handover.md`](docs/handover.md).
+
 ## Tech Stack
 
 * Frontend: React, Vite and TypeScript
