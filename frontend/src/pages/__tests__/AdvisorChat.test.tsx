@@ -179,6 +179,26 @@ test("sends a suggested question in the active conversation and refreshes it", a
   expect(screen.queryByText("Memory updated")).not.toBeInTheDocument();
 });
 
+test("sends a typed message with Enter", async () => {
+  const user = userEvent.setup();
+  renderAdvisorChat();
+
+  await screen.findByText("What is budgeting?");
+  await user.type(
+    screen.getByPlaceholderText(/ask anything about personal finance/i),
+    "Explain saving{Enter}",
+  );
+
+  await waitFor(() => expect(mockedStreamAdvisorMessage).toHaveBeenCalledWith(
+    "Explain saving",
+    1,
+    expect.any(Function),
+    undefined,
+    undefined,
+    expect.any(AbortSignal),
+  ));
+});
+
 test("shows a dismissible notice after memory is updated", async () => {
   mockedStreamAdvisorMessage.mockImplementationOnce(
     async (_message, _conversationId, onDelta) => {
@@ -302,6 +322,50 @@ test("removes an uploaded PDF before sending", async () => {
   expect(mockedSendAdvisorPdfMessage).not.toHaveBeenCalled();
 });
 
+test("removes the last uploaded PDF with backspace when the message is empty", async () => {
+  const user = userEvent.setup();
+  const { container } = renderAdvisorChat();
+  const pdf = new File(["statement"], "statement.pdf", {
+    type: "application/pdf",
+  });
+
+  await screen.findByText("What is budgeting?");
+  const input = container.querySelector("input[type='file']") as HTMLInputElement;
+  await user.upload(input, pdf);
+
+  expect(screen.getByText("statement.pdf")).toBeInTheDocument();
+  const composer = screen.getByPlaceholderText(/ask anything about personal finance/i);
+  await user.click(composer);
+  await user.keyboard("{Backspace}");
+
+  expect(screen.queryByText("statement.pdf")).not.toBeInTheDocument();
+});
+
+test("shows a memory update notice after a PDF import updates memories", async () => {
+  mockedSendAdvisorPdfMessage.mockResolvedValueOnce({
+    answer: "I saved details from this document.",
+    model: "test-model",
+    memory_updated: true,
+    memory_update_count: 0,
+    imported_records: [],
+    low_confidence: false,
+    extracted_text_characters: 128,
+  });
+  const user = userEvent.setup();
+  const { container } = renderAdvisorChat();
+  const pdf = new File(["statement"], "statement.pdf", {
+    type: "application/pdf",
+  });
+
+  await screen.findByText("What is budgeting?");
+  const input = container.querySelector("input[type='file']") as HTMLInputElement;
+  await user.upload(input, pdf);
+  await user.click(screen.getByTitle("Send message"));
+
+  expect(await screen.findByText("Memory updated")).toBeInTheDocument();
+  expect(screen.getByText("1 detail saved to your memories.")).toBeInTheDocument();
+});
+
 test("renders streamed advisor deltas while a response is pending", async () => {
   let resolveStream: ((value: {
     answer: string;
@@ -353,6 +417,91 @@ test("deletes a conversation from the history sidebar", async () => {
   await waitFor(() => expect(mockedGetConversations).toHaveBeenCalledTimes(2));
 });
 
+test("opens and closes the mobile conversation history", async () => {
+  const user = userEvent.setup();
+  renderAdvisorChat();
+
+  await screen.findByText("What is budgeting?");
+  await user.click(screen.getByRole("button", { name: /open conversation history/i }));
+
+  expect(screen.getByRole("button", { name: /^close conversation history$/i })).toBeInTheDocument();
+  expect(screen.getAllByText("Historical Conversation").length).toBeGreaterThan(0);
+
+  await user.click(screen.getByRole("button", { name: /^close conversation history overlay$/i }));
+
+  expect(screen.getByRole("button", { name: /open conversation history/i })).toBeInTheDocument();
+});
+
+test("deletes a conversation with the keyboard from history", async () => {
+  const user = userEvent.setup();
+  renderAdvisorChat();
+
+  await screen.findByText("What is budgeting?");
+  await user.click(screen.getByLabelText(/toggle conversation history/i));
+
+  const deleteButton = screen.getAllByRole("button", { name: /delete budget chat/i })[0];
+  deleteButton.focus();
+  await user.keyboard("{Enter}");
+
+  await waitFor(() => expect(mockedDeleteConversation).toHaveBeenCalledWith(1));
+});
+
+test("selects another conversation from the history sidebar", async () => {
+  const user = userEvent.setup();
+  const taxConversation = {
+    conversation_id: 4,
+    title: "Tax chat",
+    created_at: "2026-07-23T00:00:00Z",
+    updated_at: "2026-07-23T00:00:00Z",
+  };
+  mockedGetConversations.mockResolvedValueOnce([conversations[0], taxConversation]);
+  mockedGetConversation.mockImplementation(async (id) => (
+    id === 4
+      ? {
+        ...taxConversation,
+        messages: [
+          {
+            id: 10,
+            role: "user",
+            content: "Can you explain tax deductions?",
+            created_at: "2026-07-23T00:00:00Z",
+          },
+          {
+            id: 11,
+            role: "assistant",
+            content: "Tax deductions reduce taxable income.",
+            created_at: "2026-07-23T00:00:01Z",
+          },
+        ],
+      }
+      : conversationDetail
+  ));
+
+  renderAdvisorChat();
+
+  await screen.findByText("Tax deductions reduce taxable income.");
+  await user.click(screen.getByLabelText(/toggle conversation history/i));
+  await user.click(screen.getAllByTitle("Budget chat")[0]);
+
+  await waitFor(() => expect(mockedGetConversation).toHaveBeenCalledWith(1));
+  expect(await screen.findByText(/Budgeting means planning your money/i)).toBeInTheDocument();
+});
+
+test("shows an error when selecting a conversation fails", async () => {
+  const user = userEvent.setup();
+  mockedGetConversation
+    .mockResolvedValueOnce(conversationDetail)
+    .mockRejectedValueOnce(new Error("Unable to load this conversation."));
+
+  renderAdvisorChat();
+
+  await screen.findByText("What is budgeting?");
+  await user.click(screen.getByLabelText(/toggle conversation history/i));
+  await user.click(screen.getAllByTitle("Budget chat")[0]);
+
+  expect(await screen.findByText("Unable to load this conversation.")).toBeInTheDocument();
+});
+
 test("starts a new conversation from the history sidebar", async () => {
   const user = userEvent.setup();
   renderAdvisorChat();
@@ -392,6 +541,51 @@ test("starts goal planning by appending an assistant prompt", async () => {
   ));
 });
 
+test("selects a goal category after starting goal planning", async () => {
+  const planningConversation = {
+    ...conversationDetail,
+    messages: [
+      ...conversationDetail.messages,
+      {
+        id: 12,
+        role: "assistant" as const,
+        content: "What goal would you like to set today?\n\n[Financial goal planning mode: choose_category]",
+        created_at: "2026-07-23T00:00:00Z",
+      },
+    ],
+  };
+  mockedGetConversation
+    .mockResolvedValueOnce(conversationDetail)
+    .mockResolvedValue(planningConversation);
+  const user = userEvent.setup();
+  renderAdvisorChat();
+
+  await screen.findByText("What is budgeting?");
+  await user.click(screen.getByRole("button", { name: /set a goal/i }));
+
+  expect(await screen.findByRole("button", { name: /emergency fund/i })).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: /emergency fund/i }));
+
+  await waitFor(() => expect(mockedAddConversationMessage).toHaveBeenLastCalledWith(
+    1,
+    "assistant",
+    expect.stringContaining("What Emergency Fund goal would you like to set?"),
+  ));
+});
+
+test("shows an error when starting goal planning fails", async () => {
+  mockedAddConversationMessage.mockRejectedValueOnce(
+    new Error("Unable to start goal planning."),
+  );
+  const user = userEvent.setup();
+  renderAdvisorChat();
+
+  await screen.findByText("What is budgeting?");
+  await user.click(screen.getByRole("button", { name: /set a goal/i }));
+
+  expect(await screen.findByText("Unable to start goal planning.")).toBeInTheDocument();
+});
+
 test("starts a goal review from route state and sends the goal id to the advisor", async () => {
   const goalReview = {
     kind: "goal_review" as const,
@@ -428,6 +622,36 @@ test("starts a goal review from route state and sends the goal id to the advisor
     7,
     expect.any(AbortSignal),
   ));
+  await waitFor(() => expect(mockedGetConversation).toHaveBeenCalledWith(2));
+});
+
+test("shows an error when goal review cannot be completed", async () => {
+  mockedStreamAdvisorMessage.mockRejectedValueOnce(new Error("Unable to review this goal."));
+  const goalReview = {
+    kind: "goal_review" as const,
+    version: 1 as const,
+    goal_id: 8,
+    name: "Car Fund",
+    category: "General Saving",
+    target_amount: 12000,
+    current_amount: 1000,
+    monthly_contribution: 300,
+    target_date: "2027-12-01",
+    priority: "Medium",
+    status: "behind" as const,
+    progress_percentage: 8,
+  };
+
+  renderAdvisorChat({
+    pathname: "/advisor-chat",
+    state: {
+      mode: "goal-review",
+      requestId: "advisor-chat-goal-review-failure-test",
+      goal: goalReview,
+    },
+  });
+
+  expect(await screen.findByText("Unable to review this goal.")).toBeInTheDocument();
   await waitFor(() => expect(mockedGetConversation).toHaveBeenCalledWith(2));
 });
 

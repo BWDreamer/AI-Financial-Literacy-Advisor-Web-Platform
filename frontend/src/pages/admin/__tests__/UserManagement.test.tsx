@@ -83,6 +83,11 @@ const regularUsers = [
 
 beforeEach(() => {
   jest.clearAllMocks();
+  Object.defineProperty(window, "innerWidth", {
+    configurable: true,
+    writable: true,
+    value: 1280,
+  });
   mockedGetAdminUsers.mockResolvedValue([adminUser, ...regularUsers]);
   mockedInviteAdminUser.mockResolvedValue({
     ...regularUsers[0],
@@ -109,6 +114,28 @@ beforeEach(() => {
   mockedDeleteAdminUser.mockResolvedValue(undefined);
 });
 
+function manyRegularUsers(count: number) {
+  return Array.from({ length: count }, (_, index) => ({
+    ...regularUsers[index % regularUsers.length],
+    id: index + 2,
+    user_id: `USR-${String(index + 2).padStart(4, "0")}`,
+    first_name: `User${index + 1}`,
+    last_name: null,
+    email: `user${index + 1}@example.com`,
+    is_online: index % 2 === 0,
+    created_at: `2026-07-${String((index % 20) + 1).padStart(2, "0")}T00:00:00Z`,
+  }));
+}
+
+function setViewportWidth(width: number) {
+  Object.defineProperty(window, "innerWidth", {
+    configurable: true,
+    writable: true,
+    value: width,
+  });
+  window.dispatchEvent(new Event("resize"));
+}
+
 test("loads normal users and keeps the current admin out of the user table", async () => {
   render(<UserManagement />);
 
@@ -126,6 +153,32 @@ test("filters users by email search", async () => {
 
   expect(screen.queryByText("mike@example.com")).not.toBeInTheDocument();
   expect(screen.getByText("jane@example.com")).toBeInTheDocument();
+});
+
+test("clears the email search and restores the user table", async () => {
+  const user = userEvent.setup();
+  render(<UserManagement />);
+
+  await screen.findByText("mike@example.com");
+  await user.type(screen.getByLabelText(/search users by email/i), "jane");
+  expect(screen.queryByText("mike@example.com")).not.toBeInTheDocument();
+
+  await user.click(screen.getByLabelText(/clear email search/i));
+
+  expect(screen.getByText("mike@example.com")).toBeInTheDocument();
+  expect(screen.getByText("jane@example.com")).toBeInTheDocument();
+});
+
+test("shows empty states for no users and no matching search results", async () => {
+  const user = userEvent.setup();
+  mockedGetAdminUsers.mockResolvedValueOnce([adminUser]);
+  render(<UserManagement />);
+
+  expect(await screen.findByText("No users have been added yet.")).toBeInTheDocument();
+
+  await user.type(screen.getByLabelText(/search users by email/i), "missing");
+
+  expect(screen.getByText("No users match this email search.")).toBeInTheDocument();
 });
 
 test("opens invite user form with default password and submits a new user", async () => {
@@ -153,6 +206,30 @@ test("opens invite user form with default password and submits a new user", asyn
     });
   });
   expect(await screen.findByRole("status")).toHaveTextContent("User test@example.com was invited successfully.");
+});
+
+test("toggles invite password visibility and dismisses the success message", async () => {
+  const user = userEvent.setup();
+  render(<UserManagement />);
+
+  await screen.findByText("mike@example.com");
+  await user.click(screen.getByRole("button", { name: /invite user/i }));
+
+  const passwordInput = screen.getByLabelText(/^password$/i);
+  expect(passwordInput).toHaveAttribute("type", "password");
+
+  await user.click(screen.getByRole("button", { name: /show password/i }));
+  expect(passwordInput).toHaveAttribute("type", "text");
+
+  await user.click(screen.getByRole("button", { name: /hide password/i }));
+  expect(passwordInput).toHaveAttribute("type", "password");
+
+  await user.type(screen.getByLabelText(/email address/i), "test@example.com");
+  await user.click(screen.getByRole("button", { name: /add user/i }));
+
+  expect(await screen.findByRole("status")).toHaveTextContent("User test@example.com was invited successfully.");
+  await user.click(screen.getByRole("button", { name: /dismiss success message/i }));
+  expect(screen.queryByRole("status")).not.toBeInTheDocument();
 });
 
 test("invites a user without collecting their name", async () => {
@@ -235,6 +312,39 @@ test("deletes a normal user after confirmation", async () => {
     expect(mockedDeleteAdminUser).toHaveBeenCalledWith(3);
   });
   await waitFor(() => expect(screen.queryByText("jane@example.com")).not.toBeInTheDocument());
+});
+
+test("paginates large user lists", async () => {
+  const user = userEvent.setup();
+  mockedGetAdminUsers.mockResolvedValueOnce([adminUser, ...manyRegularUsers(12)]);
+  render(<UserManagement />);
+
+  expect(await screen.findByText("user1@example.com")).toBeInTheDocument();
+  expect(screen.getByText("Showing 1-10 of 12 users")).toBeInTheDocument();
+  expect(screen.queryByText("user12@example.com")).not.toBeInTheDocument();
+
+  await user.click(screen.getByRole("button", { name: /^next$/i }));
+
+  expect(screen.getByText("Showing 11-12 of 12 users")).toBeInTheDocument();
+  expect(screen.getByText("user12@example.com")).toBeInTheDocument();
+
+  await user.click(screen.getByRole("button", { name: /^previous$/i }));
+
+  expect(screen.getByText("Showing 1-10 of 12 users")).toBeInTheDocument();
+});
+
+test("renders and uses the mobile user list layout", async () => {
+  const user = userEvent.setup();
+  setViewportWidth(480);
+  render(<UserManagement />);
+
+  expect(await screen.findByText("mike@example.com")).toBeInTheDocument();
+  expect(screen.getByText("USR-0002")).toBeInTheDocument();
+  expect(screen.getAllByText("Joined:").length).toBeGreaterThan(0);
+
+  await user.click(screen.getAllByRole("button", { name: /edit/i })[0]);
+
+  expect(screen.getByRole("dialog", { name: /edit user/i })).toBeInTheDocument();
 });
 
 test("shows a loading error and retries the user list request", async () => {
