@@ -179,6 +179,26 @@ test("sends a suggested question in the active conversation and refreshes it", a
   expect(screen.queryByText("Memory updated")).not.toBeInTheDocument();
 });
 
+test("sends a typed message with Enter", async () => {
+  const user = userEvent.setup();
+  renderAdvisorChat();
+
+  await screen.findByText("What is budgeting?");
+  await user.type(
+    screen.getByPlaceholderText(/ask anything about personal finance/i),
+    "Explain saving{Enter}",
+  );
+
+  await waitFor(() => expect(mockedStreamAdvisorMessage).toHaveBeenCalledWith(
+    "Explain saving",
+    1,
+    expect.any(Function),
+    undefined,
+    undefined,
+    expect.any(AbortSignal),
+  ));
+});
+
 test("shows a dismissible notice after memory is updated", async () => {
   mockedStreamAdvisorMessage.mockImplementationOnce(
     async (_message, _conversationId, onDelta) => {
@@ -395,6 +415,35 @@ test("deletes a conversation from the history sidebar", async () => {
 
   await waitFor(() => expect(mockedDeleteConversation).toHaveBeenCalledWith(1));
   await waitFor(() => expect(mockedGetConversations).toHaveBeenCalledTimes(2));
+});
+
+test("opens and closes the mobile conversation history", async () => {
+  const user = userEvent.setup();
+  renderAdvisorChat();
+
+  await screen.findByText("What is budgeting?");
+  await user.click(screen.getByRole("button", { name: /open conversation history/i }));
+
+  expect(screen.getByRole("button", { name: /^close conversation history$/i })).toBeInTheDocument();
+  expect(screen.getAllByText("Historical Conversation").length).toBeGreaterThan(0);
+
+  await user.click(screen.getByRole("button", { name: /^close conversation history overlay$/i }));
+
+  expect(screen.getByRole("button", { name: /open conversation history/i })).toBeInTheDocument();
+});
+
+test("deletes a conversation with the keyboard from history", async () => {
+  const user = userEvent.setup();
+  renderAdvisorChat();
+
+  await screen.findByText("What is budgeting?");
+  await user.click(screen.getByLabelText(/toggle conversation history/i));
+
+  const deleteButton = screen.getAllByRole("button", { name: /delete budget chat/i })[0];
+  deleteButton.focus();
+  await user.keyboard("{Enter}");
+
+  await waitFor(() => expect(mockedDeleteConversation).toHaveBeenCalledWith(1));
 });
 
 test("selects another conversation from the history sidebar", async () => {
