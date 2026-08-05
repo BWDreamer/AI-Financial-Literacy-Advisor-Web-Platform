@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import AdminKnowledgeHub from "../KnowledgeHub";
 import {
@@ -144,8 +144,10 @@ const articleDetail = (article: (typeof articles)[number]) => ({
 });
 
 function setViewportWidth(width: number) {
-  Object.defineProperty(window, "innerWidth", { configurable: true, writable: true, value: width });
-  window.dispatchEvent(new Event("resize"));
+  act(() => {
+    Object.defineProperty(window, "innerWidth", { configurable: true, writable: true, value: width });
+    window.dispatchEvent(new Event("resize"));
+  });
 }
 
 function manyArticles(count: number): Article[] {
@@ -161,6 +163,8 @@ function manyArticles(count: number): Article[] {
     views: index * 10,
     likes: index,
     saves: count - index,
+    status: "published" as const,
+    updatedAt: `2026-07-${String(index + 1).padStart(2, "0")}T00:00:00Z`,
   }));
 }
 
@@ -540,7 +544,7 @@ test("keeps the editor open and reports a list error after update fails", async 
 
 test("paginates long article lists", async () => {
   const longList = manyArticles(12);
-  mockedGetPublishedAdminArticles.mockResolvedValueOnce({
+  mockedGetAdminArticles.mockResolvedValueOnce({
     items: longList,
     page: 1,
     pageSize: 50,
@@ -577,7 +581,7 @@ test("uses the mobile article card actions", async () => {
 });
 
 test("loads legacy image content blocks when editing an article", async () => {
-  mockedGetPublishedAdminArticle.mockResolvedValueOnce({
+  mockedGetAdminArticle.mockResolvedValueOnce({
     ...articleDetail(articles[0]),
     coverImageUrl: "https://example.com/cover.png",
     category: "Other",
