@@ -58,9 +58,9 @@ function SettingsHero() {
   return <section className="flex items-center gap-5 px-2 pb-4 pt-5"><CurrentAvatar large /><div><h3 className="text-2xl font-bold text-slate-900">{user?.username || "FinanceAI User"}</h3><p className="mt-1 text-sm text-slate-500">{user?.email}</p></div></section>;
 }
 
-function SettingsTabs({ tab, setTab, onClose }: { tab: Tab; setTab: (tab: Tab) => void; onClose: () => void }) {
-  const tabs: { id: Tab; label: string }[] = [{ id: "account", label: "Account" }, { id: "security", label: "Security" }, { id: "memories", label: "Memories" }];
-  return <div className="relative flex border-b border-slate-200 pr-12">{tabs.map((item) => <button key={item.id} type="button" onClick={() => setTab(item.id)} className={`min-w-0 flex-1 px-2 py-3.5 text-sm font-bold transition sm:flex-none sm:px-6 ${tab === item.id ? "border-b-2 border-blue-600 text-blue-700" : "text-slate-500 hover:text-slate-900"}`}>{item.label}</button>)}<button type="button" onClick={onClose} aria-label="Close settings" className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-800"><X size={22} /></button></div>;
+function SettingsTabs({ tab, setTab, onClose, tabs }: { tab: Tab; setTab: (tab: Tab) => void; onClose: () => void; tabs: Tab[] }) {
+  const labels: Record<Tab, string> = { account: "Account", security: "Security", memories: "Memories" };
+  return <div className="relative flex border-b border-slate-200 pr-12">{tabs.map((item) => <button key={item} type="button" onClick={() => setTab(item)} className={`min-w-0 flex-1 px-2 py-3.5 text-sm font-bold transition sm:flex-none sm:px-6 ${tab === item ? "border-b-2 border-blue-600 text-blue-700" : "text-slate-500 hover:text-slate-900"}`}>{labels[item]}</button>)}<button type="button" onClick={onClose} aria-label="Close settings" className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-800"><X size={22} /></button></div>;
 }
 
 function SettingsCard({ title, children }: { title: string; children: ReactNode }) {
@@ -186,7 +186,7 @@ export function SecurityTab() {
   return <div className="space-y-6"><SettingsCard title="Security settings"><SecurityActionRow icon={<Mail size={20} />} title="Log in email" detail={user?.email} action="Update Email" onClick={() => setModal("email")} /><SecurityActionRow icon={<LockKeyhole size={20} />} title="Password" action="Change Password" onClick={() => setModal("password")} /></SettingsCard><DeleteSection />{modal === "email" && <EmailUpdateModal onClose={() => setModal(null)} />}{modal === "password" && <PasswordUpdateModal onClose={() => setModal(null)} />}</div>;
 }
 
-export default function ProfileSettingsModal({ onClose, initialTab = "account" }: { onClose: () => void; initialTab?: ProfileSettingsTab }) {
-  const [tab, setTab] = useState<Tab>(initialTab);
-  return <Modal title="Settings" onClose={onClose} wide hideHeader><SettingsTabs tab={tab} setTab={setTab} onClose={onClose} /><SettingsHero />{tab === "account" && <AccountTab />}{tab === "security" && <SecurityTab />}{tab === "memories" && <MemorySettingsPanel />}</Modal>;
+export default function ProfileSettingsModal({ onClose, initialTab = "account", tabs = ["account", "security", "memories"] }: { onClose: () => void; initialTab?: ProfileSettingsTab; tabs?: ProfileSettingsTab[] }) {
+  const [tab, setTab] = useState<Tab>(tabs.includes(initialTab) ? initialTab : tabs[0] ?? "account");
+  return <Modal title="Settings" onClose={onClose} wide hideHeader><SettingsTabs tab={tab} setTab={setTab} tabs={tabs} onClose={onClose} /><SettingsHero />{tab === "account" && <AccountTab />}{tab === "security" && <SecurityTab />}{tab === "memories" && <MemorySettingsPanel />}</Modal>;
 }
