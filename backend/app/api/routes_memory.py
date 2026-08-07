@@ -41,6 +41,22 @@ def export_memories(
     }
 
 
+@router.get(
+    "/{memory_id}",
+    response_model=MemoryResponse,
+    summary="Get one memory owned by the current user",
+)
+def get_memory_detail(
+    memory_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    memory = get_memory(db, current_user.id, memory_id)
+    if memory is None:
+        raise HTTPException(status_code=404, detail="Memory was not found.")
+    return memory
+
+
 @router.post("", response_model=MemoryResponse, status_code=status.HTTP_201_CREATED)
 def create_memory(
     request: MemoryRequest,

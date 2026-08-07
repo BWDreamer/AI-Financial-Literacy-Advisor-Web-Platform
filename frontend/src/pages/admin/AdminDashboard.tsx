@@ -12,8 +12,7 @@ import {
   Users,
   UserPlus,
 } from "lucide-react";
-import { getAdminUsers, type AdminUser, getPublishedAdminArticles } from "../../api/admin";
-import type { Article } from "../../api/articles";
+import { getAdminArticles, getAdminUsers, type AdminArticle, type AdminUser } from "../../api/admin";
 
 function errorMessage(caught: unknown) {
   return caught instanceof Error ? caught.message : "Something went wrong. Please try again.";
@@ -162,7 +161,7 @@ function SectionCard({ title, children, action, className = "" }: { title: strin
   );
 }
 
-function TopArticleRow({ label, article, metric }: { label: string; article: Article | null; metric: "views" | "likes" | "saves" }) {
+function TopArticleRow({ label, article, metric }: { label: string; article: AdminArticle | null; metric: "views" | "likes" | "saves" }) {
   if (!article) {
     return <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">No article data yet.</p>;
   }
@@ -200,7 +199,7 @@ function QuickAction({ to, icon, title }: { to: string; icon: React.ReactNode; t
 
 export default function AdminDashboard() {
   const [users, setUsers] = useState<AdminUser[]>([]);
-  const [articles, setArticles] = useState<Article[]>([]);
+  const [articles, setArticles] = useState<AdminArticle[]>([]);
   const [loading, setLoading] = useState(true);
   const [pageError, setPageError] = useState("");
 
@@ -209,7 +208,7 @@ export default function AdminDashboard() {
     try {
       const [adminUsers, articlePage] = await Promise.all([
         getAdminUsers(),
-        getPublishedAdminArticles(),
+        getAdminArticles({ status: "published" }),
       ]);
       setUsers(adminUsers);
       setArticles(articlePage.items);
@@ -306,7 +305,7 @@ export default function AdminDashboard() {
       </div>
 
       <div className="mt-7 grid items-start gap-7 xl:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
-        <div className="grid min-w-0 gap-7">
+        <div className="order-3 grid min-w-0 gap-7 xl:order-none">
           <SectionCard title="Platform Activity">
             <OnlineStatusChart online={dashboard.onlineUsers.length} offline={Math.max(dashboard.regularUsers.length - dashboard.onlineUsers.length, 0)} />
           </SectionCard>
@@ -337,17 +336,17 @@ export default function AdminDashboard() {
           </SectionCard>
         </div>
 
-        <div className="grid min-w-0 gap-7">
+        <div className="order-2 grid min-w-0 gap-7 xl:order-none">
           <div className="grid min-w-0 items-stretch gap-7 xl:grid-cols-[minmax(0,1.35fr)_minmax(220px,0.65fr)]">
-            <SectionCard title="Content Engagement by Category" className="h-full">
+            <SectionCard title="Content Engagement by Category" className="order-2 h-full xl:order-none">
               <CategoryEngagementChart data={dashboard.engagementByCategory} />
             </SectionCard>
 
-            <SectionCard title="Quick Actions" className="h-full">
+            <SectionCard title="Quick Actions" className="order-1 h-full xl:order-none">
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
                 <QuickAction to="/admin/users" icon={<UserPlus size={20} />} title="Invite or manage users" description="Add new users, review details, and manage accounts." />
-                <QuickAction to="/admin/knowledge" icon={<Plus size={20} />} title="Create a new article" description="Publish Knowledge Hub content for users." />
                 <QuickAction to="/admin/settings" icon={<SlidersHorizontal size={20} />} title="Configure advisory topics" description="Enable or disable the topics available to the AI advisor." />
+                <QuickAction to="/admin/knowledge" icon={<Plus size={20} />} title="Create a new article" description="Publish Knowledge Hub content for users." />
               </div>
             </SectionCard>
           </div>

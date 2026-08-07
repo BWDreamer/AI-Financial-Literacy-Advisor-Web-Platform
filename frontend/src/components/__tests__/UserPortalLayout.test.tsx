@@ -179,6 +179,32 @@ test("redirects to login when no user is available", async () => {
   expect(await screen.findByText("Login page")).toBeInTheDocument();
 });
 
+test("shows the account loading state", () => {
+  userState = { user: null, loading: true, error: "" };
+
+  renderLayout();
+
+  expect(screen.getByText("Loading your account...")).toBeInTheDocument();
+});
+
+test("shows account loading errors and retries refresh", async () => {
+  const user = userEvent.setup();
+  userState = {
+    user: null,
+    loading: false,
+    error: "Session expired.",
+  };
+
+  renderLayout();
+
+  expect(screen.getByRole("heading", { name: /unable to load your account/i })).toBeInTheDocument();
+  expect(screen.getByText("Session expired.")).toBeInTheDocument();
+
+  await user.click(screen.getByRole("button", { name: /try again/i }));
+
+  expect(refreshUser).toHaveBeenCalledTimes(1);
+});
+
 test("shows onboarding for incomplete regular users", async () => {
   userState.user = {
     ...userState.user!,
@@ -189,6 +215,19 @@ test("shows onboarding for incomplete regular users", async () => {
 
   await waitFor(() => expect(mockedGetGoalNotifications).toHaveBeenCalledTimes(1));
   expect(screen.getByText("Onboarding overlay")).toBeInTheDocument();
+});
+
+test("does not show onboarding for admin users", async () => {
+  userState.user = {
+    ...userState.user!,
+    role: "admin",
+    onboarding_completed: false,
+  };
+
+  renderLayout();
+
+  await waitFor(() => expect(mockedGetGoalNotifications).toHaveBeenCalledTimes(1));
+  expect(screen.queryByText("Onboarding overlay")).not.toBeInTheDocument();
 });
 
 test("shows goal notifications and confirms a completed goal", async () => {
@@ -222,6 +261,18 @@ test("shows the empty goal notifications state", async () => {
   expect(screen.getByText("No goal notifications.")).toBeInTheDocument();
 });
 
+test("falls back to empty notifications when loading notices fails", async () => {
+  mockedGetGoalNotifications.mockRejectedValueOnce(new Error("Unable to load notifications."));
+  const user = userEvent.setup();
+
+  renderLayout();
+
+  await waitFor(() => expect(mockedGetGoalNotifications).toHaveBeenCalledTimes(1));
+  await user.click(screen.getByRole("button", { name: /goal notifications/i }));
+
+  expect(screen.getByText("No goal notifications.")).toBeInTheDocument();
+});
+
 test("opens mobile profile detail tabs", async () => {
   const user = userEvent.setup();
 
@@ -240,4 +291,17 @@ test("opens mobile profile detail tabs", async () => {
   await user.click(screen.getByRole("button", { name: /back to profile menu/i }));
   await user.click(screen.getByRole("button", { name: "Memories" }));
   expect(screen.getByText("Memory settings panel")).toBeInTheDocument();
+});
+
+test("logs out from the mobile profile menu", async () => {
+  const user = userEvent.setup();
+
+  renderLayout();
+
+  await waitFor(() => expect(mockedGetGoalNotifications).toHaveBeenCalledTimes(1));
+  await user.click(screen.getByRole("button", { name: /open user profile/i }));
+  await user.click(screen.getByRole("button", { name: "Log out" }));
+
+  expect(clearUser).toHaveBeenCalledTimes(1);
+  await waitFor(() => expect(screen.getByText("Login page")).toBeInTheDocument());
 });

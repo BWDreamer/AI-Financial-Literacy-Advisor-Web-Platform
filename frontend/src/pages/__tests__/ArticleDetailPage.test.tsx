@@ -76,6 +76,7 @@ function renderPage(path = "/knowledge-hub/budgeting-basics") {
   render(
     <MemoryRouter initialEntries={[path]}>
       <Routes>
+        <Route path="/knowledge-hub/missing-route" element={<ArticleDetailPage />} />
         <Route path="/knowledge-hub" element={<div>Knowledge hub index</div>} />
         <Route path="/knowledge-hub/:articleId" element={<ArticleDetailPage />} />
       </Routes>
@@ -174,10 +175,61 @@ test("uses unlike and unsave when the article is already liked and saved", async
   await waitFor(() => expect(mockedUnsaveArticle).toHaveBeenCalledWith("budgeting-basics"));
 });
 
+test("renders a cover image and hides the date when published date is missing", async () => {
+  mockedGetArticle.mockResolvedValueOnce({
+    ...article,
+    coverImageUrl: "/uploads/budget-cover.png",
+    publishedAt: null,
+  });
+
+  renderPage();
+
+  const cover = await screen.findByRole("img", { name: "Budgeting Basics" });
+  expect(cover).toHaveAttribute("src", "http://localhost:8000/uploads/budget-cover.png");
+  expect(screen.queryByText(/July 2, 2026/i)).not.toBeInTheDocument();
+});
+
+test("shows a loading error when article details cannot load", async () => {
+  mockedGetArticle.mockRejectedValueOnce(new Error("Unable to load this article."));
+
+  renderPage();
+
+  expect(await screen.findByText("Unable to load this article.")).toBeInTheDocument();
+});
+
+test("shows an error when liking an article fails", async () => {
+  mockedLikeArticle.mockRejectedValueOnce(new Error("Please sign in to like articles."));
+  const user = userEvent.setup();
+  renderPage();
+
+  await screen.findByRole("heading", { name: "Budgeting Basics" });
+  await user.click(screen.getByRole("button", { name: /likes 10/i }));
+
+  expect(await screen.findByText("Please sign in to like articles.")).toBeInTheDocument();
+});
+
+test("shows an error when saving an article fails", async () => {
+  mockedSaveArticle.mockRejectedValueOnce(new Error("Please sign in to save articles."));
+  const user = userEvent.setup();
+  renderPage();
+
+  await screen.findByRole("heading", { name: "Budgeting Basics" });
+  await user.click(screen.getByRole("button", { name: /saves 5/i }));
+
+  expect(await screen.findByText("Please sign in to save articles.")).toBeInTheDocument();
+});
+
 test("redirects to the knowledge hub when the article is not found", async () => {
   mockedGetArticle.mockRejectedValueOnce(new ApiError("Article not found.", 404));
 
   renderPage();
 
   expect(await screen.findByText("Knowledge hub index")).toBeInTheDocument();
+});
+
+test("redirects to the knowledge hub when no article id is available", async () => {
+  renderPage("/knowledge-hub/missing-route");
+
+  expect(await screen.findByText("Knowledge hub index")).toBeInTheDocument();
+  expect(mockedGetArticle).not.toHaveBeenCalled();
 });

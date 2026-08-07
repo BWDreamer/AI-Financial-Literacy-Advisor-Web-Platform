@@ -29,15 +29,25 @@ jest.mock("../../api/goals", () => ({
 
 jest.mock("../../components/goals/GoalSummary", () => ({
   __esModule: true,
-  default: ({ totalGoals, onToggle, onAllocatableRatioChange }: {
+  default: ({
+    totalGoals,
+    onToggle,
+    onAllocatableRatioChange,
+    onMonthlyAllocatableRatioChange,
+    onMonthlyAllocatableRatioCommit,
+  }: {
     totalGoals: number;
     onToggle: () => void;
     onAllocatableRatioChange: (value: number) => void;
+    onMonthlyAllocatableRatioChange: (value: number) => void;
+    onMonthlyAllocatableRatioCommit: (value: number) => void;
   }) => (
     <section>
       <p>Total goals: {totalGoals}</p>
       <button type="button" onClick={onToggle}>Toggle summary</button>
       <button type="button" onClick={() => onAllocatableRatioChange(60)}>Set cash ratio</button>
+      <button type="button" onClick={() => onMonthlyAllocatableRatioChange(70)}>Set monthly ratio</button>
+      <button type="button" onClick={() => onMonthlyAllocatableRatioCommit(70)}>Commit monthly ratio</button>
     </section>
   ),
 }));
@@ -118,6 +128,16 @@ jest.mock("../../components/goals/GoalDetailsModal", () => ({
     <div role="dialog" aria-label="Goal Details">
       <p>Selected goal: {goal.name}</p>
       <button type="button" onClick={() => onAskAdvisor(goal)}>Ask AI Advisor</button>
+      <button
+        type="button"
+        onClick={() => onAskAdvisor({
+          ...goal,
+          id: "draft-goal",
+          apiId: undefined,
+        })}
+      >
+        Ask AI Advisor with draft goal
+      </button>
       <button type="button" onClick={onClose}>Close details</button>
     </div>
   ),
@@ -129,7 +149,7 @@ const mockedGetGoalSummary = jest.mocked(getGoalSummary);
 const mockedUpdateGoalAllocationSettings = jest.mocked(updateGoalAllocationSettings);
 const mockedCreateGoal = jest.mocked(createGoal);
 
-function renderMyGoals(initialPath = "/goals") {
+function renderMyGoals(initialPath: any = "/goals") {
   render(
     <MemoryRouter initialEntries={[initialPath]}>
       <MyGoals />
@@ -284,13 +304,49 @@ test("saves allocation settings from allocation controls", async () => {
   }));
 });
 
+test("saves cash and monthly allocation ratio changes", async () => {
+  const user = userEvent.setup();
+  renderMyGoals();
+
+  await screen.findByRole("button", { name: "Emergency Fund" });
+  await user.click(screen.getByRole("button", { name: "Set cash ratio" }));
+  await user.click(screen.getByRole("button", { name: "Set monthly ratio" }));
+  await user.click(screen.getByRole("button", { name: "Commit monthly ratio" }));
+
+  await waitFor(() => expect(mockedUpdateGoalAllocationSettings).toHaveBeenCalledWith(
+    expect.objectContaining({
+      cash_allocatable_ratio: 60,
+      monthly_allocatable_ratio: 50,
+    }),
+  ));
+  await waitFor(() => expect(mockedUpdateGoalAllocationSettings).toHaveBeenCalledWith(
+    expect.objectContaining({
+      cash_allocatable_ratio: 60,
+      monthly_allocatable_ratio: 70,
+    }),
+  ));
+});
+
+test("shows an error when saving allocation settings fails", async () => {
+  mockedUpdateGoalAllocationSettings.mockRejectedValueOnce(
+    new Error("Unable to save allocation."),
+  );
+  const user = userEvent.setup();
+  renderMyGoals();
+
+  await screen.findByRole("button", { name: "Emergency Fund" });
+  await user.click(screen.getByRole("button", { name: "Apply allocation" }));
+
+  expect(await screen.findByText("Unable to save allocation.")).toBeInTheDocument();
+});
+
 test("navigates to advisor chat for a selected goal", async () => {
   const user = userEvent.setup();
   renderMyGoals();
 
   await screen.findByRole("button", { name: "Emergency Fund" });
   await user.click(screen.getByRole("button", { name: "Emergency Fund" }));
-  await user.click(screen.getByRole("button", { name: /ask ai advisor/i }));
+  await user.click(screen.getByRole("button", { name: "Ask AI Advisor" }));
 
   expect(navigate).toHaveBeenCalledWith("/advisor-chat", {
     state: {
@@ -304,6 +360,44 @@ test("navigates to advisor chat for a selected goal", async () => {
       requestId: expect.any(String),
     },
   });
+});
+
+test("opens a goal from route state and clears the state", async () => {
+  renderMyGoals({
+    pathname: "/goals",
+    state: { goalId: 2 },
+  });
+
+  expect(await screen.findByText("Selected goal: Car Loan")).toBeInTheDocument();
+  expect(navigate).toHaveBeenCalledWith("/goals", { replace: true });
+});
+
+test("closes create and detail modals without saving", async () => {
+  const user = userEvent.setup();
+  renderMyGoals();
+
+  await screen.findByRole("button", { name: "Emergency Fund" });
+  await user.click(screen.getByRole("button", { name: /create goal/i }));
+  expect(screen.getByRole("dialog", { name: "Create Goal" })).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Close create modal" }));
+  expect(screen.queryByRole("dialog", { name: "Create Goal" })).not.toBeInTheDocument();
+
+  await user.click(screen.getByRole("button", { name: "Emergency Fund" }));
+  expect(screen.getByRole("dialog", { name: "Goal Details" })).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Close details" }));
+  expect(screen.queryByRole("dialog", { name: "Goal Details" })).not.toBeInTheDocument();
+});
+
+test("shows an error when a draft goal cannot be opened in advisor chat", async () => {
+  const user = userEvent.setup();
+  renderMyGoals();
+
+  await screen.findByRole("button", { name: "Emergency Fund" });
+  await user.click(screen.getByRole("button", { name: "Emergency Fund" }));
+  await user.click(screen.getByRole("button", { name: /ask ai advisor with draft goal/i }));
+
+  expect(await screen.findByText("Unable to open this goal in Advisor Chat.")).toBeInTheDocument();
+  expect(navigate).not.toHaveBeenCalledWith("/advisor-chat", expect.anything());
 });
 
 test("shows an error when goal data cannot load", async () => {

@@ -129,7 +129,11 @@ export default function ArticleDetailPage() {
         <h1 className="mt-3 text-3xl font-bold leading-tight text-slate-950 sm:text-4xl">{article.title}</h1>
         <div className="mt-4 flex flex-wrap items-center gap-3 text-sm text-slate-500">
           <span>{article.authorName}</span>
-          <span>{article.sourceName}</span>
+          {article.sourceUrl ? (
+            <a href={article.sourceUrl} target="_blank" rel="noreferrer" className="font-semibold text-blue-600 hover:underline">
+              {article.sourceName}
+            </a>
+          ) : <span>{article.sourceName}</span>}
           <span>{formatDate(article.publishedAt)}</span>
         </div>
         {coverImageUrl && <img src={coverImageUrl} alt={article.title} className="mx-auto mt-6 h-64 w-full max-w-2xl rounded-2xl object-cover sm:h-80" />}

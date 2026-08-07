@@ -1,15 +1,14 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import AdminKnowledgeHub from "../KnowledgeHub";
 import {
   createAdminArticle,
   deleteAdminArticle,
-  getPublishedAdminArticle,
-  getPublishedAdminArticles,
+  getAdminArticle,
+  getAdminArticles,
   updateAdminArticle,
   uploadAdminArticleImage,
 } from "../../../api/admin";
-import type { Article, ArticleDetail } from "../../../api/articles";
 
 let mockTipTapEditor: ReturnType<typeof createEditorMock>;
 
@@ -27,16 +26,16 @@ jest.mock("../../../api/client", () => ({
 }));
 
 jest.mock("../../../api/admin", () => ({
-  getPublishedAdminArticles: jest.fn(),
-  getPublishedAdminArticle: jest.fn(),
+  getAdminArticles: jest.fn(),
+  getAdminArticle: jest.fn(),
   createAdminArticle: jest.fn(),
   updateAdminArticle: jest.fn(),
   deleteAdminArticle: jest.fn(),
   uploadAdminArticleImage: jest.fn(),
 }));
 
-const mockedGetPublishedAdminArticles = jest.mocked(getPublishedAdminArticles);
-const mockedGetPublishedAdminArticle = jest.mocked(getPublishedAdminArticle);
+const mockedGetAdminArticles = jest.mocked(getAdminArticles);
+const mockedGetAdminArticle = jest.mocked(getAdminArticle);
 const mockedCreateAdminArticle = jest.mocked(createAdminArticle);
 const mockedUpdateAdminArticle = jest.mocked(updateAdminArticle);
 const mockedDeleteAdminArticle = jest.mocked(deleteAdminArticle);
@@ -81,7 +80,7 @@ function createEditorMock(
   };
 }
 
-const articles: Article[] = [
+const articles = [
   {
     id: "budgeting-article",
     title: "Budgeting Basics",
@@ -94,6 +93,8 @@ const articles: Article[] = [
     views: 100,
     likes: 10,
     saves: 5,
+    status: "published" as const,
+    updatedAt: "2026-07-02T00:00:00Z",
   },
   {
     id: "saving-article",
@@ -107,6 +108,8 @@ const articles: Article[] = [
     views: 250,
     likes: 20,
     saves: 12,
+    status: "published" as const,
+    updatedAt: "2026-07-04T00:00:00Z",
   },
   {
     id: "tax-article",
@@ -120,10 +123,12 @@ const articles: Article[] = [
     views: 50,
     likes: 30,
     saves: 2,
+    status: "published" as const,
+    updatedAt: "2026-07-03T00:00:00Z",
   },
 ];
 
-const articleDetail = (article: Article): ArticleDetail => ({
+const articleDetail = (article: (typeof articles)[number]) => ({
   ...article,
   contentBlocks: {
     type: "doc",
@@ -138,16 +143,42 @@ const articleDetail = (article: Article): ArticleDetail => ({
   savedByMe: false,
 });
 
+function setViewportWidth(width: number) {
+  act(() => {
+    Object.defineProperty(window, "innerWidth", { configurable: true, writable: true, value: width });
+    window.dispatchEvent(new Event("resize"));
+  });
+}
+
+function manyArticles(count: number): Article[] {
+  return Array.from({ length: count }, (_, index) => ({
+    id: `article-${index + 1}`,
+    title: `Article ${index + 1}`,
+    summary: `Summary for article ${index + 1}`,
+    coverImageUrl: index % 2 === 0 ? null : `/uploads/article-${index + 1}.png`,
+    authorName: "FinanceAI Learning Team",
+    sourceName: "Knowledge Base",
+    category: index % 2 === 0 ? "Budgeting" : "Saving",
+    publishedAt: `2026-07-${String(index + 1).padStart(2, "0")}T00:00:00Z`,
+    views: index * 10,
+    likes: index,
+    saves: count - index,
+    status: "published" as const,
+    updatedAt: `2026-07-${String(index + 1).padStart(2, "0")}T00:00:00Z`,
+  }));
+}
+
 beforeEach(() => {
   jest.clearAllMocks();
+  setViewportWidth(1280);
   mockTipTapEditor = createEditorMock();
-  mockedGetPublishedAdminArticles.mockResolvedValue({
+  mockedGetAdminArticles.mockResolvedValue({
     items: articles,
     page: 1,
     pageSize: 50,
     total: articles.length,
   });
-  mockedGetPublishedAdminArticle.mockImplementation(async (id) => articleDetail(articles.find((article) => article.id === id) ?? articles[0]));
+  mockedGetAdminArticle.mockImplementation(async (id) => articleDetail(articles.find((article) => article.id === id) ?? articles[0]));
   mockedCreateAdminArticle.mockResolvedValue(articleDetail(articles[0]));
   mockedUpdateAdminArticle.mockResolvedValue(articleDetail(articles[1]));
   mockedDeleteAdminArticle.mockResolvedValue(undefined);
@@ -159,7 +190,7 @@ test("loads and displays published articles from the admin article API", async (
 
   expect(await screen.findByRole("heading", { name: /knowledge hub/i })).toBeInTheDocument();
   expect(await screen.findByText("Saving Habits")).toBeInTheDocument();
-  expect(mockedGetPublishedAdminArticles).toHaveBeenCalledTimes(1);
+  expect(mockedGetAdminArticles).toHaveBeenCalledTimes(1);
   expect(screen.getByText("3 published")).toBeInTheDocument();
   expect(screen.getByText("Budgeting Basics")).toBeInTheDocument();
   expect(screen.getByText("Tax Time Checklist")).toBeInTheDocument();
@@ -194,6 +225,12 @@ test("sorts article rows by engagement fields", async () => {
 
   await user.selectOptions(screen.getByLabelText(/sort articles/i), "likes-desc");
   expect(within(screen.getAllByRole("article")[0]).getByText("Tax Time Checklist")).toBeInTheDocument();
+
+  await user.selectOptions(screen.getByLabelText(/sort articles/i), "saves-desc");
+  expect(within(screen.getAllByRole("article")[0]).getByText("Saving Habits")).toBeInTheDocument();
+
+  await user.selectOptions(screen.getByLabelText(/sort articles/i), "published-asc");
+  expect(within(screen.getAllByRole("article")[0]).getByText("Budgeting Basics")).toBeInTheDocument();
 });
 
 test("deletes an article after confirmation", async () => {
@@ -243,6 +280,10 @@ test("publishes a new article with form values and editor content", async () => 
   await user.type(screen.getByLabelText(/^title$/i), "Tax Planning Tips");
   await user.type(screen.getByLabelText(/excerpt/i), "A short tax summary.");
   await user.selectOptions(screen.getByLabelText(/^category$/i), "Tax");
+  await user.clear(screen.getByLabelText(/^author$/i));
+  await user.type(screen.getByLabelText(/^author$/i), "Guest Author");
+  await user.clear(screen.getByLabelText(/^source$/i));
+  await user.type(screen.getByLabelText(/^source$/i), "External Source");
   await user.click(screen.getByRole("button", { name: /publish article/i }));
 
   await waitFor(() => expect(mockedCreateAdminArticle).toHaveBeenCalledTimes(1));
@@ -251,8 +292,8 @@ test("publishes a new article with form values and editor content", async () => 
     title: "Tax Planning Tips",
     summary: "A short tax summary.",
     category: "Tax",
-    sourceName: "Knowledge Base",
-    authorName: "FinanceAI Learning Team",
+    sourceName: "External Source",
+    authorName: "Guest Author",
     status: "published",
     publishedAt: expect.any(String),
     contentBlocks: editorDoc,
@@ -267,7 +308,7 @@ test("loads article details and saves edited article changes", async () => {
   await user.click(screen.getAllByRole("button", { name: /edit/i })[0]);
 
   expect(await screen.findByRole("button", { name: /save changes/i })).toBeInTheDocument();
-  expect(mockedGetPublishedAdminArticle).toHaveBeenCalledWith("saving-article");
+  expect(mockedGetAdminArticle).toHaveBeenCalledWith("saving-article");
 
   const titleInput = screen.getByLabelText(/^title$/i);
   await user.clear(titleInput);
@@ -308,7 +349,7 @@ test("uploads cover images and inline article images", async () => {
 });
 
 test("shows an error if article details cannot be loaded for editing", async () => {
-  mockedGetPublishedAdminArticle.mockRejectedValueOnce(new Error("Unable to load article details."));
+  mockedGetAdminArticle.mockRejectedValueOnce(new Error("Unable to load article details."));
   const user = userEvent.setup();
   render(<AdminKnowledgeHub />);
 
@@ -333,7 +374,7 @@ test("keeps the delete dialog open and reports an error when deletion fails", as
 });
 
 test("shows a list loading error and retries successfully", async () => {
-  mockedGetPublishedAdminArticles.mockRejectedValueOnce(new Error("Unable to load articles."));
+  mockedGetAdminArticles.mockRejectedValueOnce(new Error("Unable to load articles."));
   const user = userEvent.setup();
   render(<AdminKnowledgeHub />);
 
@@ -343,7 +384,7 @@ test("shows a list loading error and retries successfully", async () => {
   await user.click(screen.getByRole("button", { name: /try again/i }));
 
   expect(await screen.findByText("Saving Habits")).toBeInTheDocument();
-  expect(mockedGetPublishedAdminArticles).toHaveBeenCalledTimes(2);
+  expect(mockedGetAdminArticles).toHaveBeenCalledTimes(2);
 });
 
 test("shows the empty state when search filters out every article", async () => {
@@ -353,12 +394,12 @@ test("shows the empty state when search filters out every article", async () => 
   await screen.findByText("Budgeting Basics");
   await user.type(screen.getByLabelText(/search articles by title/i), "does not exist");
 
-  expect(screen.getByText("No published articles match the current filters.")).toBeInTheDocument();
+  expect(screen.getByText("No articles match the current filters.")).toBeInTheDocument();
   expect(screen.queryByText("Budgeting Basics")).not.toBeInTheDocument();
 });
 
 test("shows the empty state when the article API returns no items", async () => {
-  mockedGetPublishedAdminArticles.mockResolvedValueOnce({
+  mockedGetAdminArticles.mockResolvedValueOnce({
     items: [],
     page: 1,
     pageSize: 50,
@@ -368,7 +409,7 @@ test("shows the empty state when the article API returns no items", async () => 
   render(<AdminKnowledgeHub />);
 
   expect(screen.getByText("0 published")).toBeInTheDocument();
-  expect(await screen.findByText("No published articles match the current filters.")).toBeInTheDocument();
+  expect(await screen.findByText("No articles match the current filters.")).toBeInTheDocument();
 });
 
 test("closes the delete dialog without deleting when cancelled", async () => {
@@ -449,4 +490,112 @@ test("shows an upload error when cover upload fails", async () => {
 
   expect(await screen.findByRole("alert")).toHaveTextContent("Upload failed.");
   expect(screen.queryByAltText("Cover preview")).not.toBeInTheDocument();
+});
+
+test("shows an upload error when inline image upload fails", async () => {
+  mockedUploadAdminArticleImage.mockRejectedValueOnce(new Error("Inline upload failed."));
+  const user = userEvent.setup();
+  render(<AdminKnowledgeHub />);
+
+  await screen.findByText("Budgeting Basics");
+  await user.click(screen.getByRole("button", { name: /new article/i }));
+
+  const [inlineInput] = Array.from(document.querySelectorAll<HTMLInputElement>('input[type="file"]'));
+  await user.upload(inlineInput, new File(["inline"], "inline.png", { type: "image/png" }));
+
+  expect(await screen.findByRole("alert")).toHaveTextContent("Inline upload failed.");
+  expect(mockTipTapEditor.chainObject.setImage).not.toHaveBeenCalled();
+});
+
+test("keeps the editor open and reports a list error after create fails", async () => {
+  mockedCreateAdminArticle.mockRejectedValueOnce(new Error("Create failed."));
+  const user = userEvent.setup();
+  render(<AdminKnowledgeHub />);
+
+  await screen.findByText("Budgeting Basics");
+  await user.click(screen.getByRole("button", { name: /new article/i }));
+  await user.type(screen.getByLabelText(/^title$/i), "Broken Draft");
+  await user.type(screen.getByLabelText(/excerpt/i), "A draft summary.");
+  await user.click(screen.getByRole("button", { name: /publish article/i }));
+
+  await waitFor(() => expect(mockedCreateAdminArticle).toHaveBeenCalledTimes(1));
+  expect(screen.getByRole("button", { name: /publish article/i })).toBeInTheDocument();
+
+  await user.click(screen.getByRole("button", { name: /back to knowledge hub/i }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("Create failed.");
+});
+
+test("keeps the editor open and reports a list error after update fails", async () => {
+  mockedUpdateAdminArticle.mockRejectedValueOnce(new Error("Update failed."));
+  const user = userEvent.setup();
+  render(<AdminKnowledgeHub />);
+
+  await screen.findByText("Saving Habits");
+  await user.click(screen.getAllByRole("button", { name: /edit/i })[0]);
+  expect(await screen.findByRole("button", { name: /save changes/i })).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: /save changes/i }));
+
+  await waitFor(() => expect(mockedUpdateAdminArticle).toHaveBeenCalledTimes(1));
+  expect(screen.getByRole("button", { name: /save changes/i })).toBeInTheDocument();
+
+  await user.click(screen.getByRole("button", { name: /back to knowledge hub/i }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("Update failed.");
+});
+
+test("paginates long article lists", async () => {
+  const longList = manyArticles(12);
+  mockedGetAdminArticles.mockResolvedValueOnce({
+    items: longList,
+    page: 1,
+    pageSize: 50,
+    total: longList.length,
+  });
+  const user = userEvent.setup();
+  render(<AdminKnowledgeHub />);
+
+  expect(await screen.findByText("Article 12")).toBeInTheDocument();
+  expect(screen.getByText("Showing 1-10 of 12 articles")).toBeInTheDocument();
+  expect(screen.queryByText("Article 1")).not.toBeInTheDocument();
+
+  await user.click(screen.getByRole("button", { name: /^next$/i }));
+  expect(screen.getByText("Showing 11-12 of 12 articles")).toBeInTheDocument();
+  expect(screen.getByText("Article 2")).toBeInTheDocument();
+  expect(screen.getByText("Article 1")).toBeInTheDocument();
+
+  await user.click(screen.getByRole("button", { name: /^previous$/i }));
+  expect(screen.getByText("Showing 1-10 of 12 articles")).toBeInTheDocument();
+});
+
+test("uses the mobile article card actions", async () => {
+  setViewportWidth(500);
+  const user = userEvent.setup();
+  render(<AdminKnowledgeHub />);
+
+  expect(await screen.findByText("Saving Habits")).toBeInTheDocument();
+  expect(screen.queryByText("Actions")).not.toBeInTheDocument();
+  setViewportWidth(480);
+
+  await user.click(screen.getAllByRole("button", { name: /delete/i })[0]);
+  const dialog = screen.getByRole("dialog", { name: /delete article/i });
+  expect(dialog).toHaveTextContent("Saving Habits");
+});
+
+test("loads legacy image content blocks when editing an article", async () => {
+  mockedGetAdminArticle.mockResolvedValueOnce({
+    ...articleDetail(articles[0]),
+    coverImageUrl: "https://example.com/cover.png",
+    category: "Other",
+    contentBlocks: [
+      { type: "paragraph", text: "Legacy paragraph body." },
+      { type: "image", src: "/uploads/body.png", alt: "Body image", caption: "Caption" },
+    ],
+  } as ArticleDetail);
+  const user = userEvent.setup();
+  render(<AdminKnowledgeHub />);
+
+  await screen.findByText("Budgeting Basics");
+  await user.click(screen.getAllByRole("button", { name: /edit/i })[1]);
+
+  expect(await screen.findByAltText("Cover preview")).toHaveAttribute("src", "https://example.com/cover.png");
+  expect(screen.getByText("Other")).toBeInTheDocument();
 });

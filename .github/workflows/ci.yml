@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - "feature/**"
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  docker-coverage-tests:
+    name: Docker coverage tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create CI environment file
+        run: |
+          cat > .env <<'EOF'
+          APP_ENV=testing
+          APP_NAME=AI Financial Literacy Advisor
+          DATABASE_URL=postgresql://finance_user:finance_password@db:5432/finance_db
+          JWT_SECRET_KEY=ci_test_secret_key
+          JWT_ALGORITHM=HS256
+          JWT_EXPIRE_MINUTES=60
+          LLM_PROVIDER=gemini
+          GEMINI_API_KEY=dummy_key_for_ci
+          LLM_MODEL=gemini-2.5-flash
+          LLM_TIMEOUT_SECONDS=5
+          UPLOAD_DIR=uploads
+          MAX_UPLOAD_SIZE_MB=10
+          ADMIN_EMAIL=admin@example.com
+          ADMIN_PASSWORD=change_this_password
+          ADMIN_NAME=Admin
+          EOF
+
+      - name: Build and start Docker services
+        run: docker compose up -d --build
+
+      - name: Show running services
+        run: docker compose ps
+
+      - name: Run backend tests with coverage
+        run: docker compose exec -T backend pytest --cov=app --cov-report=term-missing --cov-report=html
+
+      - name: Run frontend tests with coverage
+        run: docker compose exec -T frontend npm run test:coverage -- --runInBand
+
+      - name: Upload backend coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage-report
+          path: backend/htmlcov
+          if-no-files-found: ignore
+
+      - name: Upload frontend coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-coverage-report
+          path: frontend/coverage/lcov-report
+          if-no-files-found: ignore
+
+      - name: Stop Docker services
+        if: always()
+        run: docker compose down -v

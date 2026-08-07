@@ -136,6 +136,10 @@ def test_admin_user_crud(client, db_session):
     assert listed.status_code == 200
     assert len(listed.json()) == 2
 
+    detail = client.get(f"/api/admin/users/{user['id']}", headers=headers)
+    assert detail.status_code == 200
+    assert detail.json()["email"] == "jane@email.com"
+
     updated = client.patch(
         f"/api/admin/users/{user['id']}",
         headers=headers,

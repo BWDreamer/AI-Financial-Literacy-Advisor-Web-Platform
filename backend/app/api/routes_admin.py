@@ -6,6 +6,7 @@ from fastapi import (
     Depends,
     File,
     HTTPException,
+    Query,
     Response,
     UploadFile,
     status,
@@ -25,6 +26,7 @@ from app.repositories.article_repository import (
     create_article,
     delete_article,
     get_article,
+    list_articles_for_admin,
     publish_article,
     unpublish_article,
     update_article,
@@ -39,9 +41,12 @@ from app.repositories.user_repository import (
 )
 from app.repositories.profile_repository import get_profile_by_user_id
 from app.schemas.article import (
+    AdminArticleDetailResponse,
+    AdminArticlePageResponse,
     ArticleCreateRequest,
-    ArticleDetailResponse,
     ArticleImageUploadResponse,
+    ArticleSortBy,
+    ArticleStatus,
     ArticleUpdateRequest,
 )
 from app.schemas.admin import (
@@ -133,6 +138,25 @@ def get_admin_users(
     db: Session = Depends(get_db),
 ):
     return [admin_user_payload(db, user) for user in list_users(db)]
+
+
+@router.get(
+    "/users/{user_id}",
+    response_model=AdminUserResponse,
+    summary="Get one user and their engagement summary",
+)
+def get_admin_user(
+    user_id: int,
+    _admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    user = get_user_by_id(db, user_id)
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User was not found.",
+        )
+    return admin_user_payload(db, user)
 
 
 @router.post(
@@ -233,7 +257,7 @@ def remove_user(
 
 @router.post(
     "/articles",
-    response_model=ArticleDetailResponse,
+    response_model=AdminArticleDetailResponse,
     status_code=status.HTTP_201_CREATED,
 )
 def create_admin_article(
@@ -253,7 +277,57 @@ def create_admin_article(
     }
 
 
-@router.put("/articles/{article_id}", response_model=ArticleDetailResponse)
+@router.get(
+    "/articles",
+    response_model=AdminArticlePageResponse,
+    summary="List articles in every publication state",
+)
+def get_admin_articles(
+    keyword: str | None = Query(default=None, max_length=255),
+    category: str | None = Query(default=None, max_length=50),
+    article_status: ArticleStatus | None = Query(default=None, alias="status"),
+    sort_by: ArticleSortBy = "latest",
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    _admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    items, total = list_articles_for_admin(
+        db=db,
+        keyword=keyword,
+        category=category,
+        article_status=article_status,
+        sort_by=sort_by,
+        page=page,
+        page_size=page_size,
+    )
+    return {
+        "items": items,
+        "page": page,
+        "page_size": page_size,
+        "total": total,
+    }
+
+
+@router.get(
+    "/articles/{article_id}",
+    response_model=AdminArticleDetailResponse,
+    summary="Get an article in any publication state",
+)
+def get_admin_article(
+    article_id: str,
+    _admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    article = require_article(db, article_id)
+    return {
+        **article.__dict__,
+        "liked_by_me": False,
+        "saved_by_me": False,
+    }
+
+
+@router.put("/articles/{article_id}", response_model=AdminArticleDetailResponse)
 def update_admin_article(
     article_id: str,
     request: ArticleUpdateRequest,
@@ -280,7 +354,7 @@ def delete_admin_article(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.post("/articles/{article_id}/publish", response_model=ArticleDetailResponse)
+@router.post("/articles/{article_id}/publish", response_model=AdminArticleDetailResponse)
 def publish_admin_article(
     article_id: str,
     _admin: User = Depends(get_current_admin),
@@ -294,7 +368,7 @@ def publish_admin_article(
     }
 
 
-@router.post("/articles/{article_id}/unpublish", response_model=ArticleDetailResponse)
+@router.post("/articles/{article_id}/unpublish", response_model=AdminArticleDetailResponse)
 def unpublish_admin_article(
     article_id: str,
     _admin: User = Depends(get_current_admin),

@@ -36,6 +36,8 @@ type GoalReviewRouteState = {
 };
 
 const handledGoalReviewRequests = new Set<string>();
+const USER_MESSAGE_CLASS_NAME = "inline-block w-fit max-w-[61.8%] rounded-2xl bg-blue-600 p-4 text-white";
+const ASSISTANT_MESSAGE_CLASS_NAME = "w-full bg-transparent py-1 lg:inline-block lg:w-fit lg:max-w-[61.8%] lg:rounded-2xl lg:bg-white lg:p-4 lg:shadow-sm";
 
 function goalReviewRouteState(value: unknown): GoalReviewRouteState | null {
   if (!value || typeof value !== "object") return null;
@@ -122,10 +124,11 @@ function MessageList({ messages, attachments, pending, sending, userName, pendin
           <div key={message.id}>
             <div className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
               <article
-                style={goalReview ? undefined : { maxWidth: "61.8%" }}
                 className={goalReview
                   ? "w-full max-w-2xl"
-                  : `inline-block w-fit rounded-2xl p-4 ${message.role === "user" ? "bg-blue-600 text-white" : "bg-white shadow-sm"}`}
+                  : message.role === "user"
+                    ? USER_MESSAGE_CLASS_NAME
+                    : ASSISTANT_MESSAGE_CLASS_NAME}
               >
                 {goalReview && <GoalReviewCard goal={goalReview} />}
                 {!goalReview && <MessageAttachments files={attachments[message.id] || []} inBubble />}
@@ -162,8 +165,7 @@ function MessageList({ messages, attachments, pending, sending, userName, pendin
           {!pendingGoalReview && (
             <div className="flex justify-end">
               <article
-                style={{ maxWidth: "61.8%" }}
-                className="inline-block w-fit rounded-2xl bg-blue-600 p-4 text-white"
+                className={USER_MESSAGE_CLASS_NAME}
               >
                 <MessageAttachments files={pending.files} inBubble />
                 {pending.userContent && (
@@ -176,8 +178,7 @@ function MessageList({ messages, attachments, pending, sending, userName, pendin
           )}
           <div className="flex justify-start">
             <article
-              style={{ maxWidth: "61.8%" }}
-              className="inline-block min-w-28 w-fit rounded-2xl bg-white p-4 shadow-sm"
+              className={`min-w-28 ${ASSISTANT_MESSAGE_CLASS_NAME}`}
             >
               {pending.thinking ? (
                 <p role="status" aria-label="AI is thinking" className="text-sm font-bold leading-6">

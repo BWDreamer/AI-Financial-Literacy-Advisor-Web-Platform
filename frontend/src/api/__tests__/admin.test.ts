@@ -2,14 +2,17 @@ import {
   createAdminArticle,
   deleteAdminArticle,
   deleteAdminUser,
+  getAdminArticle,
+  getAdminArticles,
+  getAdminUser,
   getAdminUsers,
   getAdvisorySettings,
-  getPublishedAdminArticle,
-  getPublishedAdminArticles,
   inviteAdminUser,
+  publishAdminArticle,
   updateAdminArticle,
   updateAdminUser,
   updateAdvisorySettings,
+  unpublishAdminArticle,
   uploadAdminArticleImage,
 } from "../admin";
 import { apiGet, apiRequest } from "../client";
@@ -61,6 +64,9 @@ test("uses the expected admin user management endpoints", async () => {
   await getAdminUsers();
   expect(mockedApiGet).toHaveBeenCalledWith("/admin/users", true);
 
+  await getAdminUser(7);
+  expect(mockedApiGet).toHaveBeenCalledWith("/admin/users/7", true);
+
   await inviteAdminUser(createRequest);
   expect(mockedApiRequest).toHaveBeenCalledWith("/admin/users", {
     method: "POST",
@@ -82,14 +88,34 @@ test("uses the expected admin user management endpoints", async () => {
   });
 });
 
-test("uses published article endpoints for admin knowledge hub reads", async () => {
-  await getPublishedAdminArticles();
-  expect(mockedApiRequest).toHaveBeenCalledWith("/articles?page=1&page_size=50&sort_by=latest", {
+test("uses admin article endpoints that include all workflow states", async () => {
+  await getAdminArticles({ status: "draft", page: 2, pageSize: 25 });
+  expect(mockedApiRequest).toHaveBeenCalledWith("/admin/articles?status=draft&page=2&page_size=25", {
     authenticated: true,
   });
 
-  await getPublishedAdminArticle("budgeting-basics");
-  expect(mockedApiRequest).toHaveBeenCalledWith("/articles/budgeting-basics", {
+  await getAdminArticle("budgeting-basics");
+  expect(mockedApiRequest).toHaveBeenCalledWith("/admin/articles/budgeting-basics", {
+    authenticated: true,
+  });
+});
+
+test("builds article list queries with filters and default pagination", async () => {
+  await getAdminArticles({
+    keyword: "tax return",
+    category: "Tax",
+    status: "published",
+  });
+  expect(mockedApiRequest).toHaveBeenCalledWith(
+    "/admin/articles?keyword=tax+return&category=Tax&status=published&page=1&page_size=100",
+    {
+      authenticated: true,
+    },
+  );
+
+  mockedApiRequest.mockClear();
+  await getAdminArticles({ category: "All" });
+  expect(mockedApiRequest).toHaveBeenCalledWith("/admin/articles?page=1&page_size=100", {
     authenticated: true,
   });
 });
@@ -128,6 +154,20 @@ test("uses admin article endpoints for create, update and delete", async () => {
   await deleteAdminArticle("tax-checklist");
   expect(mockedApiRequest).toHaveBeenCalledWith("/admin/articles/tax-checklist", {
     method: "DELETE",
+    authenticated: true,
+  });
+});
+
+test("uses admin article publish workflow endpoints", async () => {
+  await publishAdminArticle("tax-checklist");
+  expect(mockedApiRequest).toHaveBeenCalledWith("/admin/articles/tax-checklist/publish", {
+    method: "POST",
+    authenticated: true,
+  });
+
+  await unpublishAdminArticle("tax-checklist");
+  expect(mockedApiRequest).toHaveBeenCalledWith("/admin/articles/tax-checklist/unpublish", {
+    method: "POST",
     authenticated: true,
   });
 });

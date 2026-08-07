@@ -35,7 +35,11 @@ export default function ArticleCard({ article, liked, saved, onToggleLike, onTog
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-slate-500">
           <span className="rounded-full bg-blue-50 px-2.5 py-1 text-blue-700">{article.category}</span>
-          <span>{article.sourceName}</span>
+          {article.sourceUrl ? (
+            <a href={article.sourceUrl} target="_blank" rel="noreferrer" className="hover:text-blue-600 hover:underline">
+              {article.sourceName}
+            </a>
+          ) : <span>{article.sourceName}</span>}
           <span>{formatDate(article.publishedAt)}</span>
         </div>
         <Link to={`/knowledge-hub/${article.id}`} className="mt-2 block text-lg font-bold leading-snug text-slate-950 hover:text-blue-700 sm:mt-3 sm:text-xl">
