@@ -1,13 +1,16 @@
+import { useState } from "react";
 import { Bot } from "lucide-react";
 import { Navigate, useNavigate } from "react-router-dom";
 import { avatarUrl } from "../api/auth";
 import { adminNavigation } from "../config/adminNavigation";
 import { useUser } from "../store/UserProvider";
 import AppLayout from "./AppLayout";
+import ProfileSettingsModal from "./ProfileSettingsModal";
 
 export default function AdminPortalLayout() {
   const navigate = useNavigate();
   const { user, clearUser } = useUser();
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   if (!user) return <Navigate to="/login" replace />;
 
@@ -17,6 +20,7 @@ export default function AdminPortalLayout() {
   }
 
   return (
+    <>
     <AppLayout
       brand={{
         name: "FinAI Advisor",
@@ -34,8 +38,10 @@ export default function AdminPortalLayout() {
         email: user?.email || "",
       }}
       onAction={() => undefined}
-      onProfileClick={() => undefined}
+      onProfileClick={() => setSettingsOpen(true)}
       onSignOut={signOut}
     />
+    {settingsOpen && <ProfileSettingsModal initialTab="security" tabs={["security"]} onClose={() => setSettingsOpen(false)} />}
+    </>
   );
 }

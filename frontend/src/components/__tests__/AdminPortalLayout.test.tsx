@@ -33,6 +33,17 @@ jest.mock("../../store/UserProvider", () => ({
   }),
 }));
 
+jest.mock("../ProfileSettingsModal", () => ({
+  __esModule: true,
+  default: ({ initialTab, tabs, onClose }: { initialTab?: string; tabs?: string[]; onClose: () => void }) => (
+    <section role="dialog" aria-label="Profile settings">
+      <p>Profile settings opened on {initialTab}</p>
+      <p>Available tabs: {tabs?.join(", ")}</p>
+      <button type="button" onClick={onClose}>Close profile settings</button>
+    </section>
+  ),
+}));
+
 function renderLayout() {
   render(
     <MemoryRouter initialEntries={["/admin/dashboard"]}>
@@ -81,6 +92,17 @@ test("clears the user and returns to login when logging out", async () => {
 
   expect(clearUser).toHaveBeenCalledTimes(1);
   await waitFor(() => expect(screen.getByText("Login page")).toBeInTheDocument());
+});
+
+test("opens profile settings from the admin profile menu", async () => {
+  const user = userEvent.setup();
+  renderLayout();
+
+  await user.click(screen.getByRole("button", { name: /admin admin@example.com/i }));
+  await user.click(screen.getByRole("button", { name: /user settings/i }));
+
+  expect(screen.getByRole("dialog", { name: /profile settings/i })).toHaveTextContent("security");
+  expect(screen.getByRole("dialog", { name: /profile settings/i })).toHaveTextContent("Available tabs: security");
 });
 
 test("redirects to login when no admin user is available", async () => {
